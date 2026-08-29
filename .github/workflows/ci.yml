@@ -28,7 +28,7 @@ jobs:
       JWT_SECRET: ci-test-jwt-secret-phrase-do-not-use-in-production
       JWT_EXPIRES_IN: 7d
       NODE_ENV: test
-      GEMINI_MODEL: gemini-2.5-flash
+      GEMINI_MODEL: gemini-3.6-flash
 
     steps:
       - name: Checkout repository
