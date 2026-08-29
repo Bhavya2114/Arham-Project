@@ -1,0 +1,81 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-ci:
+    name: Backend Build & Test
+    runs-on: ubuntu-latest
+
+    services:
+      mongodb:
+        image: mongo:6.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd mongosh
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PORT: 3000
+      MONGODB_URI: mongodb://127.0.0.1:27017/inventory_management
+      JWT_SECRET: ci-test-jwt-secret-phrase-do-not-use-in-production
+      JWT_EXPIRES_IN: 7d
+      NODE_ENV: test
+      GEMINI_MODEL: gemini-2.5-flash
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Build backend (TypeScript compilation)
+        working-directory: ./backend
+        run: npm run build
+
+      - name: Seed ephemeral CI database
+        working-directory: ./backend
+        run: npm run seed
+
+      - name: Run backend Jest tests
+        working-directory: ./backend
+        run: npx jest --runInBand
+
+  frontend-ci:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Build frontend (Vite production build)
+        working-directory: ./frontend
+        run: npm run build

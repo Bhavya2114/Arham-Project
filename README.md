@@ -1,4 +1,4 @@
-# Arham Inventory & POS Management System
+# Inventory POS & Management System
 
 A modern, responsive, and secure full-stack MERN (MongoDB, Express, React, Node.js) Inventory Management & POS Billing System designed for real-time stock tracking, procurement, sales, profit & loss analytics, and multi-role operational workflows.
 
