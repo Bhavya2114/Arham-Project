@@ -1,5 +1,4 @@
 import express, { Request, Response } from 'express';
-import path from 'path';
 import cors from 'cors';
 import authRoutes from './routes/auth.routes';
 import customerRoutes from './routes/customer.routes';
@@ -64,16 +63,8 @@ app.use('/api/project-invoices', projectInvoiceRoutes);
 app.use('/api/project-invoice-payments', projectInvoicePaymentRoutes);
 app.use('/api/reports', reportsRoutes);
 
-// Serve static assets from frontend/dist
-const frontendDistPath = path.join(__dirname, '../../frontend/dist');
-app.use(express.static(frontendDistPath));
-
-// Fallback catch-all to serve index.html for React router
-app.get(/.*/, (req: Request, res: Response, next) => {
-  if (req.path.startsWith('/api')) {
-    return next();
-  }
-  res.sendFile(path.join(frontendDistPath, 'index.html'));
+app.get('/', (_req: Request, res: Response) => {
+  res.status(200).json(successResponse('Arham Inventory API is running'));
 });
 
 app.use(notFoundHandler);
