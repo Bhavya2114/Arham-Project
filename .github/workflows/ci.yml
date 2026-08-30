@@ -43,7 +43,7 @@ jobs:
 
       - name: Install backend dependencies
         working-directory: ./backend
-        run: npm ci
+        run: npm ci --include=dev
 
       - name: Build backend (TypeScript compilation)
         working-directory: ./backend
