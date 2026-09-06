@@ -62,7 +62,7 @@ const Purchases = () => {
           className="flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2.5 rounded-xl shadow-sm transition-colors text-xs self-start sm:self-auto"
         >
           <FaPlus />
-          <span>+ Add Purchase Order</span>
+          <span>Add Purchase Order</span>
         </Link>
       </div>
 

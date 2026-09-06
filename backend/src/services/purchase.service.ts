@@ -158,12 +158,19 @@ export const createPurchase = async (
       });
     }
 
+    // Duplicate Protection Re-check 3: By exact / case-insensitive companyName
+    if (!supplier) {
+      supplier = await Supplier.findOne({
+        companyName: { $regex: new RegExp(`^${supNameClean.replace(/[^a-zA-Z0-9]/g, '\\$&')}$`, 'i') },
+      });
+    }
+
     // Create New Supplier if no duplicate found
     if (!supplier) {
       supplier = await Supplier.create({
         name: supNameClean,
         gstNumber: supGstClean || undefined,
-        mobile: input.newSupplier.mobile || '0000000000',
+        mobile: input.newSupplier.mobile || (input.newSupplier as any).phone || '0000000000',
         email: input.newSupplier.email || undefined,
         address: input.newSupplier.address || undefined,
         companyName: input.newSupplier.companyName || supNameClean,

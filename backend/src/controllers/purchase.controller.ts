@@ -103,10 +103,13 @@ export const extractPurchaseBill = async (req: Request, res: Response, next: Nex
         }
       }
 
-      // Match 2: By exact supplier name
+      // Match 2: By exact supplier name or companyName
       if (!matchedSupplier && nameToMatch) {
+        const rawExtractedTrimmed = extracted.supplier.supplierName?.trim();
         const supByName = allSuppliers.find(
-          (s) => s.name && s.name.trim() === extracted.supplier.supplierName?.trim()
+          (s) =>
+            (s.name && s.name.trim() === rawExtractedTrimmed) ||
+            (s.companyName && s.companyName.trim() === rawExtractedTrimmed)
         );
         if (supByName) {
           matchedSupplier = {
@@ -119,10 +122,12 @@ export const extractPurchaseBill = async (req: Request, res: Response, next: Nex
         }
       }
 
-      // Match 3: By case-insensitive supplier name
+      // Match 3: By case-insensitive supplier name or companyName
       if (!matchedSupplier && nameToMatch) {
         const supByCaseName = allSuppliers.find(
-          (s) => s.name && s.name.trim().toLowerCase() === nameToMatch
+          (s) =>
+            (s.name && s.name.trim().toLowerCase() === nameToMatch) ||
+            (s.companyName && s.companyName.trim().toLowerCase() === nameToMatch)
         );
         if (supByCaseName) {
           matchedSupplier = {
@@ -132,6 +137,38 @@ export const extractPurchaseBill = async (req: Request, res: Response, next: Nex
             matched: true,
             isNew: false,
           };
+        }
+      }
+
+      // Match 4: By normalized business name (handling "Pvt Ltd", "Private Limited", "Ltd", "LLP", "M/s", etc.)
+      if (!matchedSupplier && nameToMatch) {
+        const normalizeBizName = (str: string) => {
+          return str
+            .toLowerCase()
+            .replace(/\b(pvt|private|ltd|limited|llp|inc|corp|corporation|co|company|enterprises|traders|m\/s|messrs)\b\.?/gi, '')
+            .replace(/[^a-z0-9]/g, '')
+            .trim();
+        };
+
+        const normExtracted = normalizeBizName(nameToMatch);
+        if (normExtracted.length >= 3) {
+          const supByNorm = allSuppliers.find((s) => {
+            const normName = s.name ? normalizeBizName(s.name) : '';
+            const normComp = s.companyName ? normalizeBizName(s.companyName) : '';
+            return (
+              (normName && (normName === normExtracted || (normName.length >= 5 && normExtracted.length >= 5 && (normName.includes(normExtracted) || normExtracted.includes(normName))))) ||
+              (normComp && (normComp === normExtracted || (normComp.length >= 5 && normExtracted.length >= 5 && (normComp.includes(normExtracted) || normExtracted.includes(normComp)))))
+            );
+          });
+          if (supByNorm) {
+            matchedSupplier = {
+              id: supByNorm._id.toString(),
+              name: supByNorm.name,
+              gstNumber: supByNorm.gstNumber,
+              matched: true,
+              isNew: false,
+            };
+          }
         }
       }
     }
@@ -172,10 +209,10 @@ export const extractPurchaseBill = async (req: Request, res: Response, next: Nex
         // Match 4: Normalized name comparison (trim spaces / alphanumeric only)
         if (!pMatch) {
           const normalizedItem = nameToMatch.replace(/[^a-z0-9]/g, '');
-          if (normalizedItem.length > 2) {
+          if (normalizedItem.length >= 3) {
             pMatch = allProducts.find((p) => {
               const normP = p.name ? p.name.toLowerCase().replace(/[^a-z0-9]/g, '') : '';
-              return normP && (normP === normalizedItem || normP.includes(normalizedItem) || normalizedItem.includes(normP));
+              return normP && (normP === normalizedItem || (normP.length >= 5 && normalizedItem.length >= 5 && (normP.includes(normalizedItem) || normalizedItem.includes(normP))));
             });
           }
         }

@@ -1,10 +1,10 @@
 import axios from "axios";
 
 // Dynamically configure baseURL from VITE_API_URL or VITE_API_BASE_URL
-const rawBaseURL = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || "/api";
-const baseURL = rawBaseURL.endsWith("/api") || rawBaseURL === "/api"
-  ? rawBaseURL
-  : `${rawBaseURL.replace(/\/+$/, "")}/api`;
+const rawBaseURL = (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || "/api").trim().replace(/\/+$/, "");
+const baseURL = rawBaseURL.endsWith("/api") || rawBaseURL === ""
+  ? (rawBaseURL || "/api")
+  : `${rawBaseURL}/api`;
 
 const axiosInstance = axios.create({
   baseURL,

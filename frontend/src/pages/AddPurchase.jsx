@@ -27,7 +27,17 @@ const AddPurchase = () => {
   // Incoming state (from bill upload or review page back navigation)
   const incomingState = location.state || {};
 
-  // Supplier state (database supplier ID)
+  // Supplier state (database supplier ID vs new supplier)
+  const [isNewSupplier, setIsNewSupplier] = useState(Boolean(incomingState.isNewSupplier));
+  const [newSupplier, setNewSupplier] = useState(
+    incomingState.newSupplier || {
+      name: '',
+      gstNumber: '',
+      mobile: '',
+      email: '',
+      address: '',
+    }
+  );
   const [supplierId, setSupplierId] = useState(incomingState.supplierId || '');
 
   // Header 4 fields
@@ -73,7 +83,7 @@ const AddPurchase = () => {
       setProducts(fetchedProducts);
 
       // Auto select first supplier if available and not set
-      if (fetchedSuppliers.length > 0 && !supplierId && !incomingState.isAiExtracted) {
+      if (fetchedSuppliers.length > 0 && !supplierId && !isNewSupplier && !incomingState.isAiExtracted && !incomingState.isNewSupplier) {
         setSupplierId(fetchedSuppliers[0].id || fetchedSuppliers[0]._id);
       }
     } catch (err) {
@@ -128,12 +138,12 @@ const AddPurchase = () => {
           if (value === 'NEW') {
             updated.isNewProduct = true;
             updated.productId = '';
-            updated.sellingPrice = item.sellingPrice || 0;
+            updated.sellingPrice = item.sellingPrice !== undefined ? item.sellingPrice : (item.unitPrice || 0);
             updated.newProduct = {
-              name: item.extractedItemName || 'New Product',
+              name: item.extractedItemName || item.productName || 'New Product',
               unit: item.unit || 'Pcs',
               unitPrice: item.unitPrice || 0,
-              sellingPrice: item.sellingPrice || 0,
+              sellingPrice: item.sellingPrice !== undefined ? item.sellingPrice : (item.unitPrice || 0),
               gstRate: item.gstPercent || 18,
             };
           } else {
@@ -142,7 +152,7 @@ const AddPurchase = () => {
             const selectedProd = products.find((p) => (p.id || p._id) === value);
             if (selectedProd) {
               updated.unitPrice = selectedProd.costPrice || selectedProd.unitPrice || 0;
-              updated.sellingPrice = selectedProd.sellingPrice || selectedProd.unitPrice || 0;
+              updated.sellingPrice = selectedProd.sellingPrice !== undefined ? selectedProd.sellingPrice : (selectedProd.unitPrice || 0);
               if (!item.gstPercent) {
                 updated.gstPercent = selectedProd.gstRate !== undefined ? selectedProd.gstRate : 18;
               }
@@ -155,7 +165,9 @@ const AddPurchase = () => {
         }
 
         if (field === 'newProductName') {
-          updated.newProduct = { ...updated.newProduct, name: value };
+          updated.newProduct = { ...(updated.newProduct || {}), name: value };
+          updated.extractedItemName = value;
+          updated.productName = value;
         }
 
         return updated;
@@ -202,9 +214,15 @@ const AddPurchase = () => {
     setFormError(null);
     setInvalidRowId(null);
 
-    // 1. Supplier Validation: Must select a valid database supplier
-    if (!supplierId) {
+    // 1. Supplier Validation: Must select a valid database supplier or enter a new supplier name
+    if (!isNewSupplier && !supplierId) {
       setFormError('Please select a Supplier.');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    if (isNewSupplier && (!newSupplier?.name || !newSupplier.name.trim())) {
+      setFormError('Supplier Name is required for new supplier.');
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
@@ -243,7 +261,10 @@ const AddPurchase = () => {
 
       // Product check
       const hasSelectedProduct = Boolean(item.productId);
-      const hasNewProduct = Boolean(item.isNewProduct && (item.newProduct?.name?.trim() || item.extractedItemName?.trim()));
+      const hasNewProduct = Boolean(
+        item.isNewProduct &&
+        (item.newProduct?.name?.trim() || item.extractedItemName?.trim() || item.productName?.trim())
+      );
 
       if (!hasSelectedProduct && !hasNewProduct) {
         setInvalidRowId(item.id);
@@ -278,22 +299,13 @@ const AddPurchase = () => {
         return;
       }
 
-      // Default Selling Price check
+      // Default Selling Price check (Must be >= 0 for all items)
       const sellPrice = parseFloat(item.sellingPrice);
-      if (item.isNewProduct) {
-        if (item.sellingPrice === '' || item.sellingPrice === null || item.sellingPrice === undefined || isNaN(sellPrice) || sellPrice <= 0) {
-          setInvalidRowId(item.id);
-          setFormError(`Default Selling Price must be greater than 0 for new product in item #${rowNum}.`);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-          return;
-        }
-      } else {
-        if (item.sellingPrice === '' || item.sellingPrice === null || item.sellingPrice === undefined || isNaN(sellPrice) || sellPrice < 0) {
-          setInvalidRowId(item.id);
-          setFormError(`Default Selling Price cannot be negative for item #${rowNum}.`);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-          return;
-        }
+      if (item.sellingPrice === '' || item.sellingPrice === null || item.sellingPrice === undefined || isNaN(sellPrice) || sellPrice < 0) {
+        setInvalidRowId(item.id);
+        setFormError(`Default Selling Price cannot be negative for item #${rowNum}.`);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
       }
 
       // GST % check
@@ -307,7 +319,18 @@ const AddPurchase = () => {
     }
 
     const formData = {
-      supplierId,
+      supplierId: isNewSupplier ? '' : supplierId,
+      isNewSupplier,
+      newSupplier: isNewSupplier ? {
+        name: newSupplier?.name ? newSupplier.name.trim() : 'New Supplier',
+        gstNumber: newSupplier?.gstNumber ? newSupplier.gstNumber.trim() : undefined,
+        state: newSupplier?.state || undefined,
+        stateCode: newSupplier?.stateCode || undefined,
+        address: newSupplier?.address || undefined,
+        phone: newSupplier?.phone || newSupplier?.mobile || undefined,
+        mobile: newSupplier?.mobile || newSupplier?.phone || undefined,
+        email: newSupplier?.email || undefined,
+      } : null,
       invoiceNumber: invoiceNumber.trim(),
       invoiceDate,
       notes: notes ? notes.trim() : '',
@@ -316,17 +339,17 @@ const AddPurchase = () => {
         productId: i.isNewProduct ? '' : i.productId,
         isNewProduct: i.isNewProduct,
         newProduct: i.isNewProduct ? {
-          name: i.newProduct?.name || i.extractedItemName || 'New Product',
-          unit: i.unit,
-          unitPrice: i.price,
-          sellingPrice: Number(i.sellingPrice || 0),
-          gstRate: i.gstPct,
+          name: i.newProduct?.name || i.extractedItemName || i.productName || 'New Product',
+          unit: i.unit || 'Pcs',
+          unitPrice: Number(i.price || 0),
+          sellingPrice: Number(i.sellingPrice !== undefined ? i.sellingPrice : 0),
+          gstRate: Number(i.gstPct !== undefined ? i.gstPct : 18),
         } : null,
-        productName: i.isNewProduct ? (i.newProduct?.name || i.extractedItemName) : i.prod?.name,
+        productName: i.isNewProduct ? (i.newProduct?.name || i.extractedItemName || i.productName || 'New Product') : (i.productName || i.prod?.name || 'Product'),
         quantity: i.qty,
         unit: i.unit,
         unitPrice: i.price,
-        sellingPrice: Number(i.sellingPrice || 0),
+        sellingPrice: Number(i.sellingPrice !== undefined ? i.sellingPrice : 0),
         gstPercent: i.gstPct,
         cgstAmount: i.cgstAmount,
         sgstAmount: i.sgstAmount,
@@ -410,19 +433,79 @@ const AddPurchase = () => {
                 <label className="block text-xs font-bold text-gray-700 mb-1">
                   Supplier <span className="text-red-500">*</span>
                 </label>
-                <select
-                  required
-                  value={supplierId}
-                  onChange={(e) => setSupplierId(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs font-bold text-gray-900 bg-white focus:outline-none focus:border-emerald-500"
-                >
-                  <option value="">-- Choose Supplier --</option>
-                  {suppliers.map((s) => (
-                    <option key={s.id || s._id} value={s.id || s._id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
+                {isNewSupplier ? (
+                  <div className="p-2.5 bg-amber-50/70 border border-amber-300 rounded-xl space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="px-2 py-0.5 bg-amber-200 text-amber-900 font-extrabold text-[10px] rounded-md">
+                        🟡 New Supplier
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsNewSupplier(false);
+                          setSupplierId(suppliers.length > 0 ? (suppliers[0].id || suppliers[0]._id) : '');
+                        }}
+                        className="text-[10px] text-amber-700 underline font-bold hover:text-amber-900"
+                      >
+                        Choose Existing
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      value={newSupplier?.name || ''}
+                      onChange={(e) => setNewSupplier({ ...newSupplier, name: e.target.value })}
+                      className="w-full px-2 py-1 border border-amber-300 rounded-lg text-xs font-bold text-slate-900 bg-white focus:outline-none focus:border-amber-500"
+                      placeholder="Enter Supplier Name..."
+                    />
+                    {newSupplier?.gstNumber ? (
+                      <div className="text-[10px] font-mono text-gray-600 bg-white/80 px-2 py-0.5 rounded border border-amber-200/60 truncate">
+                        <span className="font-bold text-gray-500">GSTIN:</span> {newSupplier.gstNumber}
+                      </div>
+                    ) : null}
+                    <p className="text-[10px] text-amber-700 font-medium flex items-center space-x-1">
+                      <FaInfoCircle className="text-amber-500 flex-shrink-0" />
+                      <span>Not in directory. Will be created on confirmation.</span>
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <select
+                      required
+                      value={supplierId}
+                      onChange={(e) => {
+                        if (e.target.value === 'NEW') {
+                          setIsNewSupplier(true);
+                          setSupplierId('');
+                          setNewSupplier({ name: '', gstNumber: '', mobile: '', email: '', address: '' });
+                        } else {
+                          setSupplierId(e.target.value);
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs font-bold text-gray-900 bg-white focus:outline-none focus:border-emerald-500"
+                    >
+                      <option value="">-- Choose Supplier --</option>
+                      {suppliers.map((s) => (
+                        <option key={s.id || s._id} value={s.id || s._id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="flex justify-end pt-0.5 px-0.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsNewSupplier(true);
+                          setSupplierId('');
+                          setNewSupplier({ name: '', gstNumber: '', mobile: '', email: '', address: '' });
+                        }}
+                        className="text-[11px] text-emerald-600 font-bold hover:text-emerald-700 hover:underline flex items-center space-x-1"
+                      >
+                        <span>+ Create New Supplier</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Field 2: Invoice / Bill Number */}

@@ -24,14 +24,46 @@ connectDB();
 
 const app = express();
 
+const parseAllowedOrigins = (): string[] => {
+  const raw = env.FRONTEND_URL || 'https://arham-inventory-frontend.vercel.app';
+  const list = raw
+    .split(',')
+    .map((item) => item.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+
+  // In development/test environments, also permit local development origins
+  if (env.NODE_ENV !== 'production') {
+    const devOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3000', 'http://127.0.0.1:3000'];
+    devOrigins.forEach((o) => {
+      if (!list.includes(o)) list.push(o);
+    });
+  }
+
+  return list;
+};
+
+const allowedOrigins = parseAllowedOrigins();
+
 app.use(
   cors({
-    origin: env.FRONTEND_URL
-      ? env.FRONTEND_URL.includes(',')
-        ? env.FRONTEND_URL.split(',').map((url) => url.trim())
-        : env.FRONTEND_URL
-      : '*',
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, curl, Postman, server-to-server)
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      const normalizedOrigin = origin.trim().replace(/\/+$/, '');
+      if (allowedOrigins.includes(normalizedOrigin) || allowedOrigins.includes('*')) {
+        return callback(null, true);
+      }
+
+      // Reject all unauthorized origins
+      return callback(new Error(`Origin ${origin} is not allowed by CORS policy.`));
+    },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+    exposedHeaders: ['Authorization'],
   })
 );
 app.use(express.json());

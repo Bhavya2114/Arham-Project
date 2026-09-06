@@ -4,6 +4,7 @@ import { getAuthToken } from '../helpers/auth.helper';
 import * as geminiService from '../../src/services/geminiInvoice.service';
 import { Product } from '../../src/models/Product';
 import { Purchase } from '../../src/models/Purchase';
+import { Supplier } from '../../src/models/Supplier';
 
 describe('POST /api/purchases/extract-bill API tests (Phase 7.4.4 Backend Gemini Extraction)', () => {
   let adminToken: string;
@@ -164,5 +165,145 @@ describe('POST /api/purchases/extract-bill API tests (Phase 7.4.4 Backend Gemini
 
     const finalProducts = await Product.find().lean();
     expect(finalProducts.length).toBe(initialProducts.length);
+  });
+
+  it('Test 14 — Bill with existing supplier correctly matches and returns matched=true, isNew=false, and supplier ID', async () => {
+    process.env.GEMINI_API_KEY = 'test_mock_gemini_key';
+
+    const testSup = await Supplier.create({
+      name: 'ABC Electricals Pvt. Ltd.',
+      companyName: 'ABC Electricals',
+      gstNumber: '27ABCDE9999F1Z5',
+      mobile: '9876543210',
+    });
+
+    const mockExtractedData: geminiService.ExtractionResult = {
+      extracted: {
+        supplier: {
+          supplierName: 'ABC Electricals',
+          supplierGSTIN: '27ABCDE9999F1Z5',
+          supplierAddress: 'Mumbai',
+          supplierState: 'Maharashtra',
+          supplierStateCode: '27',
+          supplierPhone: '9876543210',
+        },
+        invoice: {
+          invoiceNumber: 'INV-TEST-001',
+          invoiceDate: '2026-06-22',
+          poNumber: null,
+          paymentTerms: null,
+          deliveryNoteNo: null,
+          deliveryNoteDate: null,
+          ewayBillNo: null,
+          placeOfSupply: null,
+          irn: null,
+          acknowledgementNumber: null,
+          acknowledgementDate: null,
+        },
+        items: [],
+        totals: {
+          taxableAmount: 0,
+          totalDiscount: 0,
+          totalCGST: 0,
+          totalSGST: 0,
+          totalIGST: 0,
+          totalGST: 0,
+          roundOff: 0,
+          grandTotal: 0,
+        },
+      },
+      metadata: {
+        fileName: 'abc_bill.pdf',
+        fileType: 'application/pdf',
+      },
+      validation: {
+        itemsCalculationMatch: true,
+        totalsCalculationMatch: true,
+        warnings: [],
+      },
+    };
+
+    jest.spyOn(geminiService, 'extractInvoiceFromBuffer').mockResolvedValue(mockExtractedData);
+
+    const res = await request(app)
+      .post('/api/purchases/extract-bill')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .attach('bill', Buffer.from('mock pdf bill binary content'), {
+        filename: 'abc_bill.pdf',
+        contentType: 'application/pdf',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.matching.supplier.matched).toBe(true);
+    expect(res.body.data.matching.supplier.isNew).toBe(false);
+    expect(res.body.data.matching.supplier.id).toBe(testSup._id.toString());
+  });
+
+  it('Test 15 — Bill with completely new supplier returns matched=false, isNew=true with extracted name and GSTIN', async () => {
+    process.env.GEMINI_API_KEY = 'test_mock_gemini_key';
+
+    const mockExtractedData: geminiService.ExtractionResult = {
+      extracted: {
+        supplier: {
+          supplierName: 'Brand New Unique Supplier 999',
+          supplierGSTIN: '29BRAND9999K1Z9',
+          supplierAddress: 'Bangalore',
+          supplierState: 'Karnataka',
+          supplierStateCode: '29',
+          supplierPhone: '9988776655',
+        },
+        invoice: {
+          invoiceNumber: 'INV-NEW-001',
+          invoiceDate: '2026-06-22',
+          poNumber: null,
+          paymentTerms: null,
+          deliveryNoteNo: null,
+          deliveryNoteDate: null,
+          ewayBillNo: null,
+          placeOfSupply: null,
+          irn: null,
+          acknowledgementNumber: null,
+          acknowledgementDate: null,
+        },
+        items: [],
+        totals: {
+          taxableAmount: 0,
+          totalDiscount: 0,
+          totalCGST: 0,
+          totalSGST: 0,
+          totalIGST: 0,
+          totalGST: 0,
+          roundOff: 0,
+          grandTotal: 0,
+        },
+      },
+      metadata: {
+        fileName: 'brand_new_bill.pdf',
+        fileType: 'application/pdf',
+      },
+      validation: {
+        itemsCalculationMatch: true,
+        totalsCalculationMatch: true,
+        warnings: [],
+      },
+    };
+
+    jest.spyOn(geminiService, 'extractInvoiceFromBuffer').mockResolvedValue(mockExtractedData);
+
+    const res = await request(app)
+      .post('/api/purchases/extract-bill')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .attach('bill', Buffer.from('mock pdf bill binary content'), {
+        filename: 'brand_new_bill.pdf',
+        contentType: 'application/pdf',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.matching.supplier.matched).toBe(false);
+    expect(res.body.data.matching.supplier.isNew).toBe(true);
+    expect(res.body.data.matching.supplier.name).toBe('Brand New Unique Supplier 999');
+    expect(res.body.data.matching.supplier.gstNumber).toBe('29BRAND9999K1Z9');
   });
 });
