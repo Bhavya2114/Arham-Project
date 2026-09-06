@@ -11,8 +11,7 @@ const mapProductResponse = (product: any) => {
     sku: product.sku,
     category: product.category,
     costPrice: Number(product.costPrice || 0),
-    unitPrice: Number(product.unitPrice !== undefined && product.unitPrice !== null ? product.unitPrice : (product.sellingPrice || 0)),
-    sellingPrice: Number(product.sellingPrice !== undefined && product.sellingPrice !== null ? product.sellingPrice : (product.unitPrice || 0)),
+    sellingPrice: Number(product.sellingPrice || 0),
     gstRate: Number(product.gstRate || 0),
     currentStock: product.currentStock,
     minStockQuantity: product.minimumStock,
@@ -43,15 +42,13 @@ export const createProduct = async (input: CreateProductInput, createdBy: string
   }
 
   const costPrice = (input as any).costPrice || 0;
-  const sellingPrice = input.sellingPrice || input.unitPrice || 0;
-  const unitPrice = sellingPrice;
+  const sellingPrice = input.sellingPrice !== undefined ? input.sellingPrice : 0;
 
   const product = await Product.create({
     name: input.name,
     sku: input.sku.toUpperCase(),
     category: input.category,
     costPrice: costPrice,
-    unitPrice: unitPrice,
     sellingPrice: sellingPrice,
     gstRate: (input as any).gstRate || 0,
     currentStock: input.currentStock ?? 0,
@@ -85,19 +82,29 @@ export const updateProduct = async (
     throw error;
   }
 
-  const unitPrice = input.unitPrice;
+  const sellingPrice = input.sellingPrice !== undefined ? input.sellingPrice : existing.sellingPrice;
+  const costPrice = input.costPrice !== undefined ? input.costPrice : existing.costPrice;
+
+  const updateFields: any = {
+    name: input.name,
+    sku: input.sku.toUpperCase(),
+    category: input.category,
+    costPrice: costPrice,
+    sellingPrice: sellingPrice,
+    minimumStock: input.minStockQuantity,
+    warehouseLocation: input.location,
+  };
+
+  if (input.gstRate !== undefined) {
+    updateFields.gstRate = input.gstRate;
+  }
+  if (input.unit !== undefined) {
+    updateFields.unit = input.unit;
+  }
 
   const product = await Product.findByIdAndUpdate(
     id,
-    {
-      name: input.name,
-      sku: input.sku.toUpperCase(),
-      category: input.category,
-      unitPrice: unitPrice,
-      sellingPrice: unitPrice,
-      minimumStock: input.minStockQuantity,
-      warehouseLocation: input.location,
-    },
+    updateFields,
     { returnDocument: 'after' }
   ).lean();
 
@@ -120,7 +127,8 @@ export const getLowStockProducts = async (): Promise<any[]> => {
     name: product.name,
     sku: product.sku,
     category: product.category,
-    unitPrice: Number(product.unitPrice || product.sellingPrice || 0),
+    costPrice: Number(product.costPrice || 0),
+    sellingPrice: Number(product.sellingPrice || 0),
     currentStock: product.currentStock,
     minStockQuantity: product.minimumStock,
     location: product.warehouseLocation,

@@ -160,7 +160,7 @@ export const createSale = async (
       const sellingPrice =
         itemInput.sellingPrice !== undefined
           ? itemInput.sellingPrice
-          : product.sellingPrice || product.unitPrice;
+          : product.sellingPrice || 0;
       const gstRate = itemInput.gstRate !== undefined ? itemInput.gstRate : (product.gstRate || 0);
 
       const { gstAmount, lineTotal } = calculateItemGst(sellingPrice, itemInput.quantity, gstRate);

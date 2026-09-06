@@ -81,9 +81,9 @@ describe('Sales & Billing API integration tests (Phase 7.3.1.1 Price & GST Fix)'
     expect(res.status).toBe(201);
     expect(res.body.data.items[0].sellingPrice).toBe(120);
 
-    // Verify Product Master sellingPrice / unitPrice remains 100
+    // Verify Product Master sellingPrice remains 100
     const prodCheck = await request(app).get(`/api/products/${productId}`).set('Authorization', `Bearer ${adminToken}`);
-    expect(prodCheck.body.data.unitPrice).toBe(100);
+    expect(prodCheck.body.data.sellingPrice).toBe(100);
   });
 
   it('Test D — Custom transaction GST rate (18% -> 5%) without modifying Product master GST', async () => {

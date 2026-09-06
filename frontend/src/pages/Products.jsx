@@ -48,7 +48,6 @@ const Products = () => {
     category: "",
     supplier: "",
     costPrice: "0",
-    unitPrice: "0",
     sellingPrice: "0",
     gstRate: "18",
     currentStock: "0",
@@ -64,7 +63,6 @@ const Products = () => {
     category: "",
     supplier: "",
     costPrice: "0",
-    unitPrice: "0",
     sellingPrice: "0",
     gstRate: "18",
     minStockQuantity: "5",
@@ -113,7 +111,6 @@ const Products = () => {
       category: categories[0]?.name || "",
       supplier: "",
       costPrice: "0",
-      unitPrice: "0",
       sellingPrice: "0",
       gstRate: "18",
       currentStock: "0",
@@ -148,8 +145,7 @@ const Products = () => {
       category: prod.category,
       supplier: prod.supplier?._id || prod.supplier || "",
       costPrice: String(prod.costPrice || 0),
-      unitPrice: String(prod.unitPrice || prod.sellingPrice || 0),
-      sellingPrice: String(prod.sellingPrice || prod.unitPrice || 0),
+      sellingPrice: String(prod.sellingPrice !== undefined ? prod.sellingPrice : 0),
       gstRate: String(prod.gstRate || 18),
       minStockQuantity: String(prod.minStockQuantity || 5),
       location: prod.location || "Main Store",
@@ -212,8 +208,7 @@ const Products = () => {
         category: addForm.category.trim(),
         supplier: addForm.supplier || undefined,
         costPrice: parseFloat(addForm.costPrice) || 0,
-        unitPrice: parseFloat(addForm.sellingPrice) || parseFloat(addForm.unitPrice) || 0,
-        sellingPrice: parseFloat(addForm.sellingPrice) || parseFloat(addForm.unitPrice) || 0,
+        sellingPrice: parseFloat(addForm.sellingPrice) || 0,
         gstRate: parseFloat(addForm.gstRate) || 18,
         currentStock: parseInt(addForm.currentStock, 10) || 0,
         minStockQuantity: parseInt(addForm.minStockQuantity, 10) || 5,
@@ -255,8 +250,7 @@ const Products = () => {
         category: editForm.category.trim(),
         supplier: editForm.supplier || undefined,
         costPrice: parseFloat(editForm.costPrice) || 0,
-        unitPrice: parseFloat(editForm.sellingPrice) || parseFloat(editForm.unitPrice) || 0,
-        sellingPrice: parseFloat(editForm.sellingPrice) || parseFloat(editForm.unitPrice) || 0,
+        sellingPrice: parseFloat(editForm.sellingPrice) || 0,
         gstRate: parseFloat(editForm.gstRate) || 18,
         minStockQuantity: parseInt(editForm.minStockQuantity, 10) || 5,
         location: editForm.location || "Main Store",
@@ -480,7 +474,7 @@ const Products = () => {
                         ₹{(p.costPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
                       <td className="px-6 py-4 text-right font-extrabold text-emerald-700">
-                        ₹{(p.sellingPrice || p.unitPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        ₹{(p.sellingPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
                       <td className="px-6 py-4 text-center font-bold text-slate-800">
                         {p.currentStock} <span className="text-xs text-gray-400 font-normal">{p.unit || 'pcs'}</span>
@@ -642,7 +636,7 @@ const Products = () => {
                     min="0"
                     value={addForm.sellingPrice}
                     onChange={(e) => {
-                      setAddForm({ ...addForm, sellingPrice: e.target.value, unitPrice: e.target.value });
+                      setAddForm({ ...addForm, sellingPrice: e.target.value });
                       checkPriceWarning(addForm.costPrice, e.target.value);
                     }}
                     className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:border-emerald-500 font-extrabold text-emerald-800"
@@ -823,7 +817,7 @@ const Products = () => {
                     min="0"
                     value={editForm.sellingPrice}
                     onChange={(e) => {
-                      setEditForm({ ...editForm, sellingPrice: e.target.value, unitPrice: e.target.value });
+                      setEditForm({ ...editForm, sellingPrice: e.target.value });
                       checkPriceWarning(editForm.costPrice, e.target.value);
                     }}
                     className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:border-emerald-500 font-extrabold text-emerald-800"
@@ -915,7 +909,7 @@ const Products = () => {
                 </div>
                 <div className="p-2 border border-gray-100 rounded-lg">
                   <span className="text-gray-400 block">Selling Price</span>
-                  <span className="font-extrabold text-emerald-700">₹{(activeProduct.sellingPrice || activeProduct.unitPrice || 0).toFixed(2)}</span>
+                  <span className="font-extrabold text-emerald-700">₹{(activeProduct.sellingPrice || 0).toFixed(2)}</span>
                 </div>
                 <div className="p-2 border border-gray-100 rounded-lg">
                   <span className="text-gray-400 block">GST Rate</span>

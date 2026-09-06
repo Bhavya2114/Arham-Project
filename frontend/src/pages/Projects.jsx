@@ -95,7 +95,7 @@ const Projects = () => {
           className="flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2.5 rounded-xl shadow-sm transition-all text-xs self-start sm:self-auto"
         >
           <FaPlus />
-          <span>+ Add New Project</span>
+          <span>Add New Project</span>
         </Link>
       </div>
 

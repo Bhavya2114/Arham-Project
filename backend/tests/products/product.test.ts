@@ -39,7 +39,8 @@ describe('Products + Inventory integration tests', () => {
         expect(prod).toHaveProperty('name');
         expect(prod).toHaveProperty('sku');
         expect(prod).toHaveProperty('category');
-        expect(prod).toHaveProperty('unitPrice');
+        expect(prod).toHaveProperty('costPrice');
+        expect(prod).toHaveProperty('sellingPrice');
         expect(prod).toHaveProperty('currentStock');
         expect(prod).toHaveProperty('minStockQuantity');
         expect(prod).toHaveProperty('location');
@@ -258,7 +259,7 @@ describe('Products + Inventory integration tests', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.name).toBe(updatePayload.name);
-      expect(res.body.data.unitPrice).toBe(120);
+      expect(res.body.data.sellingPrice).toBe(120);
     });
 
     it('should block edits trying to alter currentStock, createdBy, or product ID', async () => {

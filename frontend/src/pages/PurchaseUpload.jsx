@@ -236,7 +236,7 @@ const PurchaseUpload = () => {
         const isItemNew = item.isNew === true || !item.matchedProduct || !item.matchedProduct.id;
 
         const matchedProd = item.matchedProduct || {};
-        const dbSellingPrice = !isItemNew ? Number(matchedProd.sellingPrice || matchedProd.unitPrice || 0) : 0;
+        const dbSellingPrice = !isItemNew ? Number(matchedProd.sellingPrice || 0) : 0;
 
         return {
           id: Date.now() + idx,

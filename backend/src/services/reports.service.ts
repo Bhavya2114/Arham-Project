@@ -728,7 +728,7 @@ export const getInventoryAnalytics = async (): Promise<any> => {
     const stock = p.currentStock || 0;
     const minStock = p.minimumStock !== undefined ? p.minimumStock : 5;
     const cost = p.costPrice || 0; // Current costPrice
-    const sell = p.sellingPrice || p.unitPrice || 0;
+    const sell = p.sellingPrice || 0;
 
     const itemCostVal = stock * cost;
     const itemRetailVal = stock * sell;
@@ -764,7 +764,6 @@ export const getInventoryAnalytics = async (): Promise<any> => {
       minimumStock: minStock,
       costPrice: Number(cost.toFixed(2)),
       sellingPrice: Number(sell.toFixed(2)),
-      unitPrice: Number(sell.toFixed(2)),
       inventoryCostValue: Number(itemCostVal.toFixed(2)),
       potentialRetailValue: Number(itemRetailVal.toFixed(2)),
       status,
@@ -844,7 +843,8 @@ export const getLowStockProducts = async (): Promise<any[]> => {
     category: p.category,
     currentStock: p.currentStock,
     minStockQuantity: p.minimumStock,
-    unitPrice: Number(p.unitPrice || p.sellingPrice || 0),
+    costPrice: Number(p.costPrice || 0),
+    sellingPrice: Number(p.sellingPrice || 0),
     status: p.currentStock === 0 ? 'OUT_OF_STOCK' : 'LOW_STOCK',
     deficit: Math.max(0, p.minimumStock - p.currentStock),
   }));

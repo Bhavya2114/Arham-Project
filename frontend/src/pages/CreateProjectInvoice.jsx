@@ -139,7 +139,7 @@ const CreateProjectInvoice = () => {
           product: m.productId || m.product?.id,
           quantity: unbilledQty,
           unit: m.unit,
-          rate: Number(m.product?.sellingPrice || m.product?.unitPrice || m.billingPrice || 0),
+          rate: Number(m.product?.sellingPrice !== undefined && m.product?.sellingPrice !== null ? m.product?.sellingPrice : (m.billingPrice || 0)),
           gstRate: 18,
         });
       }

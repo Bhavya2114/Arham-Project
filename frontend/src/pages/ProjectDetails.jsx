@@ -126,7 +126,7 @@ const ProjectDetails = () => {
     setIssueForm((prev) => ({
       ...prev,
       productId: pId,
-      billingPrice: prod ? String(prod.sellingPrice !== undefined ? prod.sellingPrice : (prod.unitPrice || 0)) : '',
+      billingPrice: prod ? String(prod.sellingPrice !== undefined && prod.sellingPrice !== null ? prod.sellingPrice : 0) : '',
     }));
   };
 

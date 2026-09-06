@@ -187,6 +187,7 @@ export const createPurchase = async (
   // 3. Resolve Products (Existing vs New with Duplicate Protection)
   const productDocs: Array<{ product: any; itemInput: any }> = [];
   const newlyCreatedProductIds: any[] = [];
+  const rollbacks: Array<{ productId: any; qty: number; previousCostPrice: number; previousSellingPrice: number }> = [];
 
   try {
     for (const itemInput of input.items) {
@@ -218,14 +219,20 @@ export const createPurchase = async (
             ? itemInput.newProduct.sku.trim().toUpperCase()
             : `PROD-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
-          const costPrice = Number(itemInput.purchasePrice || itemInput.newProduct.unitPrice || 0);
-          const inputSellPrice = (itemInput as any).sellingPrice !== undefined
+          const costPrice = Number(itemInput.purchasePrice || (itemInput.newProduct && (itemInput.newProduct as any).costPrice) || 0);
+          const inputSellPrice = (itemInput as any).sellingPrice !== undefined && (itemInput as any).sellingPrice !== null && (itemInput as any).sellingPrice !== ''
             ? Number((itemInput as any).sellingPrice)
-            : (itemInput.newProduct && (itemInput.newProduct as any).sellingPrice !== undefined
+            : (itemInput.newProduct && (itemInput.newProduct as any).sellingPrice !== undefined && (itemInput.newProduct as any).sellingPrice !== null && (itemInput.newProduct as any).sellingPrice !== ''
             ? Number((itemInput.newProduct as any).sellingPrice)
             : 0);
 
-          const defaultSellingPrice = inputSellPrice >= 0 ? inputSellPrice : 0;
+          if (inputSellPrice <= 0 || isNaN(inputSellPrice)) {
+            const error = new Error(`Selling price must be greater than 0 for new product: ${prodNameClean}`);
+            (error as any).statusCode = 400;
+            throw error;
+          }
+
+          const defaultSellingPrice = inputSellPrice;
 
           product = await Product.create({
             name: prodNameClean,
@@ -233,7 +240,6 @@ export const createPurchase = async (
             category: itemInput.newProduct.category || 'General',
             supplier: supplier._id,
             costPrice: costPrice,
-            unitPrice: defaultSellingPrice,
             sellingPrice: defaultSellingPrice,
             gstRate: itemInput.taxRate !== undefined ? itemInput.taxRate : (itemInput.newProduct.gstRate || 18),
             currentStock: 0, // Current stock will be incremented in standard purchase stock update loop below
@@ -251,11 +257,21 @@ export const createPurchase = async (
         throw error;
       }
 
+      // Check existing product selling price
+      const existingProductSellingPrice = (itemInput as any).sellingPrice !== undefined && (itemInput as any).sellingPrice !== null && (itemInput as any).sellingPrice !== ''
+        ? Number((itemInput as any).sellingPrice)
+        : Number(product.sellingPrice || 0);
+
+      if (existingProductSellingPrice <= 0 || isNaN(existingProductSellingPrice)) {
+        const error = new Error(`Selling price must be greater than 0 for product: ${product.name}`);
+        (error as any).statusCode = 400;
+        throw error;
+      }
+
       productDocs.push({ product, itemInput });
     }
 
     // 4. Perform Product Stock Updates with Rollback Safeguard
-    const rollbacks: Array<{ productId: any; qty: number; previousCostPrice: number }> = [];
     const purchaseItems: any[] = [];
     let subtotal = 0;
     let taxAmount = 0;
@@ -282,9 +298,8 @@ export const createPurchase = async (
       const inputSellingPrice = (itemInput as any).sellingPrice !== undefined ? Number((itemInput as any).sellingPrice) : undefined;
       const productSetUpdates: any = { costPrice: itemInput.purchasePrice };
 
-      if (inputSellingPrice !== undefined && !isNaN(inputSellingPrice) && inputSellingPrice >= 0) {
+      if (inputSellingPrice !== undefined && !isNaN(inputSellingPrice) && inputSellingPrice > 0) {
         productSetUpdates.sellingPrice = inputSellingPrice;
-        productSetUpdates.unitPrice = inputSellingPrice;
       }
 
       await Product.findByIdAndUpdate(product._id, {
@@ -296,6 +311,7 @@ export const createPurchase = async (
         productId: product._id,
         qty: itemInput.quantity,
         previousCostPrice: product.costPrice || 0,
+        previousSellingPrice: product.sellingPrice || 0,
       });
     }
 
@@ -334,6 +350,17 @@ export const createPurchase = async (
 
     return getPurchaseById(purchase._id.toString());
   } catch (err) {
+    // Rollback stock & price updates on existing products if purchase creation fails
+    for (const rb of rollbacks) {
+      await Product.findByIdAndUpdate(rb.productId, {
+        $inc: { currentStock: -rb.qty },
+        $set: {
+          costPrice: rb.previousCostPrice,
+          sellingPrice: rb.previousSellingPrice,
+        },
+      });
+    }
+
     // Revert created new products if purchase creation fails
     if (newlyCreatedProductIds.length > 0) {
       await Product.deleteMany({ _id: { $in: newlyCreatedProductIds } });

@@ -83,7 +83,7 @@ const Billing = () => {
         return updated;
       } else {
         const defaultGst = prod.gstRate !== undefined && prod.gstRate !== null ? prod.gstRate : 0;
-        const defaultSellPrice = Number(prod.sellingPrice || prod.unitPrice || 0);
+        const defaultSellPrice = Number(prod.sellingPrice || 0);
         return [
           ...prev,
           {

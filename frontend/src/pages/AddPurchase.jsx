@@ -138,12 +138,13 @@ const AddPurchase = () => {
           if (value === 'NEW') {
             updated.isNewProduct = true;
             updated.productId = '';
-            updated.sellingPrice = item.sellingPrice !== undefined ? item.sellingPrice : (item.unitPrice || 0);
+            updated.sellingPrice = item.sellingPrice !== undefined ? item.sellingPrice : 0;
             updated.newProduct = {
               name: item.extractedItemName || item.productName || 'New Product',
               unit: item.unit || 'Pcs',
               unitPrice: item.unitPrice || 0,
-              sellingPrice: item.sellingPrice !== undefined ? item.sellingPrice : (item.unitPrice || 0),
+              costPrice: item.unitPrice || 0,
+              sellingPrice: item.sellingPrice !== undefined ? item.sellingPrice : 0,
               gstRate: item.gstPercent || 18,
             };
           } else {
@@ -151,8 +152,8 @@ const AddPurchase = () => {
             updated.newProduct = null;
             const selectedProd = products.find((p) => (p.id || p._id) === value);
             if (selectedProd) {
-              updated.unitPrice = selectedProd.costPrice || selectedProd.unitPrice || 0;
-              updated.sellingPrice = selectedProd.sellingPrice !== undefined ? selectedProd.sellingPrice : (selectedProd.unitPrice || 0);
+              updated.unitPrice = selectedProd.costPrice || 0;
+              updated.sellingPrice = selectedProd.sellingPrice || 0;
               if (!item.gstPercent) {
                 updated.gstPercent = selectedProd.gstRate !== undefined ? selectedProd.gstRate : 18;
               }
@@ -168,6 +169,14 @@ const AddPurchase = () => {
           updated.newProduct = { ...(updated.newProduct || {}), name: value };
           updated.extractedItemName = value;
           updated.productName = value;
+        }
+
+        if (field === 'sellingPrice') {
+          const num = parseFloat(value);
+          if (!isNaN(num) && num > 0 && invalidRowId === id) {
+            setInvalidRowId(null);
+            setFormError(null);
+          }
         }
 
         return updated;
@@ -255,6 +264,8 @@ const AddPurchase = () => {
     }
 
     // 5. Strict Row-by-Row Item Validation (EVERY row must be valid)
+    const invalidSellingPriceItems = [];
+
     for (let idx = 0; idx < items.length; idx++) {
       const item = items[idx];
       const rowNum = idx + 1;
@@ -299,13 +310,13 @@ const AddPurchase = () => {
         return;
       }
 
-      // Default Selling Price check (Must be >= 0 for all items)
+      // Default Selling Price check (Must be strictly > 0 for ALL items)
       const sellPrice = parseFloat(item.sellingPrice);
-      if (item.sellingPrice === '' || item.sellingPrice === null || item.sellingPrice === undefined || isNaN(sellPrice) || sellPrice < 0) {
-        setInvalidRowId(item.id);
-        setFormError(`Default Selling Price cannot be negative for item #${rowNum}.`);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        return;
+      if (item.sellingPrice === '' || item.sellingPrice === null || item.sellingPrice === undefined || isNaN(sellPrice) || sellPrice <= 0) {
+        const prodName = item.isNewProduct
+          ? (item.newProduct?.name || item.extractedItemName || item.productName || `Item #${rowNum}`)
+          : (products.find((p) => (p.id || p._id) === item.productId)?.name || item.productName || `Item #${rowNum}`);
+        invalidSellingPriceItems.push({ id: item.id, rowNum, name: prodName });
       }
 
       // GST % check
@@ -316,6 +327,31 @@ const AddPurchase = () => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
         return;
       }
+    }
+
+    if (invalidSellingPriceItems.length > 0) {
+      const firstInvalid = invalidSellingPriceItems[0];
+      setInvalidRowId(firstInvalid.id);
+
+      if (invalidSellingPriceItems.length === 1) {
+        setFormError(`Cannot review purchase. Please enter a selling price greater than ₹0 for: ${firstInvalid.name}.`);
+      } else {
+        const namesList = invalidSellingPriceItems.map((i) => `"${i.name}"`).join(', ');
+        setFormError(`Cannot review purchase. Please enter a selling price greater than ₹0 for ${invalidSellingPriceItems.length} items: ${namesList}.`);
+      }
+
+      // Automatically focus and scroll to the first invalid selling-price field
+      setTimeout(() => {
+        const inputEl = document.getElementById(`selling-price-${firstInvalid.id}`);
+        if (inputEl) {
+          inputEl.focus();
+          inputEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      }, 50);
+
+      return;
     }
 
     const formData = {
@@ -342,14 +378,14 @@ const AddPurchase = () => {
           name: i.newProduct?.name || i.extractedItemName || i.productName || 'New Product',
           unit: i.unit || 'Pcs',
           unitPrice: Number(i.price || 0),
-          sellingPrice: Number(i.sellingPrice !== undefined ? i.sellingPrice : 0),
+          sellingPrice: Number(i.sellingPrice),
           gstRate: Number(i.gstPct !== undefined ? i.gstPct : 18),
         } : null,
         productName: i.isNewProduct ? (i.newProduct?.name || i.extractedItemName || i.productName || 'New Product') : (i.productName || i.prod?.name || 'Product'),
         quantity: i.qty,
         unit: i.unit,
         unitPrice: i.price,
-        sellingPrice: Number(i.sellingPrice !== undefined ? i.sellingPrice : 0),
+        sellingPrice: Number(i.sellingPrice),
         gstPercent: i.gstPct,
         cgstAmount: i.cgstAmount,
         sgstAmount: i.sgstAmount,
@@ -420,7 +456,7 @@ const AddPurchase = () => {
           <p className="text-sm text-gray-400 font-medium">Loading purchase record prerequisites...</p>
         </div>
       ) : (
-        <form onSubmit={handleReviewPurchase} className="space-y-6">
+        <form onSubmit={handleReviewPurchase} noValidate className="space-y-6">
           {/* SECTION 1 — PURCHASE INFORMATION CARD (4 FIELDS) */}
           <div className="bg-white p-6 border border-gray-200 rounded-2xl shadow-sm space-y-4">
             <h3 className="text-sm font-extrabold text-slate-900 border-b border-gray-100 pb-3">
@@ -757,12 +793,20 @@ const AddPurchase = () => {
                         {/* 6. Default Selling Price (₹) */}
                         <td className="px-3 py-3 text-center">
                           <input
+                            id={`selling-price-${item.id}`}
                             type="number"
                             step="0.01"
-                            min="0"
-                            value={item.sellingPrice !== undefined && item.sellingPrice !== null ? item.sellingPrice : 0}
+                            min="0.01"
+                            placeholder="0.00"
+                            value={item.sellingPrice !== undefined && item.sellingPrice !== null ? item.sellingPrice : ''}
                             onChange={(e) => handleItemFieldChange(item.id, 'sellingPrice', e.target.value)}
-                            className="w-20 px-2 py-1.5 border border-emerald-200 rounded-xl text-xs font-bold text-center text-emerald-800 bg-emerald-50/20 focus:outline-none focus:border-emerald-500"
+                            className={`w-20 px-2 py-1.5 border rounded-xl text-xs font-bold text-center transition-colors focus:outline-none focus:border-emerald-500 ${
+                              isRowInvalid && (item.sellingPrice === '' || item.sellingPrice === null || item.sellingPrice === undefined || parseFloat(item.sellingPrice) <= 0 || isNaN(parseFloat(item.sellingPrice)))
+                                ? 'border-red-400 bg-red-50 text-red-900 ring-2 ring-red-400/20'
+                                : (item.sellingPrice === 0 || item.sellingPrice === '0' || item.sellingPrice === '' || item.sellingPrice === null || item.sellingPrice === undefined)
+                                ? 'border-amber-400 bg-amber-50 text-amber-900 placeholder-amber-400'
+                                : 'border-emerald-200 text-emerald-800 bg-emerald-50/20'
+                            }`}
                           />
                         </td>
 

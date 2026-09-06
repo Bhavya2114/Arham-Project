@@ -54,7 +54,7 @@ const Stock = () => {
     const stock = p.currentStock || 0;
     const minStock = p.minStockQuantity || 5;
     const cost = p.costPrice || 0;
-    const price = p.sellingPrice || p.unitPrice || 0;
+    const price = p.sellingPrice || 0;
 
     inventoryCostValue += stock * cost;
     potentialRetailValue += stock * price;
@@ -319,7 +319,7 @@ const Stock = () => {
                   const current = p.currentStock || 0;
                   const isOut = current === 0;
                   const isLow = current > 0 && current <= minStock;
-                  const sellingPrice = p.sellingPrice || p.unitPrice || 0;
+                  const sellingPrice = p.sellingPrice || 0;
 
                   return (
                     <tr

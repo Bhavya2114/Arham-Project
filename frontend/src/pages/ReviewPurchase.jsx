@@ -128,6 +128,20 @@ const ReviewPurchase = () => {
     setSubmitting(true);
     setApiError(null);
 
+    // Defense-in-depth: Verify every line item has a valid selling price > 0
+    for (let idx = 0; idx < lineItems.length; idx++) {
+      const item = lineItems[idx];
+      const sellPrice = Number(item.sellingPrice);
+      if (item.sellingPrice === '' || item.sellingPrice === null || item.sellingPrice === undefined || isNaN(sellPrice) || sellPrice <= 0) {
+        const prodName = item.newProduct?.name || item.productName || item.extractedItemName || item.existingProd?.name || `Item #${idx + 1}`;
+        const err = `Selling price must be greater than 0 for "${prodName}". Please go back to edit and enter a valid selling price.`;
+        setApiError(err);
+        toast.error(err);
+        setSubmitting(false);
+        return;
+      }
+    }
+
     const isNewSup = formData.isNewSupplier || (!formData.supplierId && formData.newSupplier?.name);
 
     const payload = {
@@ -154,7 +168,7 @@ const ReviewPurchase = () => {
           newProduct: isNewProd ? {
             name: i.newProduct?.name || i.productName || i.extractedItemName || 'New Product',
             unit: i.unit || 'Pcs',
-            unitPrice: Number(i.price || 0),
+            costPrice: Number(i.price || 0),
             sellingPrice: Number(i.sellingPrice || 0),
             gstRate: Number(i.gstPct || 0),
           } : undefined,
