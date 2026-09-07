@@ -17,35 +17,34 @@ describe('Reports & Financial Analytics API integration tests', () => {
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveProperty('totalProducts');
     expect(res.body.data).toHaveProperty('totalStock');
-    expect(res.body.data).toHaveProperty('totalSales');
-    expect(res.body.data).toHaveProperty('totalRevenue');
-    expect(res.body.data).toHaveProperty('totalCost');
-    expect(res.body.data).toHaveProperty('totalProfit');
+    expect(res.body.data).toHaveProperty('inventoryValue');
     expect(res.body.data).toHaveProperty('lowStockCount');
     expect(res.body.data).toHaveProperty('outOfStockCount');
+    expect(res.body.data).toHaveProperty('projects');
+    expect(res.body.data).toHaveProperty('invoices');
+    expect(res.body.data).toHaveProperty('purchases');
+    expect(res.body.data).toHaveProperty('recentActivity');
   });
 
-  it('should retrieve sales summary report with range filtering', async () => {
-    const res = await request(app)
+  it('should return 404 for obsolete sales and profit report endpoints', async () => {
+    const resSales = await request(app)
       .get('/api/reports/sales?range=month')
       .set('Authorization', `Bearer ${adminToken}`);
+    expect(resSales.status).toBe(404);
 
-    expect(res.status).toBe(200);
-    expect(res.body.data).toHaveProperty('summary');
-    expect(res.body.data).toHaveProperty('sales');
-    expect(Array.isArray(res.body.data.sales)).toBe(true);
+    const resProfit = await request(app)
+      .get('/api/reports/profit?range=month')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(resProfit.status).toBe(404);
   });
 
-  it('should retrieve profit & loss summary report', async () => {
+  it('should retrieve projects profitability report', async () => {
     const res = await request(app)
-      .get('/api/reports/profit?range=month')
+      .get('/api/reports/projects-profitability')
       .set('Authorization', `Bearer ${adminToken}`);
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toHaveProperty('revenue');
-    expect(res.body.data).toHaveProperty('cogs');
-    expect(res.body.data).toHaveProperty('grossProfit');
-    expect(res.body.data).toHaveProperty('profitMarginPercent');
+    expect(Array.isArray(res.body.data)).toBe(true);
   });
 
   it('should retrieve low-stock and out-of-stock product listing', async () => {

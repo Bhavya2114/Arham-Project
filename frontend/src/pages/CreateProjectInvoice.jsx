@@ -32,6 +32,7 @@ const CreateProjectInvoice = () => {
 
   // Selection & Items State
   const [selectedMaterials, setSelectedMaterials] = useState({});
+  const [materialRates, setMaterialRates] = useState({});
   const [selectedExpenses, setSelectedExpenses] = useState({});
   const [expenseRates, setExpenseRates] = useState({});
   const [manualItems, setManualItems] = useState([]);
@@ -63,6 +64,20 @@ const CreateProjectInvoice = () => {
         );
         setMaterials(availMats);
 
+        // Initialize material customer billing rates:
+        // For historical compatibility, if m.billingPrice is explicitly stored and > 0, prefill it;
+        // otherwise leave blank so the user explicitly enters the customer billing rate.
+        // Under no circumstances do we fall back to Product.costPrice.
+        const initMatRates = {};
+        availMats.forEach((m) => {
+          if (m.billingPrice !== undefined && m.billingPrice !== null && Number(m.billingPrice) > 0) {
+            initMatRates[m.id] = String(m.billingPrice);
+          } else {
+            initMatRates[m.id] = '';
+          }
+        });
+        setMaterialRates(initMatRates);
+
         // Filter unbilled expenses
         const availExps = (expRes.data.data || []).filter((e) => !e.isBilled);
         setExpenses(availExps);
@@ -89,6 +104,10 @@ const CreateProjectInvoice = () => {
   // Handlers
   const toggleMaterial = (id) => {
     setSelectedMaterials((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const handleMaterialRateChange = (id, val) => {
+    setMaterialRates((prev) => ({ ...prev, [id]: val }));
   };
 
   const toggleExpense = (id) => {
@@ -131,6 +150,7 @@ const CreateProjectInvoice = () => {
     materials.forEach((m) => {
       if (selectedMaterials[m.id]) {
         const unbilledQty = m.unbilledQuantity !== undefined ? m.unbilledQuantity : m.quantity;
+        const rateVal = Number(materialRates[m.id] || 0);
         items.push({
           type: 'MATERIAL',
           sourceType: 'MATERIAL_CONSUMPTION',
@@ -139,7 +159,7 @@ const CreateProjectInvoice = () => {
           product: m.productId || m.product?.id,
           quantity: unbilledQty,
           unit: m.unit,
-          rate: Number(m.product?.sellingPrice !== undefined && m.product?.sellingPrice !== null ? m.product?.sellingPrice : (m.billingPrice || 0)),
+          rate: rateVal,
           gstRate: 18,
         });
       }
@@ -195,6 +215,38 @@ const CreateProjectInvoice = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
+
+    // Validate selected materials have an explicitly entered, non-negative billing rate
+    for (const m of materials) {
+      if (selectedMaterials[m.id]) {
+        const rateStr = materialRates[m.id];
+        if (rateStr === undefined || rateStr === null || String(rateStr).trim() === '') {
+          setError(`Please enter a Customer Billing Rate for material: ${m.productName}.`);
+          return;
+        }
+        const parsedRate = Number(rateStr);
+        if (isNaN(parsedRate) || parsedRate < 0) {
+          setError(`Invalid Customer Billing Rate for material: ${m.productName}. Must be a valid number >= 0.`);
+          return;
+        }
+      }
+    }
+
+    // Validate selected expenses have an explicitly entered, non-negative billing rate
+    for (const exp of expenses) {
+      if (selectedExpenses[exp.id]) {
+        const rateStr = expenseRates[exp.id];
+        if (rateStr === undefined || rateStr === null || String(rateStr).trim() === '') {
+          setError(`Please enter a Customer Billing Charge for expense: ${exp.description}.`);
+          return;
+        }
+        const parsedRate = Number(rateStr);
+        if (isNaN(parsedRate) || parsedRate < 0) {
+          setError(`Invalid Customer Billing Charge for expense: ${exp.description}. Must be a valid number >= 0.`);
+          return;
+        }
+      }
+    }
 
     if (lineItems.length === 0) {
       setError('Please select at least one material, expense, or add a custom manual line item.');
@@ -354,7 +406,9 @@ const CreateProjectInvoice = () => {
                 <tbody className="divide-y divide-gray-100 font-medium">
                   {materials.map((m) => {
                     const unbilledQty = m.unbilledQuantity !== undefined ? m.unbilledQuantity : m.quantity;
-                    const totVal = unbilledQty * Number(m.billingPrice || 0);
+                    const enteredRate = materialRates[m.id];
+                    const numRate = enteredRate !== undefined && enteredRate !== '' && !isNaN(Number(enteredRate)) ? Number(enteredRate) : 0;
+                    const totVal = unbilledQty * numRate;
                     const isChecked = !!selectedMaterials[m.id];
                     return (
                       <tr key={m.id} className={`hover:bg-gray-50/60 transition-colors ${isChecked ? 'bg-emerald-50/30' : ''}`}>
@@ -373,8 +427,17 @@ const CreateProjectInvoice = () => {
                         <td className="p-3 text-center font-bold text-slate-900">
                           {unbilledQty} {m.unit}
                         </td>
-                        <td className="p-3 text-right font-extrabold text-emerald-700">
-                          ₹{Number(m.billingPrice || 0).toFixed(2)}
+                        <td className="p-3 text-right">
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            placeholder="Enter rate"
+                            value={materialRates[m.id] !== undefined ? materialRates[m.id] : ''}
+                            onChange={(ev) => handleMaterialRateChange(m.id, ev.target.value)}
+                            disabled={!isChecked}
+                            className="w-36 px-2.5 py-1 border border-gray-300 rounded-lg text-xs font-black text-right focus:outline-none focus:border-emerald-500 disabled:bg-gray-100 disabled:opacity-50"
+                          />
                         </td>
                         <td className="p-3 text-right font-black text-slate-900">
                           ₹{totVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
@@ -620,7 +683,7 @@ const CreateProjectInvoice = () => {
               </div>
 
               <div className="flex justify-between font-bold text-slate-700">
-                <span>Subtotal:</span>
+                <span>Gross Subtotal:</span>
                 <span className="font-mono font-extrabold">₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
               </div>
 
@@ -630,22 +693,26 @@ const CreateProjectInvoice = () => {
               </div>
 
               <div className="flex justify-between font-extrabold text-slate-900 border-t border-slate-200 pt-2">
-                <span>Taxable Amount:</span>
+                <span>Taxable Value (Excl. GST):</span>
                 <span className="font-mono">₹{taxableAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
               </div>
 
               <div className="flex justify-between font-bold text-emerald-800">
-                <span>Estimated GST (18%):</span>
+                <span>Output GST (Customer Tax):</span>
                 <span className="font-mono font-extrabold">+ ₹{gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
               </div>
 
               <div className="flex justify-between font-black text-slate-900 text-base border-t border-slate-300 pt-2">
-                <span>Grand Total:</span>
+                <span>Invoice Grand Total (Incl. GST):</span>
                 <span className="font-mono text-emerald-700">
                   ₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                 </span>
               </div>
             </div>
+
+            <p className="text-[10px] text-gray-400 italic">
+              * Customer invoice GST is Output Tax collected from client and does not affect operational project profit.
+            </p>
 
             <button
               type="submit"

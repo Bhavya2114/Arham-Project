@@ -40,7 +40,6 @@ describe('Products + Inventory integration tests', () => {
         expect(prod).toHaveProperty('sku');
         expect(prod).toHaveProperty('category');
         expect(prod).toHaveProperty('costPrice');
-        expect(prod).toHaveProperty('sellingPrice');
         expect(prod).toHaveProperty('currentStock');
         expect(prod).toHaveProperty('minStockQuantity');
         expect(prod).toHaveProperty('location');
@@ -118,9 +117,9 @@ describe('Products + Inventory integration tests', () => {
 
     it('should return HTTP 400 on negative stock, negative prices, or missing SKU', async () => {
       const invalidPayloads = [
-        { name: 'Bad Prod', sku: '', category: 'Cat', unitPrice: 10, currentStock: 5, minStockQuantity: 1, location: 'L' },
-        { name: 'Bad Prod', sku: 'SKU-BAD-1', category: 'Cat', unitPrice: -10, currentStock: 5, minStockQuantity: 1, location: 'L' },
-        { name: 'Bad Prod', sku: 'SKU-BAD-2', category: 'Cat', unitPrice: 10, currentStock: -5, minStockQuantity: 1, location: 'L' },
+        { name: 'Bad Prod', sku: '', category: 'Cat', costPrice: 10, currentStock: 5, minStockQuantity: 1, location: 'L' },
+        { name: 'Bad Prod', sku: 'SKU-BAD-1', category: 'Cat', costPrice: -10, currentStock: 5, minStockQuantity: 1, location: 'L' },
+        { name: 'Bad Prod', sku: 'SKU-BAD-2', category: 'Cat', costPrice: 10, currentStock: -5, minStockQuantity: 1, location: 'L' },
       ];
 
       for (const payload of invalidPayloads) {
@@ -144,7 +143,7 @@ describe('Products + Inventory integration tests', () => {
           name: 'First Prod',
           sku,
           category: 'Cat',
-          unitPrice: 20,
+          costPrice: 20,
           currentStock: 10,
           minStockQuantity: 2,
           location: 'Loc',
@@ -157,7 +156,7 @@ describe('Products + Inventory integration tests', () => {
           name: 'Second Prod',
           sku: sku.toLowerCase(), // should test case-insensitive duplicate check
           category: 'Cat',
-          unitPrice: 25,
+          costPrice: 25,
           currentStock: 5,
           minStockQuantity: 1,
           location: 'Loc',
@@ -179,7 +178,7 @@ describe('Products + Inventory integration tests', () => {
           name: 'Detail Test Prod',
           sku: `SKU-DET-${Date.now()}`,
           category: 'Tools',
-          unitPrice: 88,
+          costPrice: 88,
           currentStock: 12,
           minStockQuantity: 3,
           location: 'Shelf D-4',
@@ -223,7 +222,7 @@ describe('Products + Inventory integration tests', () => {
           name: 'Original Name',
           sku: `SKU-UPD-${Date.now()}`,
           category: 'Category 1',
-          unitPrice: 100,
+          costPrice: 100,
           currentStock: 50,
           minStockQuantity: 10,
           location: 'Rack 1',
@@ -236,7 +235,7 @@ describe('Products + Inventory integration tests', () => {
         name: 'Updated Name',
         sku: `SKU-UPD-MOD-${Date.now()}`,
         category: 'Category 2',
-        unitPrice: 120,
+        costPrice: 120,
         minStockQuantity: 15,
         location: 'Rack 2',
       };
@@ -259,7 +258,7 @@ describe('Products + Inventory integration tests', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.name).toBe(updatePayload.name);
-      expect(res.body.data.sellingPrice).toBe(120);
+      expect(res.body.data.sku).toBe(updatePayload.sku);
     });
 
     it('should block edits trying to alter currentStock, createdBy, or product ID', async () => {
@@ -272,7 +271,7 @@ describe('Products + Inventory integration tests', () => {
         name: 'Malicious Edit',
         sku: fetchBefore.body.data.sku,
         category: 'Cat',
-        unitPrice: 100,
+        costPrice: 100,
         minStockQuantity: 10,
         location: 'Loc',
         currentStock: 999999, // Should be ignored/blocked
@@ -301,7 +300,7 @@ describe('Products + Inventory integration tests', () => {
           name: 'Other Prod',
           sku: `SKU-OTHER-${timestamp}`,
           category: 'Cat',
-          unitPrice: 10,
+          costPrice: 10,
           currentStock: 5,
           minStockQuantity: 1,
           location: 'Loc',
@@ -316,7 +315,7 @@ describe('Products + Inventory integration tests', () => {
           name: 'Name',
           sku: otherSku,
           category: 'Cat',
-          unitPrice: 10,
+          costPrice: 10,
           minStockQuantity: 1,
           location: 'Loc',
         });

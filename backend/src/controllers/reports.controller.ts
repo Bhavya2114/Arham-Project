@@ -11,19 +11,6 @@ export const getDashboardSummary = async (_req: Request, res: Response, next: Ne
   }
 };
 
-export const getSalesSummary = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-  try {
-    const query = {
-      range: req.query.range as string,
-      startDate: req.query.startDate as string,
-      endDate: req.query.endDate as string,
-    };
-    const report = await reportsService.getSalesSummary(query);
-    res.status(200).json(successResponse('Sales report retrieved successfully', report));
-  } catch (error) {
-    next(error);
-  }
-};
 
 export const getPurchaseSummary = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -39,19 +26,6 @@ export const getPurchaseSummary = async (req: Request, res: Response, next: Next
   }
 };
 
-export const getProfitSummary = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-  try {
-    const query = {
-      range: req.query.range as string,
-      startDate: req.query.startDate as string,
-      endDate: req.query.endDate as string,
-    };
-    const report = await reportsService.getProfitSummary(query);
-    res.status(200).json(successResponse('Profit summary retrieved successfully', report));
-  } catch (error) {
-    next(error);
-  }
-};
 
 export const getInventoryAnalytics = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -66,6 +40,20 @@ export const getLowStockProducts = async (_req: Request, res: Response, next: Ne
   try {
     const products = await reportsService.getLowStockProducts();
     res.status(200).json(successResponse('Low stock products retrieved successfully', products));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getGstSummary = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const query = {
+      range: req.query.range as string,
+      startDate: req.query.startDate as string,
+      endDate: req.query.endDate as string,
+    };
+    const report = await reportsService.getGstSummary(query);
+    res.status(200).json(successResponse('GST summary report retrieved successfully', report));
   } catch (error) {
     next(error);
   }

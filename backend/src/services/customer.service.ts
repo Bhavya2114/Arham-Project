@@ -1,5 +1,5 @@
 import { Customer } from '../models/Customer';
-import { Sale } from '../models/Sale';
+import { Project } from '../models/Project';
 import {
   CreateCustomerInput,
   CustomerQueryInput,
@@ -130,10 +130,10 @@ export const deleteCustomer = async (id: string): Promise<void> => {
     throw error;
   }
 
-  // Check if customer has existing sales records
-  const existingSale = await Sale.findOne({ customerId: id });
-  if (existingSale) {
-    const error = new Error('Cannot delete this customer because they have existing sales records.');
+  // Check if customer has existing project records
+  const existingProject = await Project.findOne({ customer: id });
+  if (existingProject) {
+    const error = new Error('Cannot delete this customer because they have existing project records.');
     (error as any).statusCode = 400;
     throw error;
   }

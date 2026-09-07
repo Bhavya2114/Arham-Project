@@ -48,7 +48,6 @@ const Products = () => {
     category: "",
     supplier: "",
     costPrice: "0",
-    sellingPrice: "0",
     gstRate: "18",
     currentStock: "0",
     minStockQuantity: "5",
@@ -63,7 +62,6 @@ const Products = () => {
     category: "",
     supplier: "",
     costPrice: "0",
-    sellingPrice: "0",
     gstRate: "18",
     minStockQuantity: "5",
     location: "Main Store",
@@ -72,7 +70,6 @@ const Products = () => {
 
   const [fieldErrors, setFieldErrors] = useState({});
   const [formError, setFormError] = useState(null);
-  const [formWarning, setFormWarning] = useState(null);
   const [formSubmitting, setFormSubmitting] = useState(false);
 
   // 4. Fetch Products list, Categories, Suppliers
@@ -111,7 +108,6 @@ const Products = () => {
       category: categories[0]?.name || "",
       supplier: "",
       costPrice: "0",
-      sellingPrice: "0",
       gstRate: "18",
       currentStock: "0",
       minStockQuantity: "5",
@@ -120,7 +116,6 @@ const Products = () => {
     });
     setFieldErrors({});
     setFormError(null);
-    setFormWarning(null);
     setIsAddOpen(true);
   };
 
@@ -145,7 +140,6 @@ const Products = () => {
       category: prod.category,
       supplier: prod.supplier?._id || prod.supplier || "",
       costPrice: String(prod.costPrice || 0),
-      sellingPrice: String(prod.sellingPrice !== undefined ? prod.sellingPrice : 0),
       gstRate: String(prod.gstRate || 18),
       minStockQuantity: String(prod.minStockQuantity || 5),
       location: prod.location || "Main Store",
@@ -153,7 +147,6 @@ const Products = () => {
     });
     setFieldErrors({});
     setFormError(null);
-    setFormWarning(null);
     setIsEditOpen(true);
   };
 
@@ -166,9 +159,6 @@ const Products = () => {
     
     const cost = parseFloat(form.costPrice);
     if (isNaN(cost) || cost < 0) errors.costPrice = "Cost price cannot be negative.";
-    
-    const selling = parseFloat(form.sellingPrice);
-    if (isNaN(selling) || selling < 0) errors.sellingPrice = "Selling price cannot be negative.";
 
     if (form.currentStock !== undefined) {
       const stock = parseInt(form.currentStock, 10);
@@ -180,17 +170,6 @@ const Products = () => {
 
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
-  };
-
-  // Check Selling Price Warning
-  const checkPriceWarning = (costStr, sellingStr) => {
-    const cost = parseFloat(costStr) || 0;
-    const selling = parseFloat(sellingStr) || 0;
-    if (selling > 0 && selling < cost) {
-      setFormWarning("Warning: Selling price is below cost price (potential negative margin).");
-    } else {
-      setFormWarning(null);
-    }
   };
 
   // 6. Create Product submit
@@ -208,7 +187,6 @@ const Products = () => {
         category: addForm.category.trim(),
         supplier: addForm.supplier || undefined,
         costPrice: parseFloat(addForm.costPrice) || 0,
-        sellingPrice: parseFloat(addForm.sellingPrice) || 0,
         gstRate: parseFloat(addForm.gstRate) || 18,
         currentStock: parseInt(addForm.currentStock, 10) || 0,
         minStockQuantity: parseInt(addForm.minStockQuantity, 10) || 5,
@@ -250,7 +228,6 @@ const Products = () => {
         category: editForm.category.trim(),
         supplier: editForm.supplier || undefined,
         costPrice: parseFloat(editForm.costPrice) || 0,
-        sellingPrice: parseFloat(editForm.sellingPrice) || 0,
         gstRate: parseFloat(editForm.gstRate) || 18,
         minStockQuantity: parseInt(editForm.minStockQuantity, 10) || 5,
         location: editForm.location || "Main Store",
@@ -415,7 +392,7 @@ const Products = () => {
             </div>
             <div className="space-y-1">
               <h3 className="text-base font-bold text-gray-800">No products found in inventory</h3>
-              <p className="text-xs text-gray-500">Add your first product to start tracking inventory levels and selling at POS.</p>
+              <p className="text-xs text-gray-500">Add your first product to start tracking inventory levels and project usage.</p>
             </div>
             {isWriter && (
               <button
@@ -452,7 +429,6 @@ const Products = () => {
                   <th className="px-6 py-3.5">Product Name & SKU</th>
                   <th className="px-6 py-3.5">Category</th>
                   <th className="px-6 py-3.5 text-right">Cost Price</th>
-                  <th className="px-6 py-3.5 text-right">Selling Price</th>
                   <th className="px-6 py-3.5 text-center">Stock Level</th>
                   <th className="px-6 py-3.5 text-center">Status</th>
                   <th className="px-6 py-3.5 text-right">Actions</th>
@@ -470,11 +446,8 @@ const Products = () => {
                         <div className="text-xs font-mono text-gray-400">{p.sku}</div>
                       </td>
                       <td className="px-6 py-4 text-xs font-semibold text-gray-600">{p.category}</td>
-                      <td className="px-6 py-4 text-right font-medium text-gray-500">
-                        ₹{(p.costPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </td>
                       <td className="px-6 py-4 text-right font-extrabold text-emerald-700">
-                        ₹{(p.sellingPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        ₹{(p.costPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
                       <td className="px-6 py-4 text-center font-bold text-slate-800">
                         {p.currentStock} <span className="text-xs text-gray-400 font-normal">{p.unit || 'pcs'}</span>
@@ -546,13 +519,6 @@ const Products = () => {
               </div>
             )}
 
-            {formWarning && (
-              <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs font-semibold flex items-center space-x-2">
-                <FaExclamationTriangle className="text-amber-600 flex-shrink-0" />
-                <span>{formWarning}</span>
-              </div>
-            )}
-
             <form onSubmit={handleAddProduct} className="space-y-4 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
@@ -619,29 +585,10 @@ const Products = () => {
                     step="0.01"
                     min="0"
                     value={addForm.costPrice}
-                    onChange={(e) => {
-                      setAddForm({ ...addForm, costPrice: e.target.value });
-                      checkPriceWarning(e.target.value, addForm.sellingPrice);
-                    }}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:border-emerald-500"
+                    onChange={(e) => setAddForm({ ...addForm, costPrice: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:border-emerald-500 font-bold"
                   />
                   {fieldErrors.costPrice && <p className="text-red-500 text-[11px] mt-0.5">{fieldErrors.costPrice}</p>}
-                </div>
-
-                <div>
-                  <label className="block font-bold text-gray-700 mb-1">Selling Price (₹) <span className="text-red-500">*</span></label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={addForm.sellingPrice}
-                    onChange={(e) => {
-                      setAddForm({ ...addForm, sellingPrice: e.target.value });
-                      checkPriceWarning(addForm.costPrice, e.target.value);
-                    }}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:border-emerald-500 font-extrabold text-emerald-800"
-                  />
-                  {fieldErrors.sellingPrice && <p className="text-red-500 text-[11px] mt-0.5">{fieldErrors.sellingPrice}</p>}
                 </div>
 
                 <div>
@@ -736,13 +683,6 @@ const Products = () => {
               </div>
             )}
 
-            {formWarning && (
-              <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs font-semibold flex items-center space-x-2">
-                <FaExclamationTriangle className="text-amber-600 flex-shrink-0" />
-                <span>{formWarning}</span>
-              </div>
-            )}
-
             <form onSubmit={handleEditProduct} className="space-y-4 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
@@ -801,26 +741,8 @@ const Products = () => {
                     step="0.01"
                     min="0"
                     value={editForm.costPrice}
-                    onChange={(e) => {
-                      setEditForm({ ...editForm, costPrice: e.target.value });
-                      checkPriceWarning(e.target.value, editForm.sellingPrice);
-                    }}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-gray-700 mb-1">Selling Price (₹) <span className="text-red-500">*</span></label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={editForm.sellingPrice}
-                    onChange={(e) => {
-                      setEditForm({ ...editForm, sellingPrice: e.target.value });
-                      checkPriceWarning(editForm.costPrice, e.target.value);
-                    }}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:border-emerald-500 font-extrabold text-emerald-800"
+                    onChange={(e) => setEditForm({ ...editForm, costPrice: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:border-emerald-500 font-bold"
                   />
                 </div>
 
@@ -905,17 +827,13 @@ const Products = () => {
                 </div>
                 <div className="p-2 border border-gray-100 rounded-lg">
                   <span className="text-gray-400 block">Cost Price</span>
-                  <span className="font-bold text-gray-800">₹{(activeProduct.costPrice || 0).toFixed(2)}</span>
-                </div>
-                <div className="p-2 border border-gray-100 rounded-lg">
-                  <span className="text-gray-400 block">Selling Price</span>
-                  <span className="font-extrabold text-emerald-700">₹{(activeProduct.sellingPrice || 0).toFixed(2)}</span>
+                  <span className="font-extrabold text-emerald-700">₹{(activeProduct.costPrice || 0).toFixed(2)}</span>
                 </div>
                 <div className="p-2 border border-gray-100 rounded-lg">
                   <span className="text-gray-400 block">GST Rate</span>
                   <span className="font-bold text-gray-800">{activeProduct.gstRate || 18}%</span>
                 </div>
-                <div className="p-2 border border-gray-100 rounded-lg">
+                <div className="p-2 border border-gray-100 rounded-lg col-span-2">
                   <span className="text-gray-400 block">Min Threshold</span>
                   <span className="font-bold text-gray-800">{activeProduct.minStockQuantity || 5}</span>
                 </div>

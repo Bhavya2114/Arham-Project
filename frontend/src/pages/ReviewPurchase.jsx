@@ -94,10 +94,11 @@ const ReviewPurchase = () => {
 
     const gross = qty * price;
     const totalGst = (gross * gstPct) / 100;
-    const cgst = totalGst / 2;
-    const sgst = totalGst / 2;
-    const igst = 0;
-    const lineTotal = gross + totalGst;
+    const cgst = item.cgstAmount !== undefined && item.cgstAmount !== null && Number(item.cgstAmount) > 0 ? Number(item.cgstAmount) : totalGst / 2;
+    const sgst = item.sgstAmount !== undefined && item.sgstAmount !== null && Number(item.sgstAmount) > 0 ? Number(item.sgstAmount) : totalGst / 2;
+    const igst = item.igstAmount !== undefined && item.igstAmount !== null && Number(item.igstAmount) > 0 ? Number(item.igstAmount) : 0;
+    const lineTaxAmount = item.taxAmount !== undefined && item.taxAmount !== null && Number(item.taxAmount) > 0 ? Number(item.taxAmount) : totalGst;
+    const lineTotal = gross + lineTaxAmount;
 
     const existingProd = item.productId ? productsMap[item.productId] : null;
 
@@ -110,7 +111,8 @@ const ReviewPurchase = () => {
       cgst,
       sgst,
       igst,
-      totalGst,
+      totalGst: lineTaxAmount,
+      taxAmount: lineTaxAmount,
       lineTotal,
       existingProd,
       currentStock: existingProd ? Number(existingProd.currentStock || 0) : 0,
@@ -127,20 +129,6 @@ const ReviewPurchase = () => {
   const handleConfirmPurchase = async () => {
     setSubmitting(true);
     setApiError(null);
-
-    // Defense-in-depth: Verify every line item has a valid selling price > 0
-    for (let idx = 0; idx < lineItems.length; idx++) {
-      const item = lineItems[idx];
-      const sellPrice = Number(item.sellingPrice);
-      if (item.sellingPrice === '' || item.sellingPrice === null || item.sellingPrice === undefined || isNaN(sellPrice) || sellPrice <= 0) {
-        const prodName = item.newProduct?.name || item.productName || item.extractedItemName || item.existingProd?.name || `Item #${idx + 1}`;
-        const err = `Selling price must be greater than 0 for "${prodName}". Please go back to edit and enter a valid selling price.`;
-        setApiError(err);
-        toast.error(err);
-        setSubmitting(false);
-        return;
-      }
-    }
 
     const isNewSup = formData.isNewSupplier || (!formData.supplierId && formData.newSupplier?.name);
 
@@ -160,6 +148,9 @@ const ReviewPurchase = () => {
       invoiceDate: formData.invoiceDate,
       purchaseDate: formData.invoiceDate || formData.purchaseDate,
       notes: formData.notes || undefined,
+      cgst: formData.cgst !== undefined && formData.cgst !== null ? Number(formData.cgst) : undefined,
+      sgst: formData.sgst !== undefined && formData.sgst !== null ? Number(formData.sgst) : undefined,
+      igst: formData.igst !== undefined && formData.igst !== null ? Number(formData.igst) : undefined,
       items: lineItems.map((i) => {
         const isNewProd = i.isNewProduct || (!i.productId && (i.newProduct?.name || i.productName || i.extractedItemName));
 
@@ -169,13 +160,12 @@ const ReviewPurchase = () => {
             name: i.newProduct?.name || i.productName || i.extractedItemName || 'New Product',
             unit: i.unit || 'Pcs',
             costPrice: Number(i.price || 0),
-            sellingPrice: Number(i.sellingPrice || 0),
             gstRate: Number(i.gstPct || 0),
           } : undefined,
           purchasePrice: Number(i.price || 0),
-          sellingPrice: Number(i.sellingPrice || 0),
           quantity: Number(i.qty || 1),
           taxRate: Number(i.gstPct || 0),
+          taxAmount: i.taxAmount !== undefined && i.taxAmount !== null ? Number(i.taxAmount) : undefined,
           unit: i.unit || 'Pcs',
         };
       }),
@@ -344,13 +334,12 @@ const ReviewPurchase = () => {
                 <th className="px-4 py-3 min-w-[220px]">ITEM / PRODUCT</th>
                 <th className="px-3 py-3 w-20 text-center">QUANTITY</th>
                 <th className="px-3 py-3 w-16">UNIT</th>
-                <th className="px-3 py-3 w-24 text-center">UNIT PURCHASE PRICE (₹)</th>
-                <th className="px-3 py-3 w-24 text-center">DEFAULT SELLING PRICE (₹)</th>
+                <th className="px-3 py-3 w-24 text-center">UNIT PURCHASE PRICE (EXCL. GST) (₹)</th>
                 <th className="px-3 py-3 w-16 text-center">GST %</th>
                 <th className="px-3 py-3 w-20 text-center">CGST (₹)</th>
                 <th className="px-3 py-3 w-20 text-center">SGST (₹)</th>
                 <th className="px-3 py-3 w-20 text-center">IGST (₹)</th>
-                <th className="px-4 py-3 w-24 text-right">TOTAL (₹)</th>
+                <th className="px-4 py-3 w-24 text-right">LINE TOTAL (INCL. GST) (₹)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 font-medium">
@@ -383,9 +372,6 @@ const ReviewPurchase = () => {
                   <td className="px-3 py-3 text-center font-extrabold text-slate-900">{item.qty}</td>
                   <td className="px-3 py-3 font-semibold text-gray-600">{item.unit || 'Pcs'}</td>
                   <td className="px-3 py-3 text-center font-bold text-gray-700">{item.price.toFixed(2)}</td>
-                  <td className="px-3 py-3 text-center font-bold text-emerald-800 bg-emerald-50/20">
-                    {Number(item.sellingPrice || 0).toFixed(2)}
-                  </td>
                   <td className="px-3 py-3 text-center font-bold text-emerald-700">{item.gstPct}%</td>
                   <td className="px-3 py-3 text-center font-medium text-gray-600">{item.cgst.toFixed(2)}</td>
                   <td className="px-3 py-3 text-center font-medium text-gray-600">{item.sgst.toFixed(2)}</td>
@@ -408,21 +394,44 @@ const ReviewPurchase = () => {
             <h4 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider border-b border-gray-100 pb-3">
               Financial Summary
             </h4>
-            <div className="space-y-4 text-xs pt-4">
+            <div className="space-y-3 text-xs pt-4">
               <div className="flex items-center justify-between text-gray-600">
-                <span>Gross Subtotal</span>
+                <span>Taxable Subtotal (Excl. GST)</span>
                 <span className="font-bold text-slate-900 font-mono">₹{grandGross.toFixed(2)}</span>
               </div>
               <div className="flex items-center justify-between text-gray-600">
-                <span>Total Tax (GST)</span>
+                <span>Input GST (Total Tax)</span>
                 <span className="font-bold text-emerald-700 font-mono">₹{grandTax.toFixed(2)}</span>
               </div>
+              {formData.cgst !== undefined && formData.cgst !== null && (
+                <div className="flex items-center justify-between text-[11px] text-gray-400 pl-3">
+                  <span>CGST Breakdown</span>
+                  <span className="font-mono">₹{Number(formData.cgst).toFixed(2)}</span>
+                </div>
+              )}
+              {formData.sgst !== undefined && formData.sgst !== null && (
+                <div className="flex items-center justify-between text-[11px] text-gray-400 pl-3">
+                  <span>SGST Breakdown</span>
+                  <span className="font-mono">₹{Number(formData.sgst).toFixed(2)}</span>
+                </div>
+              )}
+              {formData.igst !== undefined && formData.igst !== null && Number(formData.igst) > 0 && (
+                <div className="flex items-center justify-between text-[11px] text-gray-400 pl-3">
+                  <span>IGST Breakdown</span>
+                  <span className="font-mono">₹{Number(formData.igst).toFixed(2)}</span>
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="pt-4 border-t border-gray-200 flex items-center justify-between text-slate-900">
-            <span className="font-black text-sm uppercase tracking-wider">Grand Total</span>
-            <span className="text-emerald-600 font-black text-xl font-mono">₹{grandTotal.toFixed(2)}</span>
+          <div className="pt-4 border-t border-gray-200 space-y-1">
+            <div className="flex items-center justify-between text-slate-900">
+              <span className="font-black text-sm uppercase tracking-wider">Supplier Bill Total</span>
+              <span className="text-emerald-600 font-black text-xl font-mono">₹{grandTotal.toFixed(2)}</span>
+            </div>
+            <p className="text-[10px] text-gray-400 italic">
+              * Input GST is paid to supplier and does not enter operational project material cost.
+            </p>
           </div>
         </div>
 

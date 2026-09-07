@@ -236,7 +236,6 @@ const PurchaseUpload = () => {
         const isItemNew = item.isNew === true || !item.matchedProduct || !item.matchedProduct.id;
 
         const matchedProd = item.matchedProduct || {};
-        const dbSellingPrice = !isItemNew ? Number(matchedProd.sellingPrice || 0) : 0;
 
         return {
           id: Date.now() + idx,
@@ -247,15 +246,17 @@ const PurchaseUpload = () => {
             name: item.extractedItemName || matchedProd.name || 'New Product',
             unit: item.unit || 'Pcs',
             unitPrice: item.unitPrice || 0,
-            sellingPrice: 0,
+            costPrice: item.unitPrice || 0,
             gstRate: item.gstPercent !== undefined ? item.gstPercent : 18,
           } : null,
           productName: item.extractedItemName || matchedProd.name || '',
           quantity: item.quantity > 0 ? item.quantity : 1,
           unit: item.unit || 'Pcs',
           unitPrice: item.unitPrice || 0,
-          sellingPrice: dbSellingPrice,
           gstPercent: item.gstPercent !== undefined ? item.gstPercent : 18,
+          taxAmount: item.taxAmount !== undefined && item.taxAmount !== null
+            ? Number(item.taxAmount)
+            : ((item.cgstAmount || 0) + (item.sgstAmount || 0) + (item.igstAmount || 0)),
           cgstAmount: item.cgstAmount || 0,
           sgstAmount: item.sgstAmount || 0,
           igstAmount: item.igstAmount || 0,
@@ -279,6 +280,9 @@ const PurchaseUpload = () => {
         invoiceNumber: extracted.invoice?.invoiceNumber || '',
         invoiceDate: extracted.invoice?.invoiceDate || new Date().toISOString().split('T')[0],
         notes: extracted.invoice?.notes || '',
+        cgst: extracted.totals?.totalCGST !== undefined ? extracted.totals.totalCGST : (extracted.totals?.cgst !== undefined ? extracted.totals.cgst : undefined),
+        sgst: extracted.totals?.totalSGST !== undefined ? extracted.totals.totalSGST : (extracted.totals?.sgst !== undefined ? extracted.totals.sgst : undefined),
+        igst: extracted.totals?.totalIGST !== undefined ? extracted.totals.totalIGST : (extracted.totals?.igst !== undefined ? extracted.totals.igst : undefined),
         items: matchedItems.length > 0 ? matchedItems : [
           {
             id: Date.now(),

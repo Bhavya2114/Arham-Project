@@ -224,7 +224,6 @@ export const extractPurchaseBill = async (req: Request, res: Response, next: Nex
             sku: pMatch.sku,
             currentStock: pMatch.currentStock,
             costPrice: pMatch.costPrice,
-            sellingPrice: pMatch.sellingPrice || 0,
             gstRate: pMatch.gstRate,
             matched: true,
             isNew: false,
@@ -244,12 +243,17 @@ export const extractPurchaseBill = async (req: Request, res: Response, next: Nex
         };
       }
 
+      const lineGst = (item as any).taxAmount !== undefined && (item as any).taxAmount !== null
+        ? Number((item as any).taxAmount)
+        : ((item.cgstAmount || 0) + (item.sgstAmount || 0) + (item.igstAmount || 0));
+
       return {
         extractedItemName: item.itemName,
         quantity: item.quantity,
         unit: item.unit || 'Pcs',
         unitPrice: item.unitPrice,
         gstPercent: item.gstRate,
+        taxAmount: lineGst,
         cgstAmount: item.cgstAmount,
         sgstAmount: item.sgstAmount,
         igstAmount: item.igstAmount,

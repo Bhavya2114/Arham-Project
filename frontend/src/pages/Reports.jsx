@@ -19,19 +19,18 @@ import {
 } from 'react-icons/fa';
 
 const Reports = () => {
-  const [activeTab, setActiveTab] = useState('sales'); // 'sales', 'purchases', 'profit', 'inventory', 'low-stock'
+  const [activeTab, setActiveTab] = useState('projects'); // 'projects', 'purchases', 'gst', 'inventory', 'low-stock'
   const [range, setRange] = useState('month'); // 'today', 'week', 'month', 'custom'
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
   // Data States
-  const [salesReport, setSalesReport] = useState(null);
   const [purchaseReport, setPurchaseReport] = useState(null);
-  const [profitReport, setProfitReport] = useState(null);
   const [inventoryAnalytics, setInventoryAnalytics] = useState(null);
   const [lowStockList, setLowStockList] = useState([]);
   const [projectsProfitability, setProjectsProfitability] = useState([]);
+  const [gstSummary, setGstSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -48,15 +47,9 @@ const Reports = () => {
         params = `?startDate=${startDate}&endDate=${endDate}`;
       }
 
-      if (activeTab === 'sales') {
-        const res = await axiosInstance.get(`/reports/sales${params}`);
-        setSalesReport(res.data.data);
-      } else if (activeTab === 'purchases') {
+      if (activeTab === 'purchases') {
         const res = await axiosInstance.get(`/reports/purchases${params}`);
         setPurchaseReport(res.data.data);
-      } else if (activeTab === 'profit') {
-        const res = await axiosInstance.get(`/reports/profit${params}`);
-        setProfitReport(res.data.data);
       } else if (activeTab === 'inventory') {
         const res = await axiosInstance.get(`/reports/inventory`);
         setInventoryAnalytics(res.data.data);
@@ -66,6 +59,9 @@ const Reports = () => {
       } else if (activeTab === 'projects') {
         const res = await axiosInstance.get(`/reports/projects-profitability`);
         setProjectsProfitability(res.data.data || []);
+      } else if (activeTab === 'gst') {
+        const res = await axiosInstance.get(`/reports/gst-summary${params}`);
+        setGstSummary(res.data.data);
       }
     } catch (err) {
       console.error('Error fetching report:', err);
@@ -81,7 +77,7 @@ const Reports = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
         <div>
           <h2 className="text-2xl font-bold text-gray-800">Reports & Business Analytics</h2>
-          <p className="text-gray-500 text-sm">Analyze sales revenue, purchase procurement, profit margins, and project performance.</p>
+          <p className="text-gray-500 text-sm">Analyze project performance, purchase procurement, inventory levels, and GST tax summary.</p>
         </div>
       </div>
 
@@ -90,12 +86,12 @@ const Reports = () => {
         {/* Navigation Tabs */}
         <div className="flex bg-gray-100 p-1 rounded-xl space-x-1 self-start md:self-auto overflow-x-auto">
           <button
-            onClick={() => setActiveTab('sales')}
+            onClick={() => setActiveTab('projects')}
             className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-              activeTab === 'sales' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+              activeTab === 'projects' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
             }`}
           >
-            📊 Sales Report
+            🏗️ Projects Profitability
           </button>
           <button
             onClick={() => setActiveTab('purchases')}
@@ -106,20 +102,12 @@ const Reports = () => {
             🛒 Purchase Report
           </button>
           <button
-            onClick={() => setActiveTab('profit')}
+            onClick={() => setActiveTab('gst')}
             className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-              activeTab === 'profit' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+              activeTab === 'gst' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
             }`}
           >
-            📈 Profit & Loss
-          </button>
-          <button
-            onClick={() => setActiveTab('projects')}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-              activeTab === 'projects' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            🏗️ Projects Profitability
+            🏛️ GST & Tax Summary
           </button>
           <button
             onClick={() => setActiveTab('inventory')}
@@ -192,195 +180,6 @@ const Reports = () => {
         </div>
       ) : (
         <>
-          {/* TAB 1: SALES REPORT */}
-          {activeTab === 'sales' && salesReport && (
-            <div className="space-y-8">
-              {/* Sales Summary KPI Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Total Orders</span>
-                  <p className="text-3xl font-black text-slate-900">{salesReport.summary?.orderCount || salesReport.summary?.count || 0}</p>
-                  <span className="text-xs text-gray-500 font-medium">Completed Transactions</span>
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Net Sales Revenue</span>
-                  <p className="text-3xl font-black text-emerald-600">₹{(salesReport.summary?.netSales || salesReport.summary?.revenue || 0).toLocaleString('en-IN')}</p>
-                  <span className="text-xs text-emerald-600 font-semibold">Excludes GST Tax</span>
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Gross Billing</span>
-                  <p className="text-3xl font-black text-blue-600">₹{(salesReport.summary?.grossBilling || salesReport.summary?.revenue || 0).toLocaleString('en-IN')}</p>
-                  <span className="text-xs text-blue-600 font-semibold">Includes GST Tax</span>
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">GST Tax Collected</span>
-                  <p className="text-3xl font-black text-amber-600">₹{(salesReport.summary?.gstCollected || salesReport.summary?.tax || 0).toLocaleString('en-IN')}</p>
-                  <span className="text-xs text-amber-600 font-semibold">Output GST Tax</span>
-                </div>
-              </div>
-
-              {/* Secondary Financial KPIs */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Cost of Goods Sold (COGS)</span>
-                  <p className="text-2xl font-black text-amber-700">₹{(salesReport.summary?.cogs || salesReport.summary?.cost || 0).toLocaleString('en-IN')}</p>
-                  <span className="text-xs text-gray-400 font-medium">Historical Cost</span>
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Gross Profit</span>
-                  <p className="text-2xl font-black text-emerald-600">₹{(salesReport.summary?.profit || 0).toLocaleString('en-IN')}</p>
-                  <span className="text-xs text-emerald-600 font-semibold">Net Sales - COGS</span>
-                </div>
-
-                <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Profit Margin</span>
-                  <p className="text-2xl font-black text-emerald-400">{salesReport.summary?.margin || 0}%</p>
-                  <span className="text-xs text-slate-400 font-medium">(Profit / Net Sales) × 100</span>
-                </div>
-              </div>
-
-              {/* Product-Wise Sales Analysis Table */}
-              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden space-y-4">
-                <div className="px-6 py-4 border-b border-gray-100 font-bold text-gray-800 text-base flex justify-between items-center">
-                  <div className="flex items-center space-x-2">
-                    <FaBox className="text-blue-600" />
-                    <span>Product-Wise Sales Performance</span>
-                  </div>
-                  <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-3 py-1 rounded-full">
-                    {salesReport.productAnalysis?.length || 0} Products Sold
-                  </span>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm text-gray-600 min-w-[700px]">
-                    <thead className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase">
-                      <tr>
-                        <th className="px-6 py-3">Product Name</th>
-                        <th className="px-6 py-3">SKU</th>
-                        <th className="px-6 py-3 text-right">Qty Sold</th>
-                        <th className="px-6 py-3 text-right">Net Sales (₹)</th>
-                        <th className="px-6 py-3 text-right">COGS (₹)</th>
-                        <th className="px-6 py-3 text-right">Gross Profit (₹)</th>
-                        <th className="px-6 py-3 text-right">Margin %</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {(salesReport.productAnalysis || []).length === 0 ? (
-                        <tr>
-                          <td colSpan="7" className="px-6 py-4 text-center text-gray-400 text-sm">No product sales recorded in this period</td>
-                        </tr>
-                      ) : (
-                        (salesReport.productAnalysis || []).map((p, idx) => (
-                          <tr key={p.productId || idx} className="hover:bg-gray-50/50">
-                            <td className="px-6 py-3 font-bold text-gray-900">{p.productName}</td>
-                            <td className="px-6 py-3 font-mono text-xs text-gray-400">{p.sku}</td>
-                            <td className="px-6 py-3 text-right font-extrabold text-slate-900">{p.quantitySold}</td>
-                            <td className="px-6 py-3 text-right font-extrabold text-emerald-600">₹{p.netSales?.toFixed(2)}</td>
-                            <td className="px-6 py-3 text-right text-amber-700 font-semibold">₹{p.cogs?.toFixed(2)}</td>
-                            <td className="px-6 py-3 text-right font-extrabold text-slate-900">+ ₹{p.profit?.toFixed(2)}</td>
-                            <td className="px-6 py-3 text-right font-bold text-blue-600">{p.profitMarginPercent}%</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Customer-Wise Sales Breakdown Table */}
-              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden space-y-4">
-                <div className="px-6 py-4 border-b border-gray-100 font-bold text-gray-800 text-base flex justify-between items-center">
-                  <div className="flex items-center space-x-2">
-                    <FaUser className="text-emerald-600" />
-                    <span>Customer-Wise Sales Breakdown</span>
-                  </div>
-                  <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-3 py-1 rounded-full">
-                    {salesReport.customerAnalysis?.length || 0} Customers
-                  </span>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm text-gray-600 min-w-[700px]">
-                    <thead className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase">
-                      <tr>
-                        <th className="px-6 py-3">Customer Name</th>
-                        <th className="px-6 py-3 text-center">Orders</th>
-                        <th className="px-6 py-3 text-right">Net Sales (₹)</th>
-                        <th className="px-6 py-3 text-right">GST (₹)</th>
-                        <th className="px-6 py-3 text-right">Gross Billing (₹)</th>
-                        <th className="px-6 py-3 text-right">Profit (₹)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {(salesReport.customerAnalysis || []).length === 0 ? (
-                        <tr>
-                          <td colSpan="6" className="px-6 py-4 text-center text-gray-400 text-sm">No customer sales recorded in this period</td>
-                        </tr>
-                      ) : (
-                        (salesReport.customerAnalysis || []).map((c, idx) => (
-                          <tr key={c.customerId || idx} className="hover:bg-gray-50/50">
-                            <td className="px-6 py-3 font-bold text-gray-900">{c.customerName}</td>
-                            <td className="px-6 py-3 text-center font-extrabold text-slate-800">{c.orderCount}</td>
-                            <td className="px-6 py-3 text-right font-bold text-slate-900">₹{c.netSales?.toFixed(2)}</td>
-                            <td className="px-6 py-3 text-right text-amber-600 font-semibold">₹{c.gst?.toFixed(2)}</td>
-                            <td className="px-6 py-3 text-right font-extrabold text-blue-600">₹{c.grossBilling?.toFixed(2)}</td>
-                            <td className="px-6 py-3 text-right font-extrabold text-emerald-600">+ ₹{c.profit?.toFixed(2)}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Transactions Table */}
-              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-100 font-bold text-gray-800 text-base flex justify-between items-center">
-                  <span>Sales Transactions List</span>
-                  <span className="text-xs font-semibold text-gray-400">
-                    {(salesReport.sales || salesReport.transactions || []).length} Invoices
-                  </span>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm text-gray-600 min-w-[700px]">
-                    <thead className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase">
-                      <tr>
-                        <th className="px-6 py-3">Invoice No</th>
-                        <th className="px-6 py-3">Customer</th>
-                        <th className="px-6 py-3">Date</th>
-                        <th className="px-6 py-3 text-right">Subtotal</th>
-                        <th className="px-6 py-3 text-right">GST</th>
-                        <th className="px-6 py-3 text-right">Grand Total</th>
-                        <th className="px-6 py-3 text-right">Profit</th>
-                        <th className="px-6 py-3 text-center">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {(salesReport.sales || salesReport.transactions || []).map((s) => (
-                        <tr key={s.id} className="hover:bg-gray-50/50">
-                          <td className="px-6 py-3 font-mono font-bold text-slate-900">{s.invoiceNumber}</td>
-                          <td className="px-6 py-3 font-semibold text-gray-800">{s.customerName}</td>
-                          <td className="px-6 py-3 text-gray-600">{new Date(s.saleDate).toLocaleDateString()}</td>
-                          <td className="px-6 py-3 text-right text-gray-700">₹{(s.subtotal || (s.grandTotal - (s.totalGst || 0)))?.toFixed(2)}</td>
-                          <td className="px-6 py-3 text-right text-amber-600 font-medium">₹{(s.totalGst || 0)?.toFixed(2)}</td>
-                          <td className="px-6 py-3 text-right font-extrabold text-slate-900">₹{s.grandTotal?.toFixed(2)}</td>
-                          <td className="px-6 py-3 text-right font-bold text-emerald-600">+ ₹{s.totalProfit?.toFixed(2)}</td>
-                          <td className="px-6 py-3 text-center">
-                            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
-                              {s.paymentStatus}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* TAB 2: PURCHASE REPORT */}
           {activeTab === 'purchases' && purchaseReport && (
             <div className="space-y-8">
@@ -441,9 +240,9 @@ const Reports = () => {
                         <th className="px-6 py-3">Supplier Name</th>
                         <th className="px-6 py-3 text-center">Orders</th>
                         <th className="px-6 py-3 text-right">Qty Purchased</th>
-                        <th className="px-6 py-3 text-right">Net Value (₹)</th>
-                        <th className="px-6 py-3 text-right">GST Paid (₹)</th>
-                        <th className="px-6 py-3 text-right">Gross Spend (₹)</th>
+                        <th className="px-6 py-3 text-right">Taxable Purchase (₹)</th>
+                        <th className="px-6 py-3 text-right">Input GST (₹)</th>
+                        <th className="px-6 py-3 text-right">Supplier Total (₹)</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
@@ -529,9 +328,9 @@ const Reports = () => {
                         <th className="px-6 py-3">Supplier</th>
                         <th className="px-6 py-3">Date</th>
                         <th className="px-6 py-3 text-center">Items</th>
-                        <th className="px-6 py-3 text-right">Subtotal</th>
-                        <th className="px-6 py-3 text-right">GST Tax</th>
-                        <th className="px-6 py-3 text-right">Total Amount</th>
+                        <th className="px-6 py-3 text-right">Taxable Subtotal (₹)</th>
+                        <th className="px-6 py-3 text-right">Input GST (₹)</th>
+                        <th className="px-6 py-3 text-right">Supplier Total (₹)</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
@@ -553,177 +352,11 @@ const Reports = () => {
             </div>
           )}
 
-          {/* TAB 3: PROFIT & LOSS REPORT */}
-          {activeTab === 'profit' && profitReport && (
-            <div className="space-y-8">
-              {/* Profit & Loss Summary Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Net Sales Revenue</span>
-                  <p className="text-3xl font-black text-slate-900">₹{(profitReport.summary?.netSales || profitReport.revenue || 0).toLocaleString('en-IN')}</p>
-                  <span className="text-xs text-slate-500 font-semibold">Excludes GST Tax</span>
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Cost of Goods Sold (COGS)</span>
-                  <p className="text-3xl font-black text-amber-700">₹{(profitReport.summary?.cogs || profitReport.cogs || 0).toLocaleString('en-IN')}</p>
-                  <span className="text-xs text-amber-700 font-semibold">Historical Cost</span>
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Gross Profit</span>
-                  <p className="text-3xl font-black text-emerald-600">₹{(profitReport.summary?.grossProfit || profitReport.grossProfit || 0).toLocaleString('en-IN')}</p>
-                  <span className="text-xs text-emerald-600 font-semibold">Net Sales - COGS</span>
-                </div>
-
-                <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Gross Profit Margin</span>
-                  <p className="text-3xl font-black text-emerald-400">{profitReport.summary?.margin || profitReport.profitMarginPercent || 0}%</p>
-                  <span className="text-xs text-slate-400 font-medium">(Gross Profit / Net Sales) × 100</span>
-                </div>
-              </div>
-
-              {/* Informational GST & Gross Billing Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <div className="bg-amber-50/60 border border-amber-200 rounded-2xl p-5 shadow-sm flex items-center space-x-4">
-                  <div className="p-3 bg-amber-100 text-amber-700 rounded-xl text-xl">
-                    <FaReceipt />
-                  </div>
-                  <div>
-                    <span className="text-xs text-amber-800 font-bold uppercase tracking-wider">GST Tax Collected (Output Tax)</span>
-                    <p className="text-xl font-black text-amber-900">₹{(profitReport.summary?.gstCollected || 0).toLocaleString('en-IN')}</p>
-                    <span className="text-xs text-amber-700 font-medium">Informational only — Not included in P&L Revenue</span>
-                  </div>
-                </div>
-
-                <div className="bg-blue-50/60 border border-blue-200 rounded-2xl p-5 shadow-sm flex items-center space-x-4">
-                  <div className="p-3 bg-blue-100 text-blue-700 rounded-xl text-xl">
-                    <FaRupeeSign />
-                  </div>
-                  <div>
-                    <span className="text-xs text-blue-800 font-bold uppercase tracking-wider">Gross Billing (Incl. GST)</span>
-                    <p className="text-xl font-black text-blue-900">₹{(profitReport.summary?.grossBilling || 0).toLocaleString('en-IN')}</p>
-                    <span className="text-xs text-blue-700 font-medium">Total Cash/Card Billed to Customers</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Profit & Loss Calculation Breakdown Card */}
-              <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm space-y-4 max-w-3xl">
-                <h3 className="font-bold text-gray-800 text-lg border-b border-gray-100 pb-3 flex items-center gap-2">
-                  <FaChartLine className="text-emerald-600" />
-                  <span>Profit & Loss Statement (P&L Breakdown)</span>
-                </h3>
-                <div className="space-y-3 text-sm">
-                  <div className="flex justify-between py-2 border-b border-gray-50">
-                    <span className="text-gray-600 font-semibold">Net Sales Revenue (Excl. GST):</span>
-                    <span className="font-extrabold text-slate-900">₹{(profitReport.summary?.netSales || profitReport.revenue || 0).toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-gray-50">
-                    <span className="text-gray-600 font-semibold">LESS: Cost of Goods Sold (COGS):</span>
-                    <span className="font-extrabold text-amber-700">- ₹{(profitReport.summary?.cogs || profitReport.cogs || 0).toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between py-3 font-extrabold text-lg text-emerald-800 bg-emerald-50 rounded-xl px-4">
-                    <span>NET GROSS PROFIT:</span>
-                    <span>₹{(profitReport.summary?.grossProfit || profitReport.grossProfit || 0).toFixed(2)}</span>
-                  </div>
-
-                  <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl text-xs text-gray-500 flex items-start space-x-2.5 mt-2">
-                    <FaInfoCircle className="text-blue-500 text-base flex-shrink-0 mt-0.5" />
-                    <span>
-                      <strong>Note:</strong> Operating Expenses (OpEx like Rent, Electricity, Salaries) are not currently tracked in this inventory system. The metric above represents <strong>Gross Profit</strong> (Sales Revenue minus Cost of Goods Sold).
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Product Profitability Analysis Table */}
-              {profitReport.productProfit && profitReport.productProfit.length > 0 && (
-                <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden space-y-4">
-                  <div className="px-6 py-4 border-b border-gray-100 font-bold text-gray-800 text-base flex justify-between items-center">
-                    <div className="flex items-center space-x-2">
-                      <FaBox className="text-emerald-600" />
-                      <span>Product Profitability Rankings</span>
-                    </div>
-                    <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-3 py-1 rounded-full">
-                      Sorted by Gross Profit
-                    </span>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm text-gray-600 min-w-[700px]">
-                      <thead className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase">
-                        <tr>
-                          <th className="px-6 py-3">Product Name</th>
-                          <th className="px-6 py-3">SKU</th>
-                          <th className="px-6 py-3 text-right">Qty Sold</th>
-                          <th className="px-6 py-3 text-right">Net Sales (₹)</th>
-                          <th className="px-6 py-3 text-right">COGS (₹)</th>
-                          <th className="px-6 py-3 text-right">Gross Profit (₹)</th>
-                          <th className="px-6 py-3 text-right">Margin %</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {profitReport.productProfit.map((p, idx) => (
-                          <tr key={p.productId || idx} className="hover:bg-gray-50/50">
-                            <td className="px-6 py-3 font-bold text-gray-900">{p.productName}</td>
-                            <td className="px-6 py-3 font-mono text-xs text-gray-400">{p.sku}</td>
-                            <td className="px-6 py-3 text-right font-extrabold text-slate-800">{p.quantitySold}</td>
-                            <td className="px-6 py-3 text-right font-bold text-slate-900">₹{p.netSales?.toFixed(2)}</td>
-                            <td className="px-6 py-3 text-right font-semibold text-amber-700">₹{p.cogs?.toFixed(2)}</td>
-                            <td className="px-6 py-3 text-right font-extrabold text-emerald-600">+ ₹{p.grossProfit?.toFixed(2)}</td>
-                            <td className="px-6 py-3 text-right font-bold text-blue-600">{p.profitMarginPercent || p.marginPercent}%</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* Daily Profit Trend Table */}
-              {profitReport.trend && profitReport.trend.length > 0 && (
-                <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden space-y-4">
-                  <div className="px-6 py-4 border-b border-gray-100 font-bold text-gray-800 text-base flex justify-between items-center">
-                    <div className="flex items-center space-x-2">
-                      <FaChartBar className="text-purple-600" />
-                      <span>Daily Profit Performance Trend</span>
-                    </div>
-                    <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-3 py-1 rounded-full">
-                      {profitReport.trend.length} Days
-                    </span>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm text-gray-600 min-w-[600px]">
-                      <thead className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase">
-                        <tr>
-                          <th className="px-6 py-3">Date</th>
-                          <th className="px-6 py-3 text-right">Net Sales (₹)</th>
-                          <th className="px-6 py-3 text-right">COGS (₹)</th>
-                          <th className="px-6 py-3 text-right">Gross Profit (₹)</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {profitReport.trend.map((t, idx) => (
-                          <tr key={t.date || idx} className="hover:bg-gray-50/50">
-                            <td className="px-6 py-3 font-semibold text-gray-800">{new Date(t.date).toLocaleDateString()}</td>
-                            <td className="px-6 py-3 text-right font-bold text-slate-900">₹{t.netSales?.toFixed(2)}</td>
-                            <td className="px-6 py-3 text-right font-semibold text-amber-700">₹{t.cogs?.toFixed(2)}</td>
-                            <td className="px-6 py-3 text-right font-extrabold text-emerald-600">+ ₹{t.grossProfit?.toFixed(2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
           {/* TAB 4: INVENTORY ANALYTICS */}
           {activeTab === 'inventory' && inventoryAnalytics && (
             <div className="space-y-8">
               {/* Inventory Summary KPI Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                 <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
                   <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Total Products</span>
                   <p className="text-3xl font-black text-slate-900">{inventoryAnalytics.summary?.totalProducts || 0}</p>
@@ -741,22 +374,10 @@ const Reports = () => {
                   <p className="text-3xl font-black text-emerald-600">₹{(inventoryAnalytics.summary?.inventoryCostValue || 0).toLocaleString('en-IN')}</p>
                   <span className="text-xs text-emerald-600 font-semibold">Cost Price Baseline</span>
                 </div>
-
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Potential Retail Value</span>
-                  <p className="text-3xl font-black text-blue-600">₹{(inventoryAnalytics.summary?.potentialRetailValue || 0).toLocaleString('en-IN')}</p>
-                  <span className="text-xs text-blue-600 font-semibold">Selling Price Baseline</span>
-                </div>
               </div>
 
               {/* Secondary Inventory Status KPIs */}
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-6">
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Potential Gross Margin</span>
-                  <p className="text-2xl font-black text-emerald-700">₹{(inventoryAnalytics.summary?.potentialGrossMargin || 0).toLocaleString('en-IN')}</p>
-                  <span className="text-xs text-gray-400 font-medium">Retail - Cost Baseline</span>
-                </div>
-
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                 <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
                   <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">In Stock Products</span>
                   <p className="text-2xl font-black text-emerald-600">{inventoryAnalytics.summary?.inStock || 0}</p>
@@ -795,8 +416,6 @@ const Reports = () => {
                         <th className="px-6 py-3 text-center">Products</th>
                         <th className="px-6 py-3 text-right">Total Stock Units</th>
                         <th className="px-6 py-3 text-right">Inventory Cost Value (₹)</th>
-                        <th className="px-6 py-3 text-right">Potential Retail Value (₹)</th>
-                        <th className="px-6 py-3 text-right">Potential Margin (₹)</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
@@ -806,8 +425,6 @@ const Reports = () => {
                           <td className="px-6 py-3 text-center font-extrabold text-slate-800">{c.productCount}</td>
                           <td className="px-6 py-3 text-right font-bold text-indigo-600">{c.totalStock}</td>
                           <td className="px-6 py-3 text-right font-extrabold text-emerald-600">₹{c.inventoryCostValue?.toFixed(2)}</td>
-                          <td className="px-6 py-3 text-right font-bold text-blue-600">₹{c.potentialRetailValue?.toFixed(2)}</td>
-                          <td className="px-6 py-3 text-right font-semibold text-slate-800">₹{c.potentialGrossMargin?.toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -836,7 +453,6 @@ const Reports = () => {
                         <th className="px-6 py-3 text-right">Current Stock</th>
                         <th className="px-6 py-3 text-right">Cost Price (₹)</th>
                         <th className="px-6 py-3 text-right">Inventory Cost Value (₹)</th>
-                        <th className="px-6 py-3 text-right">Potential Retail Value (₹)</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
@@ -848,7 +464,6 @@ const Reports = () => {
                           <td className="px-6 py-3 text-right font-extrabold text-indigo-600">{p.currentStock}</td>
                           <td className="px-6 py-3 text-right text-gray-700 font-medium">₹{p.costPrice?.toFixed(2)}</td>
                           <td className="px-6 py-3 text-right font-extrabold text-emerald-600">₹{p.inventoryCostValue?.toFixed(2)}</td>
-                          <td className="px-6 py-3 text-right font-bold text-blue-600">₹{p.potentialRetailValue?.toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -884,7 +499,6 @@ const Reports = () => {
                         <th className="px-6 py-3">Supplier</th>
                         <th className="px-6 py-3 text-right">Stock</th>
                         <th className="px-6 py-3 text-right">Cost (₹)</th>
-                        <th className="px-6 py-3 text-right">Selling (₹)</th>
                         <th className="px-6 py-3 text-right">Asset Value (₹)</th>
                         <th className="px-6 py-3 text-center">Status</th>
                       </tr>
@@ -903,7 +517,6 @@ const Reports = () => {
                             <td className="px-6 py-3 text-gray-600 text-xs">{p.supplierName}</td>
                             <td className="px-6 py-3 text-right font-extrabold text-slate-900">{p.currentStock}</td>
                             <td className="px-6 py-3 text-right text-gray-700">₹{p.costPrice?.toFixed(2)}</td>
-                            <td className="px-6 py-3 text-right text-gray-700">₹{p.sellingPrice?.toFixed(2)}</td>
                             <td className="px-6 py-3 text-right font-extrabold text-emerald-600">₹{p.inventoryCostValue?.toFixed(2)}</td>
                             <td className="px-6 py-3 text-center">
                               <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
@@ -983,7 +596,7 @@ const Reports = () => {
               <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
                 <div>
                   <h3 className="font-extrabold text-slate-900 text-base">Construction Projects Profitability Directory</h3>
-                  <p className="text-xs text-gray-500">Executive comparison of revenue, actual costs, gross margins & outstanding balances.</p>
+                  <p className="text-xs text-gray-500">Executive comparison of Project Budget, actual costs (materials + expenses), project profit, margins & cash collections.</p>
                 </div>
                 <span className="text-xs font-bold bg-purple-100 text-purple-800 px-3 py-1 rounded-full">
                   {projectsProfitability.length} Active Projects
@@ -996,53 +609,401 @@ const Reports = () => {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs text-gray-600 min-w-[900px]">
+                  <table className="w-full text-left text-xs text-gray-600 min-w-[1050px]">
                     <thead className="bg-gray-50 border-b border-gray-200 text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
                       <tr>
                         <th className="px-4 py-3">Project / Client</th>
                         <th className="px-4 py-3">Code</th>
-                        <th className="px-4 py-3 text-right">Revenue (₹)</th>
-                        <th className="px-4 py-3 text-right">Actual Cost (₹)</th>
-                        <th className="px-4 py-3 text-right">Gross Profit (₹)</th>
+                        <th className="px-4 py-3 text-right">Project Budget (Excl. GST) (₹)</th>
+                        <th className="px-4 py-3 text-right">Material Cost (Excl. GST) (₹)</th>
+                        <th className="px-4 py-3 text-right">Expenses (₹)</th>
+                        <th className="px-4 py-3 text-right">Actual Cost (Excl. GST) (₹)</th>
+                        <th className="px-4 py-3 text-right">Project Profit (₹)</th>
                         <th className="px-4 py-3 text-right">Margin %</th>
+                        <th className="px-4 py-3 text-right">Invoiced (Incl. GST) (₹)</th>
                         <th className="px-4 py-3 text-right">Received (₹)</th>
-                        <th className="px-4 py-3 text-right">Outstanding (₹)</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 font-medium">
-                      {projectsProfitability.map((p) => (
-                        <tr key={p.projectId} className="hover:bg-gray-50/60 transition-colors">
-                          <td className="px-4 py-3">
-                            <span className="font-extrabold text-slate-900 block">{p.projectName}</span>
-                            <span className="text-[10px] text-gray-400 font-semibold">{p.customerName}</span>
-                          </td>
-                          <td className="px-4 py-3 font-mono text-emerald-700 font-bold">{p.projectCode}</td>
-                          <td className="px-4 py-3 text-right font-black text-slate-900">
-                            ₹{p.revenue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="px-4 py-3 text-right font-bold text-slate-700">
-                            ₹{p.totalProjectCost.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className={`px-4 py-3 text-right font-black ${p.grossProfit >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
-                            ₹{p.grossProfit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="px-4 py-3 text-right font-black font-mono">
-                            <span className={`px-2 py-0.5 rounded text-[10px] ${p.grossProfit >= 0 ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'}`}>
-                              {p.grossMargin}%
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-right font-bold text-blue-700">
-                            ₹{p.totalReceived.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="px-4 py-3 text-right font-black text-amber-800">
-                            ₹{p.outstanding.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                          </td>
-                        </tr>
-                      ))}
+                      {projectsProfitability.map((p) => {
+                        const profit = p.projectProfit !== undefined ? p.projectProfit : p.grossProfit;
+                        const margin = p.projectMargin !== undefined ? p.projectMargin : (p.grossMargin || 0);
+                        const isPositive = profit >= 0;
+
+                        return (
+                          <tr key={p.projectId} className="hover:bg-gray-50/60 transition-colors">
+                            <td className="px-4 py-3">
+                              <span className="font-extrabold text-slate-900 block">{p.projectName}</span>
+                              <span className="text-[10px] text-gray-400 font-semibold">{p.customerName}</span>
+                            </td>
+                            <td className="px-4 py-3 font-mono text-emerald-700 font-bold">{p.projectCode}</td>
+                            <td className="px-4 py-3 text-right font-black text-indigo-950">
+                              ₹{(p.projectBudget !== undefined ? p.projectBudget : (p.revenue || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-4 py-3 text-right font-medium text-slate-600">
+                              ₹{(p.totalMaterialCost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-4 py-3 text-right font-medium text-slate-600">
+                              ₹{(p.totalProjectExpenses || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-4 py-3 text-right font-bold text-slate-800">
+                              ₹{(p.actualProjectCost !== undefined ? p.actualProjectCost : (p.totalProjectCost || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className={`px-4 py-3 text-right font-black ${isPositive ? 'text-emerald-700' : 'text-rose-600'}`}>
+                              ₹{profit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-4 py-3 text-right font-black font-mono">
+                              <span className={`px-2 py-0.5 rounded text-[10px] ${isPositive ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'}`}>
+                                {margin}%
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right font-medium text-slate-600">
+                              ₹{(p.totalInvoiced !== undefined ? p.totalInvoiced : (p.revenue || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-4 py-3 text-right font-bold text-blue-700">
+                              ₹{(p.totalReceived || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* GST & Tax Summary Tab */}
+          {activeTab === 'gst' && gstSummary && (
+            <div className="space-y-6">
+              {/* Informational Policy Banner */}
+              <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-5 text-sm text-amber-900 shadow-sm flex items-start space-x-3">
+                <FaInfoCircle className="text-amber-600 mt-0.5 flex-shrink-0 text-base" />
+                <div className="space-y-1">
+                  <p className="font-bold text-amber-950">Statutory GST & Operational Profitability Separation</p>
+                  <p className="text-amber-900 leading-relaxed">
+                    Input GST is GST charged by suppliers. Output GST is GST collected from customers. GST amounts are shown separately from operational project profitability.
+                  </p>
+                  <div className="flex flex-wrap gap-2 pt-1 text-xs font-semibold">
+                    <span className="bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-full border border-amber-300">
+                      ITC Eligibility Status: UNKNOWN / NOT DETERMINED
+                    </span>
+                    <span className="bg-white/80 text-slate-700 px-2.5 py-0.5 rounded-full border border-amber-200">
+                      Input GST is NOT project material cost
+                    </span>
+                    <span className="bg-white/80 text-slate-700 px-2.5 py-0.5 rounded-full border border-amber-200">
+                      Output GST is NOT project revenue/profit
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Three KPI Summary Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* 1. Input GST (Purchases) */}
+                <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm space-y-4">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">PURCHASES / PROCUREMENT</span>
+                      <h3 className="text-lg font-black text-slate-900">Input GST Charged</h3>
+                    </div>
+                    <span className="bg-emerald-50 text-emerald-700 text-xs font-black px-2.5 py-1 rounded-full border border-emerald-200">
+                      {gstSummary.summary?.purchaseCount || 0} Bills
+                    </span>
+                  </div>
+
+                  <div className="space-y-2 border-y border-slate-100 py-3">
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-slate-500 font-medium">Taxable Purchases:</span>
+                      <span className="font-bold text-slate-800">
+                        ₹{(gstSummary.summary?.taxablePurchases || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-amber-600 font-bold">Input GST Charged:</span>
+                      <span className="font-black text-amber-600">
+                        ₹{(gstSummary.summary?.inputGst || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-slate-900 font-bold">Supplier Total (Gross):</span>
+                      <span className="font-black text-slate-900">
+                        ₹{(gstSummary.summary?.supplierTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-50 rounded-xl p-3 space-y-1 text-xs border border-slate-100">
+                    <span className="font-bold text-slate-500 block uppercase tracking-wider text-[10px]">Tax Component Breakdown</span>
+                    <div className="grid grid-cols-3 gap-1 pt-1 font-mono text-center">
+                      <div className="bg-white p-1 rounded border border-slate-200">
+                        <span className="block text-[9px] text-slate-400 font-bold">CGST</span>
+                        <span className="font-bold text-slate-700">₹{(gstSummary.summary?.cgstTotal || 0).toFixed(2)}</span>
+                      </div>
+                      <div className="bg-white p-1 rounded border border-slate-200">
+                        <span className="block text-[9px] text-slate-400 font-bold">SGST</span>
+                        <span className="font-bold text-slate-700">₹{(gstSummary.summary?.sgstTotal || 0).toFixed(2)}</span>
+                      </div>
+                      <div className="bg-white p-1 rounded border border-slate-200">
+                        <span className="block text-[9px] text-slate-400 font-bold">IGST</span>
+                        <span className="font-bold text-slate-700">₹{(gstSummary.summary?.igstTotal || 0).toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Output GST (Customer Invoices) */}
+                <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm space-y-4">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">SALES / CUSTOMER BILLING</span>
+                      <h3 className="text-lg font-black text-slate-900">Output GST</h3>
+                    </div>
+                    <span className="bg-blue-50 text-blue-700 text-xs font-black px-2.5 py-1 rounded-full border border-blue-200">
+                      {gstSummary.summary?.outputCount || 0} Invoices
+                    </span>
+                  </div>
+
+                  <div className="space-y-2 border-y border-slate-100 py-3">
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-slate-500 font-medium">Taxable Sales/Invoices:</span>
+                      <span className="font-bold text-slate-800">
+                        ₹{(gstSummary.summary?.taxableOutput || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-blue-600 font-bold">Output GST Charged:</span>
+                      <span className="font-black text-blue-600">
+                        ₹{(gstSummary.summary?.outputGst || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-slate-900 font-bold">Customer Invoice Total:</span>
+                      <span className="font-black text-slate-900">
+                        ₹{(gstSummary.summary?.customerInvoiceTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-50/50 rounded-xl p-3 text-xs text-blue-800 border border-blue-100 space-y-1">
+                    <p className="font-bold">Customer Billing Independence</p>
+                    <p className="text-[11px] text-blue-700 leading-snug">
+                      Customer invoice amounts and Output GST reflect billed commitments and do not enter internal project operational cost or project profitability formulas.
+                    </p>
+                  </div>
+                </div>
+
+                {/* 3. GST Difference */}
+                <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-sm space-y-4 flex flex-col justify-between">
+                  <div className="space-y-1">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">REPORTING DIFFERENCE</span>
+                    <h3 className="text-lg font-black text-white">GST Difference</h3>
+                    <p className="text-xs text-slate-400">= Output GST − Input GST</p>
+                  </div>
+
+                  <div className="space-y-2 py-2">
+                    <div className="flex items-baseline space-x-2">
+                      <span className="text-3xl font-black text-emerald-400">
+                        ₹{Math.abs(gstSummary.summary?.netGstPosition || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <span className="inline-block text-xs font-extrabold px-3 py-1 rounded-full uppercase tracking-wider bg-slate-800 text-slate-300 border border-slate-700">
+                      Input vs Output GST Difference
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-800/80 rounded-xl p-3 text-[11px] text-slate-300 border border-slate-700 space-y-1">
+                    <p className="font-bold text-slate-200">Reporting Disclaimer</p>
+                    <p className="text-slate-400 leading-snug">
+                      Output GST minus Input GST. This is a reporting difference only and does not determine legally payable tax or eligible ITC.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Purchase / Input GST Ledger Table */}
+              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden space-y-4">
+                <div className="px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+                  <div className="flex items-center space-x-2">
+                    <FaTruckLoading className="text-slate-800 text-lg" />
+                    <div>
+                      <h4 className="font-bold text-gray-800 text-base">Purchase Input GST Register</h4>
+                      <p className="text-xs text-slate-500">All purchase invoices with taxable values and supplier-charged GST breakdown</p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-3 py-1 rounded-full self-start sm:self-auto">
+                    {gstSummary.purchaseTransactions?.length || 0} Purchase Records
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm text-gray-600 min-w-[900px]">
+                    <thead className="bg-slate-50 border-b border-gray-200 text-[11px] font-bold text-slate-500 uppercase">
+                      <tr>
+                        <th className="px-5 py-3">Purchase #</th>
+                        <th className="px-5 py-3">Supplier</th>
+                        <th className="px-5 py-3">Date</th>
+                        <th className="px-5 py-3 text-right">Taxable Subtotal (₹)</th>
+                        <th className="px-4 py-3 text-right">CGST (₹)</th>
+                        <th className="px-4 py-3 text-right">SGST (₹)</th>
+                        <th className="px-4 py-3 text-right">IGST (₹)</th>
+                        <th className="px-5 py-3 text-right text-amber-600">Input GST (₹)</th>
+                        <th className="px-5 py-3 text-right font-black text-slate-900">Supplier Total (₹)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {(gstSummary.purchaseTransactions || []).length === 0 ? (
+                        <tr>
+                          <td colSpan="9" className="px-6 py-8 text-center text-gray-400 text-sm font-medium">
+                            No purchases recorded in this period
+                          </td>
+                        </tr>
+                      ) : (
+                        (gstSummary.purchaseTransactions || []).map((p) => (
+                          <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="px-5 py-3 font-mono font-bold text-slate-800 text-xs">
+                              {p.purchaseNumber}
+                            </td>
+                            <td className="px-5 py-3 font-semibold text-gray-900">
+                              {p.supplierName}
+                            </td>
+                            <td className="px-5 py-3 text-xs text-slate-500">
+                              {new Date(p.date).toLocaleDateString('en-IN')}
+                            </td>
+                            <td className="px-5 py-3 text-right font-bold text-slate-800">
+                              ₹{p.taxableAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-4 py-3 text-right font-mono text-xs text-slate-600">
+                              {p.hasBreakdown && p.cgst !== null ? `₹${p.cgst.toFixed(2)}` : '—'}
+                            </td>
+                            <td className="px-4 py-3 text-right font-mono text-xs text-slate-600">
+                              {p.hasBreakdown && p.sgst !== null ? `₹${p.sgst.toFixed(2)}` : '—'}
+                            </td>
+                            <td className="px-4 py-3 text-right font-mono text-xs text-slate-600">
+                              {p.hasBreakdown && p.igst !== null ? `₹${p.igst.toFixed(2)}` : '—'}
+                            </td>
+                            <td className="px-5 py-3 text-right font-black text-amber-600">
+                              ₹{p.inputGst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-5 py-3 text-right font-black text-slate-900">
+                              ₹{p.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                    <tfoot className="bg-slate-50 border-t-2 border-slate-200 font-bold text-xs text-slate-800">
+                      <tr>
+                        <td colSpan="3" className="px-5 py-3 text-slate-600 uppercase">Total Input GST</td>
+                        <td className="px-5 py-3 text-right font-black text-slate-900">
+                          ₹{(gstSummary.summary?.taxablePurchases || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono">
+                          ₹{(gstSummary.summary?.cgstTotal || 0).toFixed(2)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono">
+                          ₹{(gstSummary.summary?.sgstTotal || 0).toFixed(2)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono">
+                          ₹{(gstSummary.summary?.igstTotal || 0).toFixed(2)}
+                        </td>
+                        <td className="px-5 py-3 text-right font-black text-amber-600">
+                          ₹{(gstSummary.summary?.inputGst || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-5 py-3 text-right font-black text-slate-900">
+                          ₹{(gstSummary.summary?.supplierTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+
+              {/* Customer / Output GST Ledger Table */}
+              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden space-y-4">
+                <div className="px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+                  <div className="flex items-center space-x-2">
+                    <FaReceipt className="text-slate-800 text-lg" />
+                    <div>
+                      <h4 className="font-bold text-gray-800 text-base">Customer Output GST Register</h4>
+                      <p className="text-xs text-slate-500">Project customer invoices with taxable values and customer-billed GST breakdown</p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-3 py-1 rounded-full self-start sm:self-auto">
+                    {gstSummary.outputTransactions?.length || 0} Invoices
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm text-gray-600 min-w-[800px]">
+                    <thead className="bg-slate-50 border-b border-gray-200 text-[11px] font-bold text-slate-500 uppercase">
+                      <tr>
+                        <th className="px-5 py-3">Type</th>
+                        <th className="px-5 py-3">Reference #</th>
+                        <th className="px-5 py-3">Customer / Project</th>
+                        <th className="px-5 py-3">Date</th>
+                        <th className="px-5 py-3 text-right">Taxable Value (₹)</th>
+                        <th className="px-5 py-3 text-right text-blue-600">Output GST (₹)</th>
+                        <th className="px-5 py-3 text-right font-black text-slate-900">Customer Total (₹)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {(gstSummary.outputTransactions || []).length === 0 ? (
+                        <tr>
+                          <td colSpan="7" className="px-6 py-8 text-center text-gray-400 text-sm font-medium">
+                            No customer invoices recorded in this period
+                          </td>
+                        </tr>
+                      ) : (
+                        (gstSummary.outputTransactions || []).map((o) => (
+                          <tr key={o.id} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="px-5 py-3">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase bg-blue-50 text-blue-700 border border-blue-200">
+                                Project Invoice
+                              </span>
+                            </td>
+                            <td className="px-5 py-3 font-mono font-bold text-slate-800 text-xs">
+                              {o.referenceNumber}
+                            </td>
+                            <td className="px-5 py-3">
+                              <span className="font-semibold text-gray-900 block">{o.customerName}</span>
+                              {o.projectName && (
+                                <span className="text-[11px] text-slate-400 block font-medium">Project: {o.projectName}</span>
+                              )}
+                            </td>
+                            <td className="px-5 py-3 text-xs text-slate-500">
+                              {new Date(o.date).toLocaleDateString('en-IN')}
+                            </td>
+                            <td className="px-5 py-3 text-right font-bold text-slate-800">
+                              ₹{o.taxableAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-5 py-3 text-right font-black text-blue-600">
+                              ₹{o.outputGst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-5 py-3 text-right font-black text-slate-900">
+                              ₹{o.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                    <tfoot className="bg-slate-50 border-t-2 border-slate-200 font-bold text-xs text-slate-800">
+                      <tr>
+                        <td colSpan="4" className="px-5 py-3 text-slate-600 uppercase">Total Output GST</td>
+                        <td className="px-5 py-3 text-right font-black text-slate-900">
+                          ₹{(gstSummary.summary?.taxableOutput || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-5 py-3 text-right font-black text-blue-600">
+                          ₹{(gstSummary.summary?.outputGst || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-5 py-3 text-right font-black text-slate-900">
+                          ₹{(gstSummary.summary?.customerInvoiceTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
             </div>
           )}
         </>

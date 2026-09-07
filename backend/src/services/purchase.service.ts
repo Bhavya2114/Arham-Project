@@ -15,7 +15,9 @@ const mapPurchaseResponse = (purchase: any) => {
     const qty = Number(item.quantity || 0);
     const taxRate = Number(item.taxRate || 0);
     const itemSubtotal = price * qty;
-    const itemTax = (itemSubtotal * taxRate) / 100;
+    const itemTax = item.taxAmount !== undefined && item.taxAmount !== null && !isNaN(Number(item.taxAmount))
+      ? Number(item.taxAmount)
+      : (itemSubtotal * taxRate) / 100;
     const calculatedTotalCost = itemSubtotal + itemTax;
 
     const totalCost = Number(
@@ -78,6 +80,9 @@ const mapPurchaseResponse = (purchase: any) => {
     subtotal: subtotal,
     taxAmount: taxAmount,
     totalGst: taxAmount,
+    cgst: purchase.cgst !== undefined && purchase.cgst !== null ? Number(purchase.cgst) : undefined,
+    sgst: purchase.sgst !== undefined && purchase.sgst !== null ? Number(purchase.sgst) : undefined,
+    igst: purchase.igst !== undefined && purchase.igst !== null ? Number(purchase.igst) : undefined,
     totalAmount: totalAmount,
     grandTotal: totalAmount,
     notes: purchase.notes,
@@ -187,7 +192,7 @@ export const createPurchase = async (
   // 3. Resolve Products (Existing vs New with Duplicate Protection)
   const productDocs: Array<{ product: any; itemInput: any }> = [];
   const newlyCreatedProductIds: any[] = [];
-  const rollbacks: Array<{ productId: any; qty: number; previousCostPrice: number; previousSellingPrice: number }> = [];
+  const rollbacks: Array<{ productId: any; qty: number; previousCostPrice: number }> = [];
 
   try {
     for (const itemInput of input.items) {
@@ -220,19 +225,6 @@ export const createPurchase = async (
             : `PROD-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
           const costPrice = Number(itemInput.purchasePrice || (itemInput.newProduct && (itemInput.newProduct as any).costPrice) || 0);
-          const inputSellPrice = (itemInput as any).sellingPrice !== undefined && (itemInput as any).sellingPrice !== null && (itemInput as any).sellingPrice !== ''
-            ? Number((itemInput as any).sellingPrice)
-            : (itemInput.newProduct && (itemInput.newProduct as any).sellingPrice !== undefined && (itemInput.newProduct as any).sellingPrice !== null && (itemInput.newProduct as any).sellingPrice !== ''
-            ? Number((itemInput.newProduct as any).sellingPrice)
-            : 0);
-
-          if (inputSellPrice <= 0 || isNaN(inputSellPrice)) {
-            const error = new Error(`Selling price must be greater than 0 for new product: ${prodNameClean}`);
-            (error as any).statusCode = 400;
-            throw error;
-          }
-
-          const defaultSellingPrice = inputSellPrice;
 
           product = await Product.create({
             name: prodNameClean,
@@ -240,7 +232,6 @@ export const createPurchase = async (
             category: itemInput.newProduct.category || 'General',
             supplier: supplier._id,
             costPrice: costPrice,
-            sellingPrice: defaultSellingPrice,
             gstRate: itemInput.taxRate !== undefined ? itemInput.taxRate : (itemInput.newProduct.gstRate || 18),
             currentStock: 0, // Current stock will be incremented in standard purchase stock update loop below
             unit: itemInput.unit || itemInput.newProduct.unit || 'Pcs',
@@ -257,17 +248,6 @@ export const createPurchase = async (
         throw error;
       }
 
-      // Check existing product selling price
-      const existingProductSellingPrice = (itemInput as any).sellingPrice !== undefined && (itemInput as any).sellingPrice !== null && (itemInput as any).sellingPrice !== ''
-        ? Number((itemInput as any).sellingPrice)
-        : Number(product.sellingPrice || 0);
-
-      if (existingProductSellingPrice <= 0 || isNaN(existingProductSellingPrice)) {
-        const error = new Error(`Selling price must be greater than 0 for product: ${product.name}`);
-        (error as any).statusCode = 400;
-        throw error;
-      }
-
       productDocs.push({ product, itemInput });
     }
 
@@ -277,9 +257,29 @@ export const createPurchase = async (
     let taxAmount = 0;
 
     for (const { product, itemInput } of productDocs) {
-      const itemSubtotal = itemInput.purchasePrice * itemInput.quantity;
-      const itemTax = (itemSubtotal * (itemInput.taxRate || 0)) / 100;
-      const itemTotalCost = itemSubtotal + itemTax;
+      const baseAmount = itemInput.purchasePrice * itemInput.quantity;
+      const rateGst = (baseAmount * (itemInput.taxRate || 0)) / 100;
+
+      // Authoritative GST calculation with duplicate GST prevention:
+      // If line taxAmount is explicitly supplied, validate against rateGst when taxRate > 0
+      let lineTax = rateGst;
+      if (itemInput.taxAmount !== undefined && itemInput.taxAmount !== null && !isNaN(Number(itemInput.taxAmount))) {
+        const suppliedTax = Number(itemInput.taxAmount);
+        if (itemInput.taxRate && itemInput.taxRate > 0) {
+          // Allow minor 1-rupee tolerance for rounding discrepancies from OCR / unit-rate splits
+          if (Math.abs(suppliedTax - rateGst) <= 1.0) {
+            lineTax = suppliedTax;
+          } else {
+            // Authoritative calculation takes precedence
+            lineTax = rateGst;
+          }
+        } else {
+          lineTax = suppliedTax;
+        }
+      }
+
+      // Supplier gross total = baseAmount + lineTax (GST added strictly once)
+      const itemTotalCost = baseAmount + lineTax;
 
       purchaseItems.push({
         product: product._id,
@@ -288,30 +288,23 @@ export const createPurchase = async (
         purchasePrice: itemInput.purchasePrice,
         quantity: itemInput.quantity,
         taxRate: itemInput.taxRate || 0,
+        taxAmount: lineTax,
         totalCost: itemTotalCost,
       });
 
-      subtotal += itemSubtotal;
-      taxAmount += itemTax;
+      subtotal += baseAmount;
+      taxAmount += lineTax;
 
-      // Update Product currentStock, costPrice, and sellingPrice (if provided)
-      const inputSellingPrice = (itemInput as any).sellingPrice !== undefined ? Number((itemInput as any).sellingPrice) : undefined;
-      const productSetUpdates: any = { costPrice: itemInput.purchasePrice };
-
-      if (inputSellingPrice !== undefined && !isNaN(inputSellingPrice) && inputSellingPrice > 0) {
-        productSetUpdates.sellingPrice = inputSellingPrice;
-      }
-
+      // Update Product currentStock and costPrice (tax-exclusive purchasePrice)
       await Product.findByIdAndUpdate(product._id, {
         $inc: { currentStock: itemInput.quantity },
-        $set: productSetUpdates,
+        $set: { costPrice: itemInput.purchasePrice },
       });
 
       rollbacks.push({
         productId: product._id,
         qty: itemInput.quantity,
         previousCostPrice: product.costPrice || 0,
-        previousSellingPrice: product.sellingPrice || 0,
       });
     }
 
@@ -343,6 +336,9 @@ export const createPurchase = async (
       items: purchaseItems,
       subtotal,
       taxAmount,
+      cgst: input.cgst !== undefined && input.cgst !== null && !isNaN(Number(input.cgst)) ? Number(input.cgst) : undefined,
+      sgst: input.sgst !== undefined && input.sgst !== null && !isNaN(Number(input.sgst)) ? Number(input.sgst) : undefined,
+      igst: input.igst !== undefined && input.igst !== null && !isNaN(Number(input.igst)) ? Number(input.igst) : undefined,
       totalAmount,
       notes: input.notes,
       createdBy: userObj._id,
@@ -356,7 +352,6 @@ export const createPurchase = async (
         $inc: { currentStock: -rb.qty },
         $set: {
           costPrice: rb.previousCostPrice,
-          sellingPrice: rb.previousSellingPrice,
         },
       });
     }

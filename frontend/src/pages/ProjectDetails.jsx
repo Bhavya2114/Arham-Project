@@ -63,7 +63,6 @@ const ProjectDetails = () => {
   const [issueForm, setIssueForm] = useState({
     productId: '',
     quantity: '',
-    billingPrice: '',
     issueDate: new Date().toISOString().split('T')[0],
     notes: '',
   });
@@ -126,7 +125,6 @@ const ProjectDetails = () => {
     setIssueForm((prev) => ({
       ...prev,
       productId: pId,
-      billingPrice: prod ? String(prod.sellingPrice !== undefined && prod.sellingPrice !== null ? prod.sellingPrice : 0) : '',
     }));
   };
 
@@ -140,7 +138,7 @@ const ProjectDetails = () => {
     }
     const qty = Number(issueForm.quantity);
     if (isNaN(qty) || qty <= 0) {
-      setMaterialModalError('Quantity must be greater than 0.');
+      setMaterialModalError('Please enter a valid quantity greater than zero.');
       return;
     }
     if (selectedProduct && qty > selectedProduct.currentStock) {
@@ -154,7 +152,6 @@ const ProjectDetails = () => {
       project: id,
       product: issueForm.productId,
       quantity: qty,
-      billingPrice: issueForm.billingPrice !== '' ? Number(issueForm.billingPrice) : undefined,
       issueDate: issueForm.issueDate || undefined,
       notes: issueForm.notes ? issueForm.notes.trim() : undefined,
     };
@@ -167,7 +164,6 @@ const ProjectDetails = () => {
       setIssueForm({
         productId: '',
         quantity: '',
-        billingPrice: '',
         issueDate: new Date().toISOString().split('T')[0],
         notes: '',
       });
@@ -281,7 +277,6 @@ const ProjectDetails = () => {
 
   // Calculate Material Consumption Totals
   const totalActualCost = materials.reduce((sum, m) => sum + (m.actualCostTotal || 0), 0);
-  const totalBillingValue = materials.reduce((sum, m) => sum + (m.billingTotal || 0), 0);
 
   // Calculate Project Expense Totals
   const totalExpenses = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
@@ -461,65 +456,111 @@ const ProjectDetails = () => {
               <span>Project Financial Overview & Profitability</span>
             </h3>
             <span className={`px-2.5 py-0.5 rounded text-[11px] font-black ${
-              profitability.grossProfit >= 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+              (profitability.projectProfit !== undefined ? profitability.projectProfit : profitability.grossProfit) >= 0
+                ? 'bg-emerald-100 text-emerald-800'
+                : 'bg-rose-100 text-rose-800'
             }`}>
-              Margin: {profitability.grossMargin}%
+              Project Margin: {profitability.projectMargin !== undefined ? profitability.projectMargin : (profitability.grossMargin || 0)}%
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
-            <div className="p-3.5 bg-emerald-50/60 border border-emerald-200/80 rounded-xl space-y-1">
-              <span className="text-[10px] font-extrabold text-emerald-800 uppercase tracking-wider">TOTAL BILLED</span>
-              <div className="text-base font-black text-emerald-900 font-mono">
-                ₹{profitability.revenue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-              </div>
-              <span className="text-[9px] text-emerald-600">Active invoice totals</span>
+          {/* 1. PROJECT PROFITABILITY (Budget vs Actual Cost) */}
+          <div className="space-y-2">
+            <div className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+              Project Profitability (Budget vs Actual Cost — GST-Exclusive)
             </div>
-
-            <div className="p-3.5 bg-blue-50/60 border border-blue-200/80 rounded-xl space-y-1">
-              <span className="text-[10px] font-extrabold text-blue-800 uppercase tracking-wider">TOTAL RECEIVED</span>
-              <div className="text-base font-black text-blue-900 font-mono">
-                ₹{profitability.totalReceived.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+              <div className="p-3 bg-indigo-50/70 border border-indigo-200/80 rounded-xl space-y-1">
+                <span className="text-[10px] font-extrabold text-indigo-800 uppercase tracking-wider">PROJECT BUDGET (EXCL. GST)</span>
+                <div className="text-base font-black text-indigo-950 font-mono">
+                  ₹{(profitability.projectBudget !== undefined ? profitability.projectBudget : (project?.budget || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </div>
+                <span className="text-[9px] text-indigo-600 font-medium">Approved contract budget</span>
               </div>
-              <span className="text-[9px] text-blue-600">Collected payments</span>
-            </div>
 
-            <div className="p-3.5 bg-amber-50/60 border border-amber-200/80 rounded-xl space-y-1">
-              <span className="text-[10px] font-extrabold text-amber-800 uppercase tracking-wider">OUTSTANDING</span>
-              <div className="text-base font-black text-amber-900 font-mono">
-                ₹{profitability.outstanding.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">MATERIAL COST (EXCL. GST)</span>
+                <div className="text-base font-black text-slate-900 font-mono">
+                  ₹{(profitability.totalMaterialCost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </div>
+                <span className="text-[9px] text-slate-500">Actual inventory issued</span>
               </div>
-              <span className="text-[9px] text-amber-700">Uncollected balance</span>
-            </div>
 
-            <div className="p-3.5 bg-slate-100 border border-slate-200 rounded-xl space-y-1">
-              <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">ACTUAL COST</span>
-              <div className="text-base font-black text-slate-900 font-mono">
-                ₹{profitability.totalProjectCost.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">PROJECT EXPENSES</span>
+                <div className="text-base font-black text-slate-900 font-mono">
+                  ₹{(profitability.totalProjectExpenses || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </div>
+                <span className="text-[9px] text-slate-500">Site + logistics expenses</span>
               </div>
-              <span className="text-[9px] text-slate-500">Materials + Expenses</span>
-            </div>
 
-            <div className={`p-3.5 border rounded-xl space-y-1 ${
-              profitability.grossProfit >= 0 ? 'bg-emerald-50 border-emerald-300' : 'bg-rose-50 border-rose-300'
-            }`}>
-              <span className={`text-[10px] font-extrabold uppercase tracking-wider ${
-                profitability.grossProfit >= 0 ? 'text-emerald-800' : 'text-rose-800'
-              }`}>GROSS PROFIT</span>
-              <div className={`text-base font-black font-mono ${
-                profitability.grossProfit >= 0 ? 'text-emerald-900' : 'text-rose-900'
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider">LABOUR COST</span>
+                <div className="text-base font-black text-slate-900 font-mono">
+                  ₹{(profitability.totalLabourCost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </div>
+                <span className="text-[9px] text-slate-500">Direct site manpower</span>
+              </div>
+
+              <div className="p-3 bg-slate-100/80 border border-slate-300 rounded-xl space-y-1">
+                <span className="text-[10px] font-extrabold text-slate-800 uppercase tracking-wider">ACTUAL COST (EXCL. GST)</span>
+                <div className="text-base font-black text-slate-900 font-mono">
+                  ₹{(profitability.actualProjectCost !== undefined ? profitability.actualProjectCost : (profitability.totalProjectCost || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </div>
+                <span className="text-[9px] text-slate-600 font-medium">Materials + Expenses + Labour</span>
+              </div>
+
+              <div className={`p-3 border rounded-xl space-y-1 ${
+                (profitability.projectProfit !== undefined ? profitability.projectProfit : profitability.grossProfit) >= 0
+                  ? 'bg-emerald-50 border-emerald-300'
+                  : 'bg-rose-50 border-rose-300'
               }`}>
-                ₹{profitability.grossProfit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                <span className={`text-[10px] font-extrabold uppercase tracking-wider ${
+                  (profitability.projectProfit !== undefined ? profitability.projectProfit : profitability.grossProfit) >= 0
+                    ? 'text-emerald-800'
+                    : 'text-rose-800'
+                }`}>PROJECT PROFIT</span>
+                <div className={`text-base font-black font-mono ${
+                  (profitability.projectProfit !== undefined ? profitability.projectProfit : profitability.grossProfit) >= 0
+                    ? 'text-emerald-900'
+                    : 'text-rose-900'
+                }`}>
+                  ₹{(profitability.projectProfit !== undefined ? profitability.projectProfit : profitability.grossProfit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </div>
+                <span className="text-[9px] text-gray-500 font-medium">Budget - Actual Cost</span>
               </div>
-              <span className="text-[9px] text-gray-500">Revenue - Actual Cost</span>
             </div>
+          </div>
 
-            <div className="p-3.5 bg-purple-50/60 border border-purple-200/80 rounded-xl space-y-1">
-              <span className="text-[10px] font-extrabold text-purple-800 uppercase tracking-wider">GROSS MARGIN</span>
-              <div className="text-base font-black text-purple-900 font-mono">
-                {profitability.grossMargin}%
+          {/* 2. INVOICING & CASH-FLOW STATUS (Separated from Profitability) */}
+          <div className="pt-2 border-t border-gray-100 space-y-2">
+            <div className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+              Invoicing & Payment Collections (Cash-Flow — Output GST Included)
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="p-3 bg-emerald-50/50 border border-emerald-200/70 rounded-xl space-y-0.5">
+                <span className="text-[10px] font-extrabold text-emerald-800 uppercase tracking-wider">TOTAL INVOICED (INCL. GST)</span>
+                <div className="text-sm font-black text-emerald-900 font-mono">
+                  ₹{(profitability.totalInvoiced !== undefined ? profitability.totalInvoiced : (profitability.revenue || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </div>
+                <span className="text-[9px] text-emerald-600">Active customer bills (Output GST included)</span>
               </div>
-              <span className="text-[9px] text-purple-600">Profit / Revenue %</span>
+
+              <div className="p-3 bg-blue-50/50 border border-blue-200/70 rounded-xl space-y-0.5">
+                <span className="text-[10px] font-extrabold text-blue-800 uppercase tracking-wider">TOTAL RECEIVED</span>
+                <div className="text-sm font-black text-blue-900 font-mono">
+                  ₹{(profitability.totalReceived || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </div>
+                <span className="text-[9px] text-blue-600">Collected payments</span>
+              </div>
+
+              <div className="p-3 bg-amber-50/50 border border-amber-200/70 rounded-xl space-y-0.5">
+                <span className="text-[10px] font-extrabold text-amber-800 uppercase tracking-wider">OUTSTANDING BALANCE</span>
+                <div className="text-sm font-black text-amber-900 font-mono">
+                  ₹{(profitability.outstanding || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </div>
+                <span className="text-[9px] text-amber-700">Invoiced balance pending</span>
+              </div>
             </div>
           </div>
         </div>
@@ -551,21 +592,13 @@ const ProjectDetails = () => {
         </div>
 
         {/* Summary Metric Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-xl space-y-1">
-            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">TOTAL MATERIAL COST</span>
+            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">TOTAL MATERIAL COST (EXCL. GST)</span>
             <div className="text-lg font-black text-slate-900 font-mono">
               ₹{totalActualCost.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </div>
-            <span className="text-[10px] text-gray-400">Actual inventory procurement cost</span>
-          </div>
-
-          <div className="p-4 bg-emerald-50/60 border border-emerald-200/80 rounded-xl space-y-1">
-            <span className="text-[10px] font-extrabold text-emerald-800 uppercase tracking-wider">TOTAL BILLING VALUE</span>
-            <div className="text-lg font-black text-emerald-700 font-mono">
-              ₹{totalBillingValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </div>
-            <span className="text-[10px] text-emerald-600">Target customer billing value</span>
+            <span className="text-[10px] text-gray-400">Actual inventory procurement cost (Excl. GST)</span>
           </div>
 
           <div className="p-4 bg-gray-50 border border-gray-200/80 rounded-xl space-y-1">
@@ -594,9 +627,8 @@ const ProjectDetails = () => {
                   <th className="p-3">Material / Product</th>
                   <th className="p-3 text-center">Qty</th>
                   <th className="p-3">Unit</th>
-                  <th className="p-3 text-right">Actual Cost (₹)</th>
-                  <th className="p-3 text-right">Billing Rate (₹)</th>
-                  <th className="p-3 text-right">Billing Total (₹)</th>
+                  <th className="p-3 text-right">Actual Unit Cost (Excl. GST) (₹)</th>
+                  <th className="p-3 text-right">Actual Cost Total (Excl. GST) (₹)</th>
                   <th className="p-3 text-right">Issued By</th>
                 </tr>
               </thead>
@@ -615,9 +647,8 @@ const ProjectDetails = () => {
                       <td className="p-3 text-center font-extrabold text-slate-900">{m.quantity}</td>
                       <td className="p-3 text-gray-600 font-semibold">{m.unit}</td>
                       <td className="p-3 text-right font-bold text-slate-700">₹{m.actualCostPrice.toFixed(2)}</td>
-                      <td className="p-3 text-right font-bold text-emerald-700">₹{m.billingPrice.toFixed(2)}</td>
                       <td className="p-3 text-right font-black text-slate-900">
-                        ₹{m.billingTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        ₹{(m.actualCostTotal !== undefined ? m.actualCostTotal : (m.quantity * m.actualCostPrice)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
                       <td className="p-3 text-right text-gray-500 text-[11px]">
                         {m.issuedBy?.name || 'Warehouse Staff'}
@@ -814,7 +845,7 @@ const ProjectDetails = () => {
                   <th className="p-3">Invoice No.</th>
                   <th className="p-3">Invoice Date</th>
                   <th className="p-3">Status</th>
-                  <th className="p-3 text-right">Grand Total (₹)</th>
+                  <th className="p-3 text-right">Grand Total (Incl. GST) (₹)</th>
                   <th className="p-3 text-right">Paid (₹)</th>
                   <th className="p-3 text-right">Outstanding (₹)</th>
                   <th className="p-3 text-center">Action</th>
@@ -975,33 +1006,24 @@ const ProjectDetails = () => {
 
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-1">
-                    Billing Rate per Unit (₹)
+                    Actual Unit Cost (Excl. GST) (₹)
                   </label>
                   <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={issueForm.billingPrice}
-                    onChange={(e) => setIssueForm((prev) => ({ ...prev, billingPrice: e.target.value }))}
-                    placeholder="e.g. 400"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs font-bold focus:outline-none focus:border-emerald-500 bg-gray-50/50"
+                    type="text"
+                    disabled
+                    value={selectedProduct ? `₹${Number(selectedProduct.costPrice || 0).toFixed(2)}` : '-'}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs font-bold bg-gray-100 text-gray-600 cursor-not-allowed"
                   />
-                  <p className="text-[10px] text-gray-400 mt-1">Defaulted to Product selling price</p>
+                  <p className="text-[10px] text-gray-400 mt-1">Procurement cost basis from inventory</p>
                 </div>
               </div>
 
               {selectedProduct && Number(issueForm.quantity) > 0 && (
-                <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl text-xs space-y-1">
-                  <div className="flex items-center justify-between text-emerald-900 font-bold">
-                    <span>Total Actual Inventory Cost:</span>
-                    <span className="font-mono">
-                      ₹{(Number(issueForm.quantity) * (selectedProduct.costPrice || 0)).toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-emerald-900 font-black">
-                    <span>Total Target Billing Value:</span>
-                    <span className="font-mono text-sm">
-                      ₹{(Number(issueForm.quantity) * Number(issueForm.billingPrice || 0)).toFixed(2)}
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
+                  <div className="flex items-center justify-between text-slate-800 font-bold">
+                    <span>Total Actual Material Cost (Excl. GST):</span>
+                    <span className="font-mono text-sm font-black text-slate-900">
+                      ₹{(Number(issueForm.quantity) * Number(selectedProduct.costPrice || 0)).toFixed(2)}
                     </span>
                   </div>
                 </div>

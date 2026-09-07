@@ -26,7 +26,6 @@ export const newProductSchema = z
     unit: z.string().trim().optional().default('Pcs'),
     costPrice: z.coerce.number().nonnegative().optional().default(0),
     unitPrice: z.coerce.number().nonnegative().optional(),
-    sellingPrice: z.coerce.number().positive('Selling price must be greater than 0').optional(),
     gstRate: z.coerce.number().nonnegative().optional().default(18),
     sku: optionalString,
     category: optionalString,
@@ -40,9 +39,9 @@ export const purchaseItemSchema = z
     productId: optionalString,
     newProduct: newProductSchema,
     purchasePrice: z.coerce.number().nonnegative('Purchase price must be non-negative'),
-    sellingPrice: z.coerce.number().positive('Selling price must be greater than 0').optional(),
     quantity: z.coerce.number().positive('Quantity must be at least 1'),
     taxRate: z.coerce.number().nonnegative('Tax rate must be non-negative').optional().default(0),
+    taxAmount: z.coerce.number().nonnegative('Tax amount must be non-negative').optional(),
     unit: z.string().trim().optional(),
   })
   .refine(
@@ -66,6 +65,9 @@ export const createPurchaseSchema = z
     deliveryNoteDate: optionalString,
     ewayBillNo: optionalString,
     placeOfSupply: optionalString,
+    cgst: z.coerce.number().nonnegative('CGST must be non-negative').optional(),
+    sgst: z.coerce.number().nonnegative('SGST must be non-negative').optional(),
+    igst: z.coerce.number().nonnegative('IGST must be non-negative').optional(),
     items: z.array(purchaseItemSchema).min(1, 'At least one item is required'),
     notes: optionalString,
   })

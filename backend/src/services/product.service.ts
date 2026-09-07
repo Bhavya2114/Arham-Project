@@ -11,7 +11,6 @@ const mapProductResponse = (product: any) => {
     sku: product.sku,
     category: product.category,
     costPrice: Number(product.costPrice || 0),
-    sellingPrice: Number(product.sellingPrice || 0),
     gstRate: Number(product.gstRate || 0),
     currentStock: product.currentStock,
     minStockQuantity: product.minimumStock,
@@ -42,14 +41,12 @@ export const createProduct = async (input: CreateProductInput, createdBy: string
   }
 
   const costPrice = (input as any).costPrice || 0;
-  const sellingPrice = input.sellingPrice !== undefined ? input.sellingPrice : 0;
 
   const product = await Product.create({
     name: input.name,
     sku: input.sku.toUpperCase(),
     category: input.category,
     costPrice: costPrice,
-    sellingPrice: sellingPrice,
     gstRate: (input as any).gstRate || 0,
     currentStock: input.currentStock ?? 0,
     minimumStock: input.minStockQuantity ?? 5,
@@ -82,7 +79,6 @@ export const updateProduct = async (
     throw error;
   }
 
-  const sellingPrice = input.sellingPrice !== undefined ? input.sellingPrice : existing.sellingPrice;
   const costPrice = input.costPrice !== undefined ? input.costPrice : existing.costPrice;
 
   const updateFields: any = {
@@ -90,7 +86,6 @@ export const updateProduct = async (
     sku: input.sku.toUpperCase(),
     category: input.category,
     costPrice: costPrice,
-    sellingPrice: sellingPrice,
     minimumStock: input.minStockQuantity,
     warehouseLocation: input.location,
   };
@@ -128,7 +123,6 @@ export const getLowStockProducts = async (): Promise<any[]> => {
     sku: product.sku,
     category: product.category,
     costPrice: Number(product.costPrice || 0),
-    sellingPrice: Number(product.sellingPrice || 0),
     currentStock: product.currentStock,
     minStockQuantity: product.minimumStock,
     location: product.warehouseLocation,

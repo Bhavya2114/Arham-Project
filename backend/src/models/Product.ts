@@ -6,7 +6,6 @@ export interface IProduct extends Document {
   category: string;
   supplier?: mongoose.Types.ObjectId;
   costPrice: number;
-  sellingPrice: number;
   gstRate: number; // e.g. 0, 5, 12, 18, 28
   currentStock: number;
   minimumStock: number;
@@ -24,7 +23,6 @@ const productSchema = new Schema<IProduct>(
     category: { type: String, required: true, trim: true, index: true },
     supplier: { type: Schema.Types.ObjectId, ref: 'Supplier' },
     costPrice: { type: Number, required: true, default: 0, min: 0 },
-    sellingPrice: { type: Number, required: true, min: 0 },
     gstRate: { type: Number, default: 0, min: 0, max: 100 },
     currentStock: { type: Number, default: 0, index: true },
     minimumStock: { type: Number, default: 5 },

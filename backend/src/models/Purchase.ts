@@ -7,6 +7,7 @@ export interface IPurchaseItem {
   purchasePrice: number;
   quantity: number;
   taxRate: number;
+  taxAmount?: number;
   totalCost: number;
 }
 
@@ -24,6 +25,9 @@ export interface IPurchase extends Document {
   items: IPurchaseItem[];
   subtotal: number;
   taxAmount: number;
+  cgst?: number;
+  sgst?: number;
+  igst?: number;
   totalAmount: number;
   notes?: string;
   createdBy: mongoose.Types.ObjectId;
@@ -39,6 +43,7 @@ const purchaseItemSchema = new Schema<IPurchaseItem>(
     purchasePrice: { type: Number, required: true, min: 0 },
     quantity: { type: Number, required: true, min: 1 },
     taxRate: { type: Number, default: 0, min: 0 },
+    taxAmount: { type: Number, min: 0 },
     totalCost: { type: Number, required: true, min: 0 },
   },
   { _id: false }
@@ -59,6 +64,9 @@ const purchaseSchema = new Schema<IPurchase>(
     items: [purchaseItemSchema],
     subtotal: { type: Number, required: true, min: 0 },
     taxAmount: { type: Number, default: 0, min: 0 },
+    cgst: { type: Number, min: 0 },
+    sgst: { type: Number, min: 0 },
+    igst: { type: Number, min: 0 },
     totalAmount: { type: Number, required: true, min: 0 },
     notes: { type: String, trim: true },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },

@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "seed": "tsx src/seed.ts",
+    "migrate:remove-product-selling-price": "tsx src/scripts/removeProductSellingPrice.ts",
     "test": "jest"
   },
   "engines": {

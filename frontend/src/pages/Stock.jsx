@@ -48,16 +48,13 @@ const Stock = () => {
   let lowStockCount = 0;
   let outOfStockCount = 0;
   let inventoryCostValue = 0;
-  let potentialRetailValue = 0;
 
   products.forEach((p) => {
     const stock = p.currentStock || 0;
     const minStock = p.minStockQuantity || 5;
     const cost = p.costPrice || 0;
-    const price = p.sellingPrice || 0;
 
     inventoryCostValue += stock * cost;
-    potentialRetailValue += stock * price;
 
     if (stock === 0) outOfStockCount++;
     else if (stock <= minStock) lowStockCount++;
@@ -215,10 +212,7 @@ const Stock = () => {
       <div className="bg-slate-900 text-white p-4 rounded-2xl shadow-sm flex flex-col sm:flex-row items-center justify-between text-xs font-bold gap-3">
         <div className="flex items-center space-x-2">
           <FaRupeeSign className="text-emerald-400 text-base" />
-          <span>Inventory Cost Valuation: <span className="text-emerald-400 text-sm font-black">₹{inventoryCostValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></span>
-        </div>
-        <div>
-          <span>Potential Retail Valuation: <span className="text-blue-400 text-sm font-black">₹{potentialRetailValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></span>
+          <span>Total Inventory Cost Valuation: <span className="text-emerald-400 text-sm font-black">₹{inventoryCostValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></span>
         </div>
       </div>
 
@@ -307,7 +301,6 @@ const Stock = () => {
                   <th className="px-3.5 py-3 sm:px-4 sm:py-3.5 whitespace-nowrap">SKU</th>
                   <th className="px-3.5 py-3 sm:px-4 sm:py-3.5 whitespace-nowrap">Category</th>
                   <th className="px-3.5 py-3 sm:px-4 sm:py-3.5 text-right whitespace-nowrap">Cost Price</th>
-                  <th className="px-3.5 py-3 sm:px-4 sm:py-3.5 text-right whitespace-nowrap">Selling Price</th>
                   <th className="px-3.5 py-3 sm:px-4 sm:py-3.5 text-center whitespace-nowrap">Current Stock</th>
                   <th className="px-3.5 py-3 sm:px-4 sm:py-3.5 text-center whitespace-nowrap">Min Threshold</th>
                   <th className="px-3.5 py-3 sm:px-4 sm:py-3.5 text-center whitespace-nowrap">Status</th>
@@ -319,7 +312,6 @@ const Stock = () => {
                   const current = p.currentStock || 0;
                   const isOut = current === 0;
                   const isLow = current > 0 && current <= minStock;
-                  const sellingPrice = p.sellingPrice || 0;
 
                   return (
                     <tr
@@ -335,9 +327,6 @@ const Stock = () => {
                       <td className="px-3.5 py-3 sm:px-4 sm:py-3.5 text-xs font-semibold text-gray-600 whitespace-nowrap">{p.category}</td>
                       <td className="px-3.5 py-3 sm:px-4 sm:py-3.5 text-right text-xs font-medium text-gray-500 whitespace-nowrap">
                         ₹{(p.costPrice || 0).toFixed(2)}
-                      </td>
-                      <td className="px-3.5 py-3 sm:px-4 sm:py-3.5 text-right text-xs font-semibold text-emerald-700 whitespace-nowrap">
-                        ₹{sellingPrice.toFixed(2)}
                       </td>
                       <td className="px-3.5 py-3 sm:px-4 sm:py-3.5 text-center font-black text-slate-900 text-sm sm:text-base whitespace-nowrap">
                         {current} <span className="text-xs text-gray-400 font-normal">{p.unit || 'pcs'}</span>

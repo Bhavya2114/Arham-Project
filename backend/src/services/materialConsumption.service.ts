@@ -200,7 +200,7 @@ export const createMaterialConsumption = async (
   const billingPrice =
     input.billingPrice !== undefined
       ? Number(input.billingPrice)
-      : Number(productObj.sellingPrice || 0);
+      : 0;
 
   const actualCostTotal = qty * actualCostPrice;
   const billingTotal = qty * billingPrice;

@@ -22,7 +22,6 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
   // Collapsible sub-menu states
   const [openSubMenus, setOpenSubMenus] = useState({
     purchases: location.pathname.startsWith('/purchases'),
-    sales: location.pathname.startsWith('/billing') || location.pathname.startsWith('/sales'),
   });
 
   const toggleSubMenu = (menuKey) => {
@@ -51,7 +50,7 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
             <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center font-bold text-slate-950 text-lg">
               I
             </div>
-            <span className="text-xl font-extrabold tracking-wider text-emerald-400">INVENTORY POS</span>
+            <span className="text-xl font-extrabold tracking-wider text-emerald-400">PROJECT ERP</span>
           </div>
           <button 
             className="md:hidden p-2 text-gray-400 hover:text-white rounded-lg transition-colors"
@@ -138,49 +137,6 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
             )}
           </div>
 
-          {/* Sales Group */}
-          <div>
-            <button
-              onClick={() => toggleSubMenu('sales')}
-              className={`w-full flex items-center justify-between px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                location.pathname.startsWith('/billing') || location.pathname === '/sales'
-                  ? 'text-emerald-400 font-semibold'
-                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-              }`}
-            >
-              <div className="flex items-center">
-                <FaShoppingCart className="text-base mr-3" />
-                <span>Sales & Billing</span>
-              </div>
-              {openSubMenus.sales ? <FaChevronDown className="text-xs" /> : <FaChevronRight className="text-xs" />}
-            </button>
-            {openSubMenus.sales && (
-              <div className="ml-8 mt-1 space-y-1 border-l-2 border-slate-800 pl-3">
-                <NavLink
-                  to="/billing"
-                  onClick={() => setIsOpen(false)}
-                  className={({ isActive }) =>
-                    `block py-1.5 px-3 rounded-md text-xs font-medium transition-all ${
-                      isActive ? 'bg-emerald-600/30 text-emerald-400 font-bold' : 'text-slate-400 hover:text-white'
-                    }`
-                  }
-                >
-                  ⚡ POS Billing / New Sale
-                </NavLink>
-                <NavLink
-                  to="/sales"
-                  onClick={() => setIsOpen(false)}
-                  className={({ isActive }) =>
-                    `block py-1.5 px-3 rounded-md text-xs font-medium transition-all ${
-                      isActive ? 'bg-emerald-600/30 text-emerald-400 font-bold' : 'text-slate-400 hover:text-white'
-                    }`
-                  }
-                >
-                  Sales History
-                </NavLink>
-              </div>
-            )}
-          </div>
 
           {/* Customers */}
           <NavLink

@@ -17,16 +17,29 @@ export interface IProjectProfitability {
   status: string;
   customerName?: string;
   siteAddress?: string;
-  revenue: number;
+
+  // Authoritative Budget vs Actual Cost Profitability
+  projectBudget: number;
   totalMaterialCost: number;
   totalProjectExpenses: number;
-  totalProjectCost: number;
+  totalLabourCost: number;
+  actualProjectCost: number;
+  projectProfit: number;
+  projectMargin: number;
+
+  // Expense Breakdown
   expenseCategoryBreakdown: Record<string, number>;
-  grossProfit: number;
-  grossMargin: number;
+
+  // Invoicing & Collections (Independent Tracking)
   totalInvoiced: number;
   totalReceived: number;
   outstanding: number;
+
+  // Backward-compatibility aliases
+  revenue: number; // Aliased to projectBudget for profitability context
+  totalProjectCost: number; // Aliased to actualProjectCost
+  grossProfit: number; // Aliased to projectProfit
+  grossMargin: number; // Aliased to projectMargin
 }
 
 export const getProjectProfitability = async (projectId: string): Promise<IProjectProfitability> => {
@@ -45,14 +58,17 @@ export const getProjectProfitability = async (projectId: string): Promise<IProje
 
   const projIdObj = new mongoose.Types.ObjectId(projectId);
 
-  // 1. Material Actual Cost (using actualCostTotal)
+  // 1. Project Budget (Authoritative revenue/budget baseline)
+  const projectBudget = Math.round(Number(project.budget || 0) * 100) / 100;
+
+  // 2. Material Actual Cost (using actualCostTotal from MaterialConsumption)
   const matAgg = await MaterialConsumption.aggregate([
     { $match: { project: projIdObj } },
     { $group: { _id: null, totalMaterialCost: { $sum: '$actualCostTotal' } } },
   ]);
   const totalMaterialCost = matAgg.length > 0 ? Math.round(Number(matAgg[0].totalMaterialCost) * 100) / 100 : 0;
 
-  // 2. Project Expenses & Category Breakdown (using amount)
+  // 3. Project Expenses & Category Breakdown (using amount from ProjectExpense)
   const expAgg = await ProjectExpense.aggregate([
     { $match: { project: projIdObj } },
     { $group: { _id: '$category', categoryTotal: { $sum: '$amount' } } },
@@ -81,30 +97,36 @@ export const getProjectProfitability = async (projectId: string): Promise<IProje
   });
   totalProjectExpenses = Math.round(totalProjectExpenses * 100) / 100;
 
-  const totalProjectCost = Math.round((totalMaterialCost + totalProjectExpenses) * 100) / 100;
+  // 4. Labour Cost (Dedicated Labour system placeholder; if separate model is built later, connect here)
+  const totalLabourCost = 0;
 
-  // 3. Project Revenue (sum of grandTotal for non-cancelled invoices)
+  // 5. Actual Project Cost = Material Cost + Project Expenses + Labour Cost
+  const actualProjectCost = Math.round((totalMaterialCost + totalProjectExpenses + totalLabourCost) * 100) / 100;
+
+  // 6. Project Profit = Project Budget - Actual Project Cost (Negative values valid and preserved)
+  const projectProfit = Math.round((projectBudget - actualProjectCost) * 100) / 100;
+
+  // 7. Project Margin = (Project Profit / Project Budget) * 100 (Safe 0 on zero/invalid budget)
+  let projectMargin = 0;
+  if (projectBudget > 0) {
+    const rawMargin = (projectProfit / projectBudget) * 100;
+    projectMargin = Math.round(rawMargin * 100) / 100;
+  }
+
+  // 8. Invoicing & Collections (Independent tracking, does not alter operational profitability)
   const invAgg = await ProjectInvoice.aggregate([
     { $match: { project: projIdObj, status: { $ne: 'CANCELLED' } } },
-    { $group: { _id: null, totalRevenue: { $sum: '$grandTotal' } } },
+    { $group: { _id: null, totalInvoiced: { $sum: '$grandTotal' } } },
   ]);
-  const revenue = invAgg.length > 0 ? Math.round(Number(invAgg[0].totalRevenue) * 100) / 100 : 0;
-  const totalInvoiced = revenue;
+  const totalInvoiced = invAgg.length > 0 ? Math.round(Number(invAgg[0].totalInvoiced) * 100) / 100 : 0;
 
-  // 4. Total Collections / Received (sum of payments for non-cancelled invoices of project)
   const pmtAgg = await ProjectInvoicePayment.aggregate([
     { $match: { project: projIdObj } },
     { $group: { _id: null, totalReceived: { $sum: '$amount' } } },
   ]);
   const totalReceived = pmtAgg.length > 0 ? Math.round(Number(pmtAgg[0].totalReceived) * 100) / 100 : 0;
 
-  // 5. Outstanding
-  const outstanding = Math.max(0, Math.round((revenue - totalReceived) * 100) / 100);
-
-  // 6. Gross Profit & Margin
-  const grossProfit = Math.round((revenue - totalProjectCost) * 100) / 100;
-  const rawMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
-  const grossMargin = Math.round(rawMargin * 100) / 100;
+  const outstanding = Math.max(0, Math.round((totalInvoiced - totalReceived) * 100) / 100);
 
   return {
     projectId: project._id.toString(),
@@ -113,16 +135,28 @@ export const getProjectProfitability = async (projectId: string): Promise<IProje
     status: project.status,
     customerName: (project.customer as any)?.name || 'N/A',
     siteAddress: project.siteAddress,
-    revenue,
+
+    // Authoritative Budget vs Actual Cost fields
+    projectBudget,
     totalMaterialCost,
     totalProjectExpenses,
-    totalProjectCost,
+    totalLabourCost,
+    actualProjectCost,
+    projectProfit,
+    projectMargin,
+
     expenseCategoryBreakdown,
-    grossProfit,
-    grossMargin,
+
+    // Independent Invoicing & Payment tracking
     totalInvoiced,
     totalReceived,
     outstanding,
+
+    // Backward-compatibility aliases
+    revenue: projectBudget,
+    totalProjectCost: actualProjectCost,
+    grossProfit: projectProfit,
+    grossMargin: projectMargin,
   };
 };
 

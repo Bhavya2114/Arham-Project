@@ -68,16 +68,11 @@ const Dashboard = () => {
     }
   };
 
-  const todayRevenue = (summary?.today?.salesRevenue || 0).toLocaleString('en-IN');
-  const todayOrders = summary?.today?.orderCount || 0;
-
-  const netRevenue = (summary?.sales?.netRevenue || 0).toLocaleString('en-IN');
-  const grossBilling = (summary?.sales?.grossBilling || summary?.totalRevenue || 0).toLocaleString('en-IN');
-  const gstCollected = (summary?.sales?.gstCollected || 0).toLocaleString('en-IN');
-  const totalProfit = (summary?.sales?.profit || summary?.totalProfit || 0).toLocaleString('en-IN');
-  const cogs = (summary?.sales?.cogs || summary?.totalCost || 0).toLocaleString('en-IN');
+  const totalInvoiced = (summary?.invoices?.totalInvoiced || 0).toLocaleString('en-IN');
+  const totalCollected = (summary?.invoices?.totalPaid || 0).toLocaleString('en-IN');
+  const outstandingBalance = (summary?.invoices?.totalBalanceDue || 0).toLocaleString('en-IN');
+  const totalPurchaseSpend = (summary?.purchases?.totalSpent || 0).toLocaleString('en-IN');
   const inventoryValuation = (summary?.inventoryValue || 0).toLocaleString('en-IN');
-  const profitMargin = summary?.sales?.margin || 0;
 
   return (
     <div className="space-y-8">
@@ -110,20 +105,19 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* 2. Key Performance Indicators — Row 1 (Core Operations) */}
+      {/* 2. Key Performance Indicators — Row 1 (Core Operations & Projects) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* Today's Sales */}
+        {/* Active Projects */}
         <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
           <div className="space-y-1">
-            <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">Today's Sales</span>
+            <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">Active Projects</span>
             <div className="text-2xl font-extrabold text-slate-900 flex items-center">
-              <FaRupeeSign className="text-lg mr-0.5 text-gray-500" />
-              {todayRevenue}
+              {summary?.projects?.active || 0}
             </div>
-            <span className="text-xs text-emerald-600 font-semibold">{todayOrders} Orders Completed Today</span>
+            <span className="text-xs text-emerald-600 font-semibold">{summary?.projects?.total || 0} Total Projects Tracked</span>
           </div>
           <div className="p-4 rounded-2xl bg-emerald-50 text-emerald-600">
-            <FaCalendarDay className="text-2xl" />
+            <FaChartLine className="text-2xl" />
           </div>
         </div>
 
@@ -154,12 +148,15 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Total Sales Transactions */}
+        {/* Total Purchases Spend */}
         <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
           <div className="space-y-1">
-            <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">Total Orders</span>
-            <div className="text-2xl font-extrabold text-gray-900">{summary?.sales?.orderCount || summary?.totalSales || 0}</div>
-            <span className="text-xs text-purple-600 font-semibold">All-time Completed Orders</span>
+            <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">Total Procurement</span>
+            <div className="text-2xl font-extrabold text-purple-700 flex items-center">
+              <FaRupeeSign className="text-lg mr-0.5 text-purple-500" />
+              {totalPurchaseSpend}
+            </div>
+            <span className="text-xs text-purple-600 font-semibold">{summary?.purchases?.count || 0} Orders Procured</span>
           </div>
           <div className="p-4 rounded-2xl bg-purple-50 text-purple-600">
             <FaShoppingCart className="text-2xl" />
@@ -167,82 +164,56 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* 3. Financial Performance KPIs — Row 2 (Revenue & Profit Separation) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* Net Sales Revenue */}
+      {/* 3. Financial Performance KPIs — Row 2 (Project Invoicing & Cash Flow) */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+        {/* Total Customer Invoiced */}
         <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
           <div className="space-y-1">
-            <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">Net Sales Revenue</span>
+            <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">Total Billed Invoices</span>
             <div className="text-2xl font-extrabold text-slate-900 flex items-center">
               <FaRupeeSign className="text-lg mr-0.5 text-gray-500" />
-              {netRevenue}
+              {totalInvoiced}
             </div>
-            <span className="text-xs text-slate-500 font-semibold">Excludes GST Tax</span>
+            <span className="text-xs text-slate-500 font-semibold">{summary?.invoices?.count || 0} Customer Invoices Issued</span>
           </div>
           <div className="p-4 rounded-2xl bg-slate-100 text-slate-700">
             <FaReceipt className="text-2xl" />
           </div>
         </div>
 
-        {/* Gross Billing */}
+        {/* Total Invoice Collections */}
         <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
           <div className="space-y-1">
-            <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">Gross Billing</span>
-            <div className="text-2xl font-extrabold text-blue-700 flex items-center">
-              <FaRupeeSign className="text-lg mr-0.5 text-blue-500" />
-              {grossBilling}
+            <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">Payments Collected</span>
+            <div className="text-2xl font-extrabold text-emerald-600 flex items-center">
+              <FaRupeeSign className="text-lg mr-0.5 text-emerald-500" />
+              {totalCollected}
             </div>
-            <span className="text-xs text-blue-600 font-semibold">Includes GST Tax</span>
+            <span className="text-xs text-emerald-600 font-semibold">Realized Customer Collections</span>
           </div>
-          <div className="p-4 rounded-2xl bg-blue-50 text-blue-600">
+          <div className="p-4 rounded-2xl bg-emerald-50 text-emerald-600">
             <FaRupeeSign className="text-2xl" />
           </div>
         </div>
 
-        {/* GST Collected */}
+        {/* Outstanding Invoices */}
         <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
           <div className="space-y-1">
-            <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">GST Tax Collected</span>
+            <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">Outstanding Receivables</span>
             <div className="text-2xl font-extrabold text-amber-700 flex items-center">
               <FaRupeeSign className="text-lg mr-0.5 text-amber-500" />
-              {gstCollected}
+              {outstandingBalance}
             </div>
-            <span className="text-xs text-amber-600 font-semibold">Total GST Output Tax</span>
+            <span className="text-xs text-amber-600 font-semibold">Balance Due Across Invoices</span>
           </div>
           <div className="p-4 rounded-2xl bg-amber-50 text-amber-600">
             <FaReceipt className="text-2xl" />
           </div>
         </div>
-
-        {/* Total Profit */}
-        <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
-          <div className="space-y-1">
-            <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">Total Gross Profit</span>
-            <div className="text-2xl font-extrabold text-emerald-600 flex items-center">
-              <FaRupeeSign className="text-lg mr-0.5 text-emerald-500" />
-              {totalProfit}
-            </div>
-            <span className="text-xs text-emerald-600 font-semibold">Profit Margin: {profitMargin}%</span>
-          </div>
-          <div className="p-4 rounded-2xl bg-emerald-50 text-emerald-600">
-            <FaChartLine className="text-2xl" />
-          </div>
-        </div>
       </div>
 
-      {/* 4. Secondary Alerts & COGS Grid — Row 3 */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-        {/* Cost of Goods Sold */}
-        <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm flex items-center space-x-4">
-          <div className="p-3 bg-amber-50 text-amber-600 rounded-xl text-xl">
-            <FaBoxes />
-          </div>
-          <div>
-            <span className="text-xs text-gray-400 font-semibold uppercase">Total COGS (Cost)</span>
-            <p className="text-lg font-bold text-gray-800">₹{cogs}</p>
-          </div>
-        </div>
-
+      {/* 4. Inventory Alerts Grid — Row 3 */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
         {/* Low Stock Counter */}
         <Link to="/stock" className="bg-white border border-amber-200 rounded-2xl p-5 shadow-sm flex items-center justify-between hover:bg-amber-50/50 transition-colors">
           <div className="flex items-center space-x-4">
@@ -276,7 +247,7 @@ const Dashboard = () => {
       {summary?.recentActivity && summary.recentActivity.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100 font-bold text-gray-800 text-base flex justify-between items-center">
-            <span>Recent Activity (Sales & Purchases)</span>
+            <span>Recent Activity (Project Invoices & Purchases)</span>
             <span className="text-xs font-semibold text-gray-400">Latest Transactions</span>
           </div>
           <div className="overflow-x-auto">
@@ -295,7 +266,7 @@ const Dashboard = () => {
                   <tr key={`${act.type}-${act.id}`} className="hover:bg-gray-50/50">
                     <td className="px-6 py-3">
                       <span className={`px-2.5 py-0.5 rounded-full text-xs font-extrabold ${
-                        act.type === 'SALE' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
+                        act.type === 'INVOICE' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
                       }`}>
                         {act.type}
                       </span>
@@ -319,14 +290,14 @@ const Dashboard = () => {
         <h3 className="text-xl font-bold text-gray-800">Quick Operations</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           <Link
-            to="/billing"
+            to="/projects"
             className="flex items-center justify-between p-4 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition-all shadow-md group"
           >
             <div className="flex items-center space-x-3">
               <div className="p-2.5 rounded-lg bg-emerald-700">
-                <FaShoppingCart className="text-lg" />
+                <FaChartLine className="text-lg" />
               </div>
-              <span className="font-bold text-sm">⚡ New Sale / POS</span>
+              <span className="font-bold text-sm">🏗️ Manage Projects</span>
             </div>
             <FaArrowRight />
           </Link>

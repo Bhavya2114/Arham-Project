@@ -22,7 +22,7 @@ async function seed() {
   const hashedPassword = await bcrypt.hash('Password@123', 10);
 
   // 1. Users
-  await User.create({
+  const adminUser = await User.create({
     name: 'Admin User',
     email: 'admin@erp.com',
     password: hashedPassword,
@@ -98,6 +98,7 @@ async function seed() {
     mobile: '9123456789',
     type: CUSTOMER_TYPES.RETAIL,
     status: CUSTOMER_STATUSES.ACTIVE,
+    createdBy: adminUser._id,
   });
 
   await Customer.create({
@@ -108,6 +109,7 @@ async function seed() {
     status: CUSTOMER_STATUSES.ACTIVE,
     businessName: 'Acme Traders',
     gstNumber: '27LMNOP9012Q1Z8',
+    createdBy: adminUser._id,
   });
 
   console.log('✅ Customers created');
@@ -119,7 +121,6 @@ async function seed() {
       sku: 'ELEC-MOUSE-001',
       category: catElectronics.name,
       costPrice: 450,
-      sellingPrice: 799,
       gstRate: 18,
       currentStock: 45,
       minimumStock: 10,
@@ -132,7 +133,6 @@ async function seed() {
       sku: 'ELEC-KEYB-002',
       category: catElectronics.name,
       costPrice: 1800,
-      sellingPrice: 2999,
       gstRate: 18,
       currentStock: 15,
       minimumStock: 5,
@@ -145,7 +145,6 @@ async function seed() {
       sku: 'APP-SHIRT-001',
       category: catApparel.name,
       costPrice: 400,
-      sellingPrice: 1199,
       gstRate: 5,
       currentStock: 30,
       minimumStock: 8,
@@ -158,7 +157,6 @@ async function seed() {
       sku: 'OFF-PAPER-001',
       category: catOffice.name,
       costPrice: 180,
-      sellingPrice: 280,
       gstRate: 12,
       currentStock: 3,
       minimumStock: 10,

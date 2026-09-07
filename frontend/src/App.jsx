@@ -13,8 +13,6 @@ import PurchaseChoice from "./pages/PurchaseChoice";
 import PurchaseUpload from "./pages/PurchaseUpload";
 import ReviewPurchase from "./pages/ReviewPurchase";
 import Purchases from "./pages/Purchases";
-import Billing from "./pages/Billing";
-import Sales from "./pages/Sales";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
@@ -67,8 +65,6 @@ const App = () => (
             <Route path="/purchases/new/review" element={<ReviewPurchase />} />
             <Route path="/purchases/review" element={<ReviewPurchase />} />
             <Route path="/purchases" element={<Purchases />} />
-            <Route path="/billing" element={<Billing />} />
-            <Route path="/sales" element={<Sales />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/reports/*" element={<Reports />} />
             <Route path="/settings" element={<Settings />} />

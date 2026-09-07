@@ -1,6 +1,6 @@
-# Inventory POS & Management System — Backend API
+# Project ERP & Inventory Management System — Backend API
 
-Node.js, Express, TypeScript, and Mongoose (MongoDB) REST API backend for the Inventory Management System.
+Node.js, Express, TypeScript, and Mongoose (MongoDB) REST API backend for the Arham Project ERP & Inventory Management System.
 
 ## Tech Stack
 
@@ -43,5 +43,6 @@ npm start
 - `/api/suppliers` — Supplier directory
 - `/api/customers` — Customer CRM directory
 - `/api/purchases` — Purchase procurement & auto-stock increment
-- `/api/sales` — Sales & POS Billing with auto-stock decrement
-- `/api/reports` — Dashboard, Sales, Purchase, P&L, & Inventory Analytics reports
+- `/api/projects` — Projects, budget, materials consumption, & project expenses
+- `/api/project-invoices` — Project customer invoicing, payments & GST
+- `/api/reports` — Dashboard, Purchase, Projects Profitability, Inventory, & GST Summary reports

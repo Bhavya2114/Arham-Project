@@ -39,16 +39,23 @@ export const extractedItemSchema = z.object({
   sgstAmount: z.coerce.number().nonnegative().optional().default(0),
   igstRate: z.coerce.number().nonnegative().optional().default(0),
   igstAmount: z.coerce.number().nonnegative().optional().default(0),
+  taxAmount: z.coerce.number().nonnegative().optional(),
+  totalAmount: z.coerce.number().nonnegative().optional(),
   lineTotal: z.coerce.number().nonnegative().optional().default(0),
 });
 
 export const extractedTotalsSchema = z.object({
   taxableAmount: z.coerce.number().optional().default(0),
+  subtotal: z.coerce.number().optional(),
   totalDiscount: z.coerce.number().optional().default(0),
   totalCGST: z.coerce.number().optional().default(0),
   totalSGST: z.coerce.number().optional().default(0),
   totalIGST: z.coerce.number().optional().default(0),
   totalGST: z.coerce.number().optional().default(0),
+  cgst: z.coerce.number().optional(),
+  sgst: z.coerce.number().optional(),
+  igst: z.coerce.number().optional(),
+  totalTax: z.coerce.number().optional(),
   roundOff: z.coerce.number().optional().default(0),
   grandTotal: z.coerce.number().optional().default(0),
 });

@@ -170,10 +170,11 @@ describe('POST /api/purchases/extract-bill API tests (Phase 7.4.4 Backend Gemini
   it('Test 14 — Bill with existing supplier correctly matches and returns matched=true, isNew=false, and supplier ID', async () => {
     process.env.GEMINI_API_KEY = 'test_mock_gemini_key';
 
+    const uniqueGst = `27ABCDE${Date.now().toString().slice(-4)}F1Z5`;
     const testSup = await Supplier.create({
-      name: 'ABC Electricals Pvt. Ltd.',
+      name: `ABC Electricals ${Date.now()}`,
       companyName: 'ABC Electricals',
-      gstNumber: '27ABCDE9999F1Z5',
+      gstNumber: uniqueGst,
       mobile: '9876543210',
     });
 
@@ -181,7 +182,7 @@ describe('POST /api/purchases/extract-bill API tests (Phase 7.4.4 Backend Gemini
       extracted: {
         supplier: {
           supplierName: 'ABC Electricals',
-          supplierGSTIN: '27ABCDE9999F1Z5',
+          supplierGSTIN: uniqueGst,
           supplierAddress: 'Mumbai',
           supplierState: 'Maharashtra',
           supplierStateCode: '27',

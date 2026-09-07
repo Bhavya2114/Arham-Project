@@ -56,7 +56,6 @@ const AddPurchase = () => {
     quantity: 1,
     unit: 'Pcs',
     unitPrice: 0,
-    sellingPrice: 0,
     gstPercent: 18,
   });
 
@@ -138,13 +137,11 @@ const AddPurchase = () => {
           if (value === 'NEW') {
             updated.isNewProduct = true;
             updated.productId = '';
-            updated.sellingPrice = item.sellingPrice !== undefined ? item.sellingPrice : 0;
             updated.newProduct = {
               name: item.extractedItemName || item.productName || 'New Product',
               unit: item.unit || 'Pcs',
               unitPrice: item.unitPrice || 0,
               costPrice: item.unitPrice || 0,
-              sellingPrice: item.sellingPrice !== undefined ? item.sellingPrice : 0,
               gstRate: item.gstPercent || 18,
             };
           } else {
@@ -153,7 +150,6 @@ const AddPurchase = () => {
             const selectedProd = products.find((p) => (p.id || p._id) === value);
             if (selectedProd) {
               updated.unitPrice = selectedProd.costPrice || 0;
-              updated.sellingPrice = selectedProd.sellingPrice || 0;
               if (!item.gstPercent) {
                 updated.gstPercent = selectedProd.gstRate !== undefined ? selectedProd.gstRate : 18;
               }
@@ -171,14 +167,6 @@ const AddPurchase = () => {
           updated.productName = value;
         }
 
-        if (field === 'sellingPrice') {
-          const num = parseFloat(value);
-          if (!isNaN(num) && num > 0 && invalidRowId === id) {
-            setInvalidRowId(null);
-            setFormError(null);
-          }
-        }
-
         return updated;
       })
     );
@@ -193,11 +181,12 @@ const AddPurchase = () => {
 
     const grossAmount = qty * price;
     const totalGstAmount = (grossAmount * gstPct) / 100;
-    const cgstAmount = totalGstAmount / 2;
-    const sgstAmount = totalGstAmount / 2;
-    const igstAmount = 0;
+    const cgstAmount = item.cgstAmount !== undefined && item.cgstAmount !== null && Number(item.cgstAmount) > 0 ? Number(item.cgstAmount) : totalGstAmount / 2;
+    const sgstAmount = item.sgstAmount !== undefined && item.sgstAmount !== null && Number(item.sgstAmount) > 0 ? Number(item.sgstAmount) : totalGstAmount / 2;
+    const igstAmount = item.igstAmount !== undefined && item.igstAmount !== null && Number(item.igstAmount) > 0 ? Number(item.igstAmount) : 0;
+    const taxAmount = item.taxAmount !== undefined && item.taxAmount !== null && Number(item.taxAmount) > 0 ? Number(item.taxAmount) : totalGstAmount;
 
-    const lineTotal = grossAmount + totalGstAmount;
+    const lineTotal = grossAmount + taxAmount;
 
     return {
       ...item,
@@ -210,6 +199,7 @@ const AddPurchase = () => {
       sgstAmount,
       igstAmount,
       totalGstAmount,
+      taxAmount,
       lineTotal,
     };
   });
@@ -264,8 +254,6 @@ const AddPurchase = () => {
     }
 
     // 5. Strict Row-by-Row Item Validation (EVERY row must be valid)
-    const invalidSellingPriceItems = [];
-
     for (let idx = 0; idx < items.length; idx++) {
       const item = items[idx];
       const rowNum = idx + 1;
@@ -310,15 +298,6 @@ const AddPurchase = () => {
         return;
       }
 
-      // Default Selling Price check (Must be strictly > 0 for ALL items)
-      const sellPrice = parseFloat(item.sellingPrice);
-      if (item.sellingPrice === '' || item.sellingPrice === null || item.sellingPrice === undefined || isNaN(sellPrice) || sellPrice <= 0) {
-        const prodName = item.isNewProduct
-          ? (item.newProduct?.name || item.extractedItemName || item.productName || `Item #${rowNum}`)
-          : (products.find((p) => (p.id || p._id) === item.productId)?.name || item.productName || `Item #${rowNum}`);
-        invalidSellingPriceItems.push({ id: item.id, rowNum, name: prodName });
-      }
-
       // GST % check
       const gstPct = parseFloat(item.gstPercent);
       if (item.gstPercent === '' || item.gstPercent === null || item.gstPercent === undefined || isNaN(gstPct) || gstPct < 0) {
@@ -327,31 +306,6 @@ const AddPurchase = () => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
         return;
       }
-    }
-
-    if (invalidSellingPriceItems.length > 0) {
-      const firstInvalid = invalidSellingPriceItems[0];
-      setInvalidRowId(firstInvalid.id);
-
-      if (invalidSellingPriceItems.length === 1) {
-        setFormError(`Cannot review purchase. Please enter a selling price greater than ₹0 for: ${firstInvalid.name}.`);
-      } else {
-        const namesList = invalidSellingPriceItems.map((i) => `"${i.name}"`).join(', ');
-        setFormError(`Cannot review purchase. Please enter a selling price greater than ₹0 for ${invalidSellingPriceItems.length} items: ${namesList}.`);
-      }
-
-      // Automatically focus and scroll to the first invalid selling-price field
-      setTimeout(() => {
-        const inputEl = document.getElementById(`selling-price-${firstInvalid.id}`);
-        if (inputEl) {
-          inputEl.focus();
-          inputEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        } else {
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-      }, 50);
-
-      return;
     }
 
     const formData = {
@@ -370,6 +324,9 @@ const AddPurchase = () => {
       invoiceNumber: invoiceNumber.trim(),
       invoiceDate,
       notes: notes ? notes.trim() : '',
+      cgst: incomingState.cgst !== undefined ? incomingState.cgst : undefined,
+      sgst: incomingState.sgst !== undefined ? incomingState.sgst : undefined,
+      igst: incomingState.igst !== undefined ? incomingState.igst : undefined,
       items: calculatedItems.map((i) => ({
         id: i.id,
         productId: i.isNewProduct ? '' : i.productId,
@@ -378,15 +335,15 @@ const AddPurchase = () => {
           name: i.newProduct?.name || i.extractedItemName || i.productName || 'New Product',
           unit: i.unit || 'Pcs',
           unitPrice: Number(i.price || 0),
-          sellingPrice: Number(i.sellingPrice),
+          costPrice: Number(i.price || 0),
           gstRate: Number(i.gstPct !== undefined ? i.gstPct : 18),
         } : null,
         productName: i.isNewProduct ? (i.newProduct?.name || i.extractedItemName || i.productName || 'New Product') : (i.productName || i.prod?.name || 'Product'),
         quantity: i.qty,
         unit: i.unit,
         unitPrice: i.price,
-        sellingPrice: Number(i.sellingPrice),
         gstPercent: i.gstPct,
+        taxAmount: i.taxAmount !== undefined ? i.taxAmount : i.totalGstAmount,
         cgstAmount: i.cgstAmount,
         sgstAmount: i.sgstAmount,
         igstAmount: i.igstAmount,
@@ -655,13 +612,12 @@ const AddPurchase = () => {
                     <th className="px-3 py-3 min-w-[220px]">ITEM / PRODUCT</th>
                     <th className="px-3 py-3 w-20 text-center">QUANTITY</th>
                     <th className="px-3 py-3 w-16">UNIT</th>
-                    <th className="px-3 py-3 w-24 text-center">UNIT PURCHASE PRICE (₹)</th>
-                    <th className="px-3 py-3 w-24 text-center">DEFAULT SELLING PRICE (₹)</th>
+                    <th className="px-3 py-3 w-24 text-center">UNIT PURCHASE PRICE (EXCL. GST) (₹)</th>
                     <th className="px-3 py-3 w-16 text-center">GST %</th>
                     <th className="px-3 py-3 w-20 text-center">CGST AMT (₹)</th>
                     <th className="px-3 py-3 w-20 text-center">SGST AMT (₹)</th>
                     <th className="px-3 py-3 w-20 text-center">IGST AMT (₹)</th>
-                    <th className="px-3 py-3 w-24 text-right">TOTAL (₹)</th>
+                    <th className="px-3 py-3 w-24 text-right">TOTAL (INCL. GST) (₹)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 font-medium">
@@ -787,26 +743,6 @@ const AddPurchase = () => {
                             value={item.unitPrice}
                             onChange={(e) => handleItemFieldChange(item.id, 'unitPrice', e.target.value)}
                             className="w-20 px-2 py-1.5 border border-gray-200 rounded-xl text-xs font-bold text-center text-gray-900 bg-white focus:outline-none focus:border-emerald-500"
-                          />
-                        </td>
-
-                        {/* 6. Default Selling Price (₹) */}
-                        <td className="px-3 py-3 text-center">
-                          <input
-                            id={`selling-price-${item.id}`}
-                            type="number"
-                            step="0.01"
-                            min="0.01"
-                            placeholder="0.00"
-                            value={item.sellingPrice !== undefined && item.sellingPrice !== null ? item.sellingPrice : ''}
-                            onChange={(e) => handleItemFieldChange(item.id, 'sellingPrice', e.target.value)}
-                            className={`w-20 px-2 py-1.5 border rounded-xl text-xs font-bold text-center transition-colors focus:outline-none focus:border-emerald-500 ${
-                              isRowInvalid && (item.sellingPrice === '' || item.sellingPrice === null || item.sellingPrice === undefined || parseFloat(item.sellingPrice) <= 0 || isNaN(parseFloat(item.sellingPrice)))
-                                ? 'border-red-400 bg-red-50 text-red-900 ring-2 ring-red-400/20'
-                                : (item.sellingPrice === 0 || item.sellingPrice === '0' || item.sellingPrice === '' || item.sellingPrice === null || item.sellingPrice === undefined)
-                                ? 'border-amber-400 bg-amber-50 text-amber-900 placeholder-amber-400'
-                                : 'border-emerald-200 text-emerald-800 bg-emerald-50/20'
-                            }`}
                           />
                         </td>
 

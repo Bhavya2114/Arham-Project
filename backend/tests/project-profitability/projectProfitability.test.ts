@@ -1,25 +1,17 @@
 import request from 'supertest';
 import app from '../../src/app';
 import { getAuthToken } from '../helpers/auth.helper';
-import { Product } from '../../src/models/Product';
-import { ProjectExpense } from '../../src/models/ProjectExpense';
-import { ProjectInvoice } from '../../src/models/ProjectInvoice';
 
-describe('Project Profitability & Analytics API integration tests (Phase 7.6)', () => {
+describe('Project Profitability Engine: Budget vs Actual Cost (Phase 4)', () => {
   let adminToken: string;
-  let salesToken: string;
   let accountsToken: string;
   let customerId: string;
-  let projectId: string;
-  let productId: string;
-  let emptyProjectId: string;
 
   beforeAll(async () => {
     adminToken = await getAuthToken('ADMIN');
-    salesToken = await getAuthToken('SALES');
     accountsToken = await getAuthToken('ACCOUNTS');
 
-    // 1. Create Customer & Projects
+    // Create Customer
     const custRes = await request(app)
       .post('/api/customers')
       .set('Authorization', `Bearer ${adminToken}`)
@@ -35,165 +27,282 @@ describe('Project Profitability & Analytics API integration tests (Phase 7.6)', 
       });
     expect(custRes.status).toBe(201);
     customerId = custRes.body.data.id;
+  });
 
-    const projRes = await request(app)
-      .post('/api/projects')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        projectCode: `PROF-PRJ-${Date.now()}`,
-        name: 'Godrej Horizon Tower',
-        customer: customerId,
-        siteAddress: 'Vikhroli, Mumbai',
-        startDate: '2026-08-01',
-        status: 'IN_PROGRESS',
-      });
-    expect(projRes.status).toBe(201);
-    projectId = projRes.body.data.id;
-
-    const emptyProjRes = await request(app)
-      .post('/api/projects')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        projectCode: `EMPTY-PRJ-${Date.now()}`,
-        name: 'Zero Activity Site',
-        customer: customerId,
-        siteAddress: 'Thane, Mumbai',
-        startDate: '2026-08-01',
-        status: 'PLANNING',
-      });
-    expect(emptyProjRes.status).toBe(201);
-    emptyProjectId = emptyProjRes.body.data.id;
-
-    // 2. Create Product (costPrice = 2000, sellingPrice = 2500)
-    const prodRes = await request(app)
+  // Helper to create product
+  const createProduct = async (name: string, costPrice: number) => {
+    const res = await request(app)
       .post('/api/products')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
-        name: 'Cement UltraTech 50kg',
-        sku: `CEM-${Date.now()}`,
+        name,
+        sku: `SKU-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         category: 'Building Material',
-        costPrice: 2000,
-        unitPrice: 2500,
-        sellingPrice: 2500,
+        costPrice,
         gstRate: 18,
-        currentStock: 500,
+        currentStock: 1000,
+        minStockQuantity: 5,
+        location: 'Main Store',
+        unit: 'pcs',
       });
-    expect(prodRes.status).toBe(201);
-    productId = prodRes.body.data.id;
+    expect(res.status).toBe(201);
+    return res.body.data.id;
+  };
 
-    // 3. Record Material Consumption: 20 bags (Actual Cost Total = 40,000, Billing Total = 50,000)
-    const matRes = await request(app)
+  // Helper to create project
+  const createProject = async (name: string, budget: number) => {
+    const res = await request(app)
+      .post('/api/projects')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        projectCode: `PRJ-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        name,
+        customer: customerId,
+        siteAddress: 'Mumbai Site',
+        startDate: '2026-09-01',
+        budget,
+        status: 'IN_PROGRESS',
+      });
+    expect(res.status).toBe(201);
+    return res.body.data.id;
+  };
+
+  // TEST 1: Budget = 50,000, Materials = 30,000, Expenses = 0, Labour = 0
+  // Expected: Actual Cost = 30,000, Profit = 20,000, Margin = 40%
+  it('TEST 1 — Budget = 50,000, Materials = 30,000, Expenses = 0 -> Profit = 20,000, Margin = 40%', async () => {
+    const pId = await createProject('P1 Test', 50000);
+    const prodId = await createProduct('Prod P1', 3000); // 10 units = 30,000 cost
+
+    await request(app)
       .post('/api/material-consumptions')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        project: projectId,
-        product: productId,
-        quantity: 20,
-        billingPrice: 2500, // Billing Total = 50,000; Actual Cost Total = 40,000
-      });
-    expect(matRes.status).toBe(201);
+      .send({ project: pId, product: prodId, quantity: 10 });
 
-    // 4. Record Project Expense: Transport = 20,000
-    const expRes = await request(app)
+    const res = await request(app)
+      .get(`/api/projects/${pId}/profitability`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.projectBudget).toBe(50000);
+    expect(res.body.data.totalMaterialCost).toBe(30000);
+    expect(res.body.data.totalProjectExpenses).toBe(0);
+    expect(res.body.data.actualProjectCost).toBe(30000);
+    expect(res.body.data.projectProfit).toBe(20000);
+    expect(res.body.data.projectMargin).toBe(40);
+  });
+
+  // TEST 2: Budget = 50,000, Materials = 30,000, Expenses = 5,000, Labour = 0
+  // Expected: Actual Cost = 35,000, Profit = 15,000, Margin = 30%
+  it('TEST 2 — Budget = 50,000, Materials = 30,000, Expenses = 5,000 -> Profit = 15,000, Margin = 30%', async () => {
+    const pId = await createProject('P2 Test', 50000);
+    const prodId = await createProduct('Prod P2', 3000);
+
+    await request(app)
+      .post('/api/material-consumptions')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ project: pId, product: prodId, quantity: 10 });
+
+    await request(app)
       .post('/api/project-expenses')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        project: projectId,
-        category: 'TRANSPORT',
-        description: 'Cement heavy haulage freight',
-        amount: 20000,
-      });
-    expect(expRes.status).toBe(201);
+      .send({ project: pId, category: 'TRANSPORT', description: 'Logistics', amount: 5000 });
 
-    // Total Actual Cost = 40,000 (Materials) + 20,000 (Expenses) = 60,000
+    const res = await request(app)
+      .get(`/api/projects/${pId}/profitability`)
+      .set('Authorization', `Bearer ${adminToken}`);
 
-    // 5. Create Project Invoice: Subtotal = 100,000 (No GST / No discount for easy test math)
+    expect(res.status).toBe(200);
+    expect(res.body.data.projectBudget).toBe(50000);
+    expect(res.body.data.totalMaterialCost).toBe(30000);
+    expect(res.body.data.totalProjectExpenses).toBe(5000);
+    expect(res.body.data.actualProjectCost).toBe(35000);
+    expect(res.body.data.projectProfit).toBe(15000);
+    expect(res.body.data.projectMargin).toBe(30);
+  });
+
+  // TEST 3: Budget = 50,000, Materials = 30,000, Expenses = 5,000, Labour = 8,000
+  // Expected: Actual Cost = 43,000, Profit = 7,000, Margin = 14%
+  it('TEST 3 — Budget = 50,000, Materials = 30,000, Expenses = 5,000, Labour = 8,000 -> Profit = 7,000, Margin = 14%', async () => {
+    const pId = await createProject('P3 Test', 50000);
+    const prodId = await createProduct('Prod P3', 3000);
+
+    await request(app)
+      .post('/api/material-consumptions')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ project: pId, product: prodId, quantity: 10 });
+
+    await request(app)
+      .post('/api/project-expenses')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ project: pId, category: 'TRANSPORT', description: 'Logistics', amount: 5000 });
+
+    await request(app)
+      .post('/api/project-expenses')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ project: pId, category: 'LABOUR', description: 'Masonry labour', amount: 8000 });
+
+    const res = await request(app)
+      .get(`/api/projects/${pId}/profitability`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.projectBudget).toBe(50000);
+    expect(res.body.data.totalMaterialCost).toBe(30000);
+    expect(res.body.data.totalProjectExpenses).toBe(13000);
+    expect(res.body.data.actualProjectCost).toBe(43000);
+    expect(res.body.data.projectProfit).toBe(7000);
+    expect(res.body.data.projectMargin).toBe(14);
+  });
+
+  // TEST 4 — EXACT BUDGET: Budget = 50,000, Actual Cost = 50,000 -> Profit = 0, Margin = 0%
+  it('TEST 4 — Exact Budget: Budget = 50,000, Actual Cost = 50,000 -> Profit = 0, Margin = 0%', async () => {
+    const pId = await createProject('P4 Exact Budget', 50000);
+    const prodId = await createProduct('Prod P4', 5000);
+
+    await request(app)
+      .post('/api/material-consumptions')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ project: pId, product: prodId, quantity: 10 });
+
+    const res = await request(app)
+      .get(`/api/projects/${pId}/profitability`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.projectBudget).toBe(50000);
+    expect(res.body.data.actualProjectCost).toBe(50000);
+    expect(res.body.data.projectProfit).toBe(0);
+    expect(res.body.data.projectMargin).toBe(0);
+  });
+
+  // TEST 5 — OVER BUDGET: Budget = 50,000, Actual Cost = 60,000 -> Profit = -10,000, Margin = -20%
+  it('TEST 5 — Over Budget: Budget = 50,000, Actual Cost = 60,000 -> Profit = -10,000, Margin = -20%', async () => {
+    const pId = await createProject('P5 Over Budget', 50000);
+    const prodId = await createProduct('Prod P5', 6000);
+
+    await request(app)
+      .post('/api/material-consumptions')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ project: pId, product: prodId, quantity: 10 });
+
+    const res = await request(app)
+      .get(`/api/projects/${pId}/profitability`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.projectBudget).toBe(50000);
+    expect(res.body.data.actualProjectCost).toBe(60000);
+    expect(res.body.data.projectProfit).toBe(-10000);
+    expect(res.body.data.projectMargin).toBe(-20);
+  });
+
+  // TEST 6 — ZERO BUDGET: Budget = 0 -> Safe margin behavior (0) without division by zero
+  it('TEST 6 — Zero Budget: Budget = 0 -> Safe margin behavior without division by zero', async () => {
+    const pId = await createProject('P6 Zero Budget', 0);
+    const prodId = await createProduct('Prod P6', 1000);
+
+    await request(app)
+      .post('/api/material-consumptions')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ project: pId, product: prodId, quantity: 5 });
+
+    const res = await request(app)
+      .get(`/api/projects/${pId}/profitability`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.projectBudget).toBe(0);
+    expect(res.body.data.actualProjectCost).toBe(5000);
+    expect(res.body.data.projectProfit).toBe(-5000);
+    expect(res.body.data.projectMargin).toBe(0);
+  });
+
+  // TEST 7 — INVOICE INDEPENDENCE: Invoiced and received amounts do NOT alter operational profit
+  it('TEST 7 — Invoice & Payment Independence: Invoices & Payments do NOT alter operational profit', async () => {
+    const pId = await createProject('P7 Invoice Independence', 50000);
+    const prodId = await createProduct('Prod P7', 3000);
+
+    await request(app)
+      .post('/api/material-consumptions')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ project: pId, product: prodId, quantity: 10 }); // Cost = 30,000
+
+    // Create Invoice for 50,000
     const invRes = await request(app)
       .post('/api/project-invoices')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
-        project: projectId,
-        items: [
-          {
-            type: 'SERVICE',
-            sourceType: 'MANUAL',
-            description: 'Phase 1 Structural Work',
-            rate: 100000,
-            gstRate: 0,
-          },
-        ],
+        project: pId,
+        items: [{ type: 'SERVICE', sourceType: 'MANUAL', description: 'Milestone 1', rate: 50000, gstRate: 0 }],
       });
-    expect(invRes.status).toBe(201);
-    const invoiceId = invRes.body.data.id;
+    const invId = invRes.body.data.id;
 
-    // 6. Record Payment: 40,000
-    const pmtRes = await request(app)
+    // Record Partial Payment of 10,000
+    await request(app)
       .post('/api/project-invoice-payments')
       .set('Authorization', `Bearer ${accountsToken}`)
-      .send({
-        invoice: invoiceId,
-        amount: 40000,
-        paymentMode: 'BANK_TRANSFER',
-        transactionReference: 'RTGS100200300',
-      });
-    expect(pmtRes.status).toBe(201);
+      .send({ invoice: invId, amount: 10000, paymentMode: 'CASH' });
+
+    const res = await request(app)
+      .get(`/api/projects/${pId}/profitability`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.projectBudget).toBe(50000);
+    expect(res.body.data.actualProjectCost).toBe(30000);
+    expect(res.body.data.projectProfit).toBe(20000); // 50,000 - 30,000 = 20,000
+    expect(res.body.data.projectMargin).toBe(40);
+    expect(res.body.data.totalInvoiced).toBe(50000);
+    expect(res.body.data.totalReceived).toBe(10000);
+    expect(res.body.data.outstanding).toBe(40000);
   });
 
-  describe('GET /api/projects/:projectId/profitability - Single Project Analytics', () => {
-    it('should calculate exact gross profit (40,000) and gross margin (40%) correctly', async () => {
-      const res = await request(app)
-        .get(`/api/projects/${projectId}/profitability`)
-        .set('Authorization', `Bearer ${adminToken}`);
+  // TEST 8 — MATERIAL COST: Uses actual cost (actualCostTotal), NOT selling price
+  it('TEST 8 — Material Cost: Derived strictly from actual material costPrice data', async () => {
+    const pId = await createProject('P8 Material Cost', 100000);
+    const prodId = await createProduct('Prod P8', 400); // costPrice = 400
 
-      expect(res.status).toBe(200);
-      expect(res.body.data).toHaveProperty('revenue', 100000);
-      expect(res.body.data).toHaveProperty('totalMaterialCost', 40000); // Uses actual cost (20 * 2000), NOT billing price (50,000)
-      expect(res.body.data).toHaveProperty('totalProjectExpenses', 20000);
-      expect(res.body.data).toHaveProperty('totalProjectCost', 60000);
-      expect(res.body.data).toHaveProperty('grossProfit', 40000); // 100,000 - 60,000 = 40,000
-      expect(res.body.data).toHaveProperty('grossMargin', 40); // (40,000 / 100,000) * 100 = 40%
-      expect(res.body.data).toHaveProperty('totalReceived', 40000);
-      expect(res.body.data).toHaveProperty('outstanding', 60000); // 100,000 - 40,000 = 60,000
-    });
+    // Issue 20 units with arbitrary billing price of 700 (billingTotal = 14,000)
+    await request(app)
+      .post('/api/material-consumptions')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ project: pId, product: prodId, quantity: 20, billingPrice: 700 });
 
-    it('should handle zero-activity project cleanly without division by zero errors', async () => {
-      const res = await request(app)
-        .get(`/api/projects/${emptyProjectId}/profitability`)
-        .set('Authorization', `Bearer ${accountsToken}`);
+    const res = await request(app)
+      .get(`/api/projects/${pId}/profitability`)
+      .set('Authorization', `Bearer ${adminToken}`);
 
-      expect(res.status).toBe(200);
-      expect(res.body.data.revenue).toBe(0);
-      expect(res.body.data.totalProjectCost).toBe(0);
-      expect(res.body.data.grossProfit).toBe(0);
-      expect(res.body.data.grossMargin).toBe(0); // Safely returns 0 without NaN/Infinity
-    });
-
-    it('ISOLATION & READ-ONLY: profitability report must NOT alter any database models or stock', async () => {
-      const prod = await Product.findById(productId);
-      expect(prod?.currentStock).toBe(480); // Intact!
-
-      const expCount = await ProjectExpense.countDocuments({ project: projectId });
-      expect(expCount).toBe(1); // Intact!
-
-      const invCount = await ProjectInvoice.countDocuments({ project: projectId });
-      expect(invCount).toBe(1); // Intact!
-    });
+    expect(res.status).toBe(200);
+    // Material cost should be 20 * 400 = 8,000 (NOT billingTotal 14,000)
+    expect(res.body.data.totalMaterialCost).toBe(8000);
+    expect(res.body.data.actualProjectCost).toBe(8000);
+    expect(res.body.data.projectProfit).toBe(92000);
   });
 
-  describe('GET /api/reports/projects-profitability - Executive Management Report', () => {
-    it('should allow authenticated users to retrieve global projects profitability report', async () => {
-      const res = await request(app)
-        .get('/api/reports/projects-profitability')
-        .set('Authorization', `Bearer ${salesToken}`);
+  // TEST 9 & 10 — EXPENSES & LABOUR BREAKDOWN
+  it('TEST 9 & 10 — Expenses & Labour Breakdown: Category expenses properly tracked', async () => {
+    const pId = await createProject('P9 Breakdown', 100000);
 
-      expect(res.status).toBe(200);
-      expect(Array.isArray(res.body.data)).toBe(true);
-      expect(res.body.data.length).toBeGreaterThanOrEqual(2);
+    await request(app)
+      .post('/api/project-expenses')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ project: pId, category: 'MACHINERY_RENTAL', description: 'Crane', amount: 15000 });
 
-      const target = res.body.data.find((p: any) => p.projectId === projectId);
-      expect(target).toBeDefined();
-      expect(target.grossProfit).toBe(40000);
-      expect(target.grossMargin).toBe(40);
-    });
+    await request(app)
+      .post('/api/project-expenses')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ project: pId, category: 'LABOUR', description: 'Electrical sub-contract', amount: 12000 });
+
+    const res = await request(app)
+      .get(`/api/projects/${pId}/profitability`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.totalProjectExpenses).toBe(27000);
+    expect(res.body.data.expenseCategoryBreakdown.MACHINERY_RENTAL).toBe(15000);
+    expect(res.body.data.expenseCategoryBreakdown.LABOUR).toBe(12000);
+    expect(res.body.data.actualProjectCost).toBe(27000);
+    expect(res.body.data.projectProfit).toBe(73000);
+    expect(res.body.data.projectMargin).toBe(73);
   });
 });

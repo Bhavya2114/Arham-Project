@@ -135,7 +135,7 @@ const Purchases = () => {
                   <th className="px-6 py-3.5">Supplier Name</th>
                   <th className="px-6 py-3.5">Purchase Date</th>
                   <th className="px-6 py-3.5 text-center">Items Count</th>
-                  <th className="px-6 py-3.5 text-right">Grand Total (Spend)</th>
+                  <th className="px-6 py-3.5 text-right">Supplier Total (Incl. GST)</th>
                   <th className="px-6 py-3.5 text-right">Action</th>
                 </tr>
               </thead>
@@ -177,7 +177,7 @@ const Purchases = () => {
       {/* PURCHASE DETAILS MODAL */}
       {isDetailOpen && activePurchase && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white border border-gray-200 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-4 relative max-h-[90vh] overflow-y-auto">
+          <div className="bg-white border border-gray-200 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4 relative max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-gray-100 pb-3">
               <div>
                 <h3 className="text-base font-bold text-gray-900 flex items-center space-x-2">
@@ -199,6 +199,9 @@ const Purchases = () => {
               {activePurchase.supplier?.contactPerson && (
                 <div className="text-gray-500">Contact: {activePurchase.supplier.contactPerson}</div>
               )}
+              {activePurchase.supplier?.gstNumber && (
+                <div className="text-gray-500 font-mono text-[11px]">GSTIN: {activePurchase.supplier.gstNumber}</div>
+              )}
               {activePurchase.notes && <div className="text-gray-500 italic">Notes: {activePurchase.notes}</div>}
             </div>
 
@@ -210,10 +213,11 @@ const Purchases = () => {
                   <thead className="bg-gray-50 font-bold text-gray-500">
                     <tr>
                       <th className="p-2.5">Product / Item</th>
-                      <th className="p-2.5 text-right">Price (₹)</th>
+                      <th className="p-2.5 text-right">Unit Price (Excl. GST) (₹)</th>
                       <th className="p-2.5 text-center">Qty</th>
                       <th className="p-2.5 text-center">GST %</th>
-                      <th className="p-2.5 text-right">Line Total</th>
+                      <th className="p-2.5 text-right">Line GST (₹)</th>
+                      <th className="p-2.5 text-right">Line Total (Incl. GST)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -223,8 +227,11 @@ const Purchases = () => {
                       const price = item.purchasePrice || 0;
                       const qty = item.quantity || 0;
                       const taxRate = item.taxRate || 0;
+                      const lineTax = item.taxAmount !== undefined && item.taxAmount !== null
+                        ? Number(item.taxAmount)
+                        : (price * qty * taxRate) / 100;
 
-                      const calculatedCost = price * qty + (price * qty * taxRate) / 100;
+                      const calculatedCost = price * qty + lineTax;
                       const lineTotal = item.totalCost !== undefined && item.totalCost !== null ? item.totalCost : (item.lineTotal || calculatedCost);
 
                       return (
@@ -236,6 +243,7 @@ const Purchases = () => {
                           <td className="p-2.5 text-right">₹{price.toFixed(2)}</td>
                           <td className="p-2.5 text-center font-bold">{qty}</td>
                           <td className="p-2.5 text-center">{taxRate}%</td>
+                          <td className="p-2.5 text-right font-medium text-amber-700">₹{lineTax.toFixed(2)}</td>
                           <td className="p-2.5 text-right font-bold text-emerald-800">
                             ₹{lineTotal.toFixed(2)}
                           </td>
@@ -248,15 +256,29 @@ const Purchases = () => {
             </div>
 
             {/* Summary Spend Breakdown */}
-            <div className="p-3.5 bg-slate-900 text-white rounded-xl flex flex-col sm:flex-row items-center justify-between text-xs font-bold gap-2">
-              <div className="space-x-3 text-slate-300">
-                <span>Subtotal: <span className="text-white">₹{(activePurchase.subtotal || 0).toFixed(2)}</span></span>
-                <span>|</span>
-                <span>GST: <span className="text-white">₹{(activePurchase.taxAmount !== undefined ? activePurchase.taxAmount : (activePurchase.totalGst || 0)).toFixed(2)}</span></span>
+            <div className="p-4 bg-slate-900 text-white rounded-xl space-y-2 text-xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                <div className="flex flex-wrap items-center gap-3 text-slate-300">
+                  <span>Taxable Subtotal: <strong className="text-white">₹{(activePurchase.subtotal || 0).toFixed(2)}</strong></span>
+                  <span>|</span>
+                  <span>Input GST: <strong className="text-amber-400">₹{(activePurchase.taxAmount !== undefined ? activePurchase.taxAmount : (activePurchase.totalGst || 0)).toFixed(2)}</strong></span>
+                  {activePurchase.cgst !== undefined && activePurchase.cgst !== null && (
+                    <span className="text-slate-400 font-mono text-[11px]">(CGST: ₹{Number(activePurchase.cgst).toFixed(2)})</span>
+                  )}
+                  {activePurchase.sgst !== undefined && activePurchase.sgst !== null && (
+                    <span className="text-slate-400 font-mono text-[11px]">(SGST: ₹{Number(activePurchase.sgst).toFixed(2)})</span>
+                  )}
+                  {activePurchase.igst !== undefined && activePurchase.igst !== null && Number(activePurchase.igst) > 0 && (
+                    <span className="text-slate-400 font-mono text-[11px]">(IGST: ₹{Number(activePurchase.igst).toFixed(2)})</span>
+                  )}
+                </div>
+                <div className="text-emerald-400 text-sm font-black whitespace-nowrap">
+                  Supplier Total: ₹{(activePurchase.totalAmount !== undefined ? activePurchase.totalAmount : (activePurchase.grandTotal || 0)).toFixed(2)}
+                </div>
               </div>
-              <div className="text-emerald-400 text-sm font-black">
-                Grand Total: ₹{(activePurchase.totalAmount !== undefined ? activePurchase.totalAmount : (activePurchase.grandTotal || 0)).toFixed(2)}
-              </div>
+              <p className="text-[10px] text-slate-400 italic">
+                * Input GST is charged by the supplier. Stored unit purchase price reflects GST-exclusive cost basis.
+              </p>
             </div>
 
             <div className="flex justify-end pt-2">
