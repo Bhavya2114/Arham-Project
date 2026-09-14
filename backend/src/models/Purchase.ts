@@ -5,6 +5,11 @@ export interface IPurchaseItem {
   productName: string;
   sku: string;
   purchasePrice: number;
+  originalPrice?: number;
+  discountPercent?: number;
+  discountAmount?: number;
+  discountedPrice?: number;
+  taxableAmount?: number;
   quantity: number;
   taxRate: number;
   taxAmount?: number;
@@ -24,6 +29,7 @@ export interface IPurchase extends Document {
   purchaseDate: Date;
   items: IPurchaseItem[];
   subtotal: number;
+  totalDiscount?: number;
   taxAmount: number;
   cgst?: number;
   sgst?: number;
@@ -41,6 +47,11 @@ const purchaseItemSchema = new Schema<IPurchaseItem>(
     productName: { type: String, required: true },
     sku: { type: String, required: true },
     purchasePrice: { type: Number, required: true, min: 0 },
+    originalPrice: { type: Number, min: 0 },
+    discountPercent: { type: Number, default: 0, min: 0, max: 100 },
+    discountAmount: { type: Number, default: 0, min: 0 },
+    discountedPrice: { type: Number, min: 0 },
+    taxableAmount: { type: Number, min: 0 },
     quantity: { type: Number, required: true, min: 1 },
     taxRate: { type: Number, default: 0, min: 0 },
     taxAmount: { type: Number, min: 0 },
@@ -63,6 +74,7 @@ const purchaseSchema = new Schema<IPurchase>(
     purchaseDate: { type: Date, default: Date.now },
     items: [purchaseItemSchema],
     subtotal: { type: Number, required: true, min: 0 },
+    totalDiscount: { type: Number, default: 0, min: 0 },
     taxAmount: { type: Number, default: 0, min: 0 },
     cgst: { type: Number, min: 0 },
     sgst: { type: Number, min: 0 },

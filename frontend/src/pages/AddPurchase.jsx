@@ -13,6 +13,7 @@ import {
   FaCheckCircle,
   FaInfoCircle
 } from 'react-icons/fa';
+import { calculateLineItem } from '../utils/purchaseCalculations';
 
 const AddPurchase = () => {
   const navigate = useNavigate();
@@ -56,15 +57,26 @@ const AddPurchase = () => {
     quantity: 1,
     unit: 'Pcs',
     unitPrice: 0,
+    discountPercent: 0,
+    discountAmount: 0,
     gstPercent: 18,
   });
 
   // Table Line Items State
-  const [items, setItems] = useState(
-    incomingState.items && incomingState.items.length > 0
-      ? incomingState.items
-      : []
-  );
+  const [items, setItems] = useState(() => {
+    if (incomingState.items && incomingState.items.length > 0) {
+      return incomingState.items.map((item) => {
+        const rawDisc = item.discountPercent ?? item.discPct ?? item.discount ?? 0;
+        const numDisc = Number(String(rawDisc).replace(/%/g, '').trim());
+        return {
+          ...item,
+          discountPercent: isNaN(numDisc) ? 0 : numDisc,
+          discountAmount: Number(item.discountAmount) || 0,
+        };
+      });
+    }
+    return [];
+  });
 
   const [formError, setFormError] = useState(null);
 
@@ -161,6 +173,10 @@ const AddPurchase = () => {
           }
         }
 
+        if (field === 'discountPercent') {
+          updated.discountPercent = value === '' ? '' : (isNaN(parseFloat(value)) ? 0 : parseFloat(value));
+        }
+
         if (field === 'newProductName') {
           updated.newProduct = { ...(updated.newProduct || {}), name: value };
           updated.extractedItemName = value;
@@ -172,35 +188,39 @@ const AddPurchase = () => {
     );
   };
 
-  // Real-time Dynamic Line Calculations
+  // Real-time Dynamic Line Calculations with Discount Support
   const calculatedItems = items.map((item) => {
     const prod = products.find((p) => (p.id || p._id) === item.productId);
-    const qty = parseFloat(item.quantity) || 0;
-    const price = parseFloat(item.unitPrice) || 0;
-    const gstPct = parseFloat(item.gstPercent) || 0;
 
-    const grossAmount = qty * price;
-    const totalGstAmount = (grossAmount * gstPct) / 100;
-    const cgstAmount = item.cgstAmount !== undefined && item.cgstAmount !== null && Number(item.cgstAmount) > 0 ? Number(item.cgstAmount) : totalGstAmount / 2;
-    const sgstAmount = item.sgstAmount !== undefined && item.sgstAmount !== null && Number(item.sgstAmount) > 0 ? Number(item.sgstAmount) : totalGstAmount / 2;
-    const igstAmount = item.igstAmount !== undefined && item.igstAmount !== null && Number(item.igstAmount) > 0 ? Number(item.igstAmount) : 0;
-    const taxAmount = item.taxAmount !== undefined && item.taxAmount !== null && Number(item.taxAmount) > 0 ? Number(item.taxAmount) : totalGstAmount;
-
-    const lineTotal = grossAmount + taxAmount;
+    const calc = calculateLineItem({
+      quantity: item.quantity,
+      rate: item.unitPrice,
+      discountPercent: item.discountPercent,
+      discountAmount: item.discountAmount,
+      taxRate: item.gstPercent,
+      suppliedTaxAmount: item.taxAmount,
+      cgstAmount: item.cgstAmount,
+      sgstAmount: item.sgstAmount,
+      igstAmount: item.igstAmount,
+    });
 
     return {
       ...item,
       prod,
-      qty,
-      price,
-      grossAmount,
-      gstPct,
-      cgstAmount,
-      sgstAmount,
-      igstAmount,
-      totalGstAmount,
-      taxAmount,
-      lineTotal,
+      qty: calc.quantity,
+      price: calc.rate,
+      discPct: calc.discountPercent,
+      grossAmount: calc.grossAmount,
+      discountAmount: calc.discountAmount,
+      taxableAmount: calc.taxableValue,
+      discountedUnitPrice: calc.discountedUnitPrice,
+      gstPct: calc.taxRate,
+      cgstAmount: calc.cgstAmount,
+      sgstAmount: calc.sgstAmount,
+      igstAmount: calc.igstAmount,
+      totalGstAmount: calc.lineTax,
+      taxAmount: calc.lineTax,
+      lineTotal: calc.totalCost,
     };
   });
 
@@ -298,6 +318,15 @@ const AddPurchase = () => {
         return;
       }
 
+      // Discount % check
+      const discPct = parseFloat(item.discountPercent !== undefined ? item.discountPercent : 0);
+      if (isNaN(discPct) || discPct < 0 || discPct > 100) {
+        setInvalidRowId(item.id);
+        setFormError(`Discount % must be between 0% and 100% for item #${rowNum}.`);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+
       // GST % check
       const gstPct = parseFloat(item.gstPercent);
       if (item.gstPercent === '' || item.gstPercent === null || item.gstPercent === undefined || isNaN(gstPct) || gstPct < 0) {
@@ -324,6 +353,7 @@ const AddPurchase = () => {
       invoiceNumber: invoiceNumber.trim(),
       invoiceDate,
       notes: notes ? notes.trim() : '',
+      totalDiscount: calculatedItems.reduce((acc, i) => acc + (i.discountAmount || 0), 0),
       cgst: incomingState.cgst !== undefined ? incomingState.cgst : undefined,
       sgst: incomingState.sgst !== undefined ? incomingState.sgst : undefined,
       igst: incomingState.igst !== undefined ? incomingState.igst : undefined,
@@ -335,13 +365,17 @@ const AddPurchase = () => {
           name: i.newProduct?.name || i.extractedItemName || i.productName || 'New Product',
           unit: i.unit || 'Pcs',
           unitPrice: Number(i.price || 0),
-          costPrice: Number(i.price || 0),
+          costPrice: Number(i.discountedUnitPrice || i.price || 0),
           gstRate: Number(i.gstPct !== undefined ? i.gstPct : 18),
         } : null,
         productName: i.isNewProduct ? (i.newProduct?.name || i.extractedItemName || i.productName || 'New Product') : (i.productName || i.prod?.name || 'Product'),
         quantity: i.qty,
         unit: i.unit,
         unitPrice: i.price,
+        discountPercent: i.discPct || 0,
+        discountAmount: i.discountAmount || 0,
+        taxableAmount: i.taxableAmount,
+        discountedUnitPrice: i.discountedUnitPrice,
         gstPercent: i.gstPct,
         taxAmount: i.taxAmount !== undefined ? i.taxAmount : i.totalGstAmount,
         cgstAmount: i.cgstAmount,
@@ -598,7 +632,7 @@ const AddPurchase = () => {
             ) : (
               /* Table with Horizontal Scroll */
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-gray-600 min-w-[950px]">
+                <table className="w-full text-left text-xs text-gray-600 min-w-[1050px]">
                 <thead className="bg-gray-50/80 border-b border-gray-200 text-gray-400 font-extrabold text-[11px] uppercase tracking-wider">
                   <tr>
                     <th className="px-3 py-3 w-10 text-center">
@@ -609,15 +643,17 @@ const AddPurchase = () => {
                         className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
                       />
                     </th>
-                    <th className="px-3 py-3 min-w-[220px]">ITEM / PRODUCT</th>
-                    <th className="px-3 py-3 w-20 text-center">QUANTITY</th>
+                    <th className="px-3 py-3 min-w-[200px]">ITEM / PRODUCT</th>
+                    <th className="px-3 py-3 w-16 text-center">QTY</th>
                     <th className="px-3 py-3 w-16">UNIT</th>
-                    <th className="px-3 py-3 w-24 text-center">UNIT PURCHASE PRICE (EXCL. GST) (₹)</th>
+                    <th className="px-3 py-3 w-24 text-center">UNIT RATE (₹)</th>
+                    <th className="px-3 py-3 w-16 text-center">DISC %</th>
+                    <th className="px-3 py-3 w-28 text-center">TAXABLE (₹)</th>
                     <th className="px-3 py-3 w-16 text-center">GST %</th>
-                    <th className="px-3 py-3 w-20 text-center">CGST AMT (₹)</th>
-                    <th className="px-3 py-3 w-20 text-center">SGST AMT (₹)</th>
-                    <th className="px-3 py-3 w-20 text-center">IGST AMT (₹)</th>
-                    <th className="px-3 py-3 w-24 text-right">TOTAL (INCL. GST) (₹)</th>
+                    <th className="px-3 py-3 w-20 text-center">CGST (₹)</th>
+                    <th className="px-3 py-3 w-20 text-center">SGST (₹)</th>
+                    <th className="px-3 py-3 w-20 text-center">IGST (₹)</th>
+                    <th className="px-3 py-3 w-24 text-right">TOTAL (₹)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 font-medium">
@@ -734,7 +770,7 @@ const AddPurchase = () => {
                           </select>
                         </td>
 
-                        {/* 5. Unit Purchase Price (₹) */}
+                        {/* 5. Unit Rate (Original Pre-Discount Rate) */}
                         <td className="px-3 py-3 text-center">
                           <input
                             type="number"
@@ -743,10 +779,38 @@ const AddPurchase = () => {
                             value={item.unitPrice}
                             onChange={(e) => handleItemFieldChange(item.id, 'unitPrice', e.target.value)}
                             className="w-20 px-2 py-1.5 border border-gray-200 rounded-xl text-xs font-bold text-center text-gray-900 bg-white focus:outline-none focus:border-emerald-500"
+                            title="Original Supplier Unit Rate before discount"
                           />
                         </td>
 
-                        {/* 6. GST % */}
+                        {/* 6. Discount % */}
+                        <td className="px-3 py-3 text-center">
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max="100"
+                            value={item.discountPercent === '' ? '' : (item.discountPercent !== undefined && item.discountPercent !== null ? item.discountPercent : 0)}
+                            onChange={(e) => handleItemFieldChange(item.id, 'discountPercent', e.target.value)}
+                            className="w-16 px-1.5 py-1.5 border border-amber-300 rounded-xl text-xs font-bold text-center text-amber-900 bg-amber-50/40 focus:outline-none focus:border-amber-500"
+                            placeholder="0%"
+                            title="Discount percentage applied to line item"
+                          />
+                        </td>
+
+                        {/* 7. Taxable Value (After Discount) */}
+                        <td className="px-3 py-3 text-center">
+                          <div className="font-extrabold text-slate-900 font-mono">
+                            ₹{item.taxableAmount.toFixed(2)}
+                          </div>
+                          {item.discPct > 0 && (
+                            <div className="text-[10px] text-emerald-600 font-bold" title="Effective discounted cost basis per unit">
+                              (₹{item.discountedUnitPrice.toFixed(2)}/unit)
+                            </div>
+                          )}
+                        </td>
+
+                        {/* 8. GST % */}
                         <td className="px-3 py-3 text-center">
                           <input
                             type="number"
@@ -758,22 +822,22 @@ const AddPurchase = () => {
                           />
                         </td>
 
-                        {/* 7. CGST Amt (₹) */}
+                        {/* 9. CGST Amt (₹) */}
                         <td className="px-3 py-3 text-center font-bold text-gray-600">
                           {item.cgstAmount.toFixed(2)}
                         </td>
 
-                        {/* 8. SGST Amt (₹) */}
+                        {/* 10. SGST Amt (₹) */}
                         <td className="px-3 py-3 text-center font-bold text-gray-600">
                           {item.sgstAmount.toFixed(2)}
                         </td>
 
-                        {/* 9. IGST Amt (₹) */}
+                        {/* 11. IGST Amt (₹) */}
                         <td className="px-3 py-3 text-center font-bold text-gray-400">
                           {item.igstAmount.toFixed(2)}
                         </td>
 
-                        {/* 10. Total (₹) */}
+                        {/* 12. Total (₹) */}
                         <td className="px-3 py-3 text-right font-black text-gray-900 text-sm">
                           {item.lineTotal.toFixed(2)}
                         </td>

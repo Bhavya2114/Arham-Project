@@ -3,6 +3,7 @@ import { Product } from '../models/Product';
 import { Supplier } from '../models/Supplier';
 import { User } from '../models/User';
 import { CreatePurchaseInput } from '../validators/purchase.validator';
+import { calculateLineItem } from '../utils/purchaseCalculations';
 
 const mapPurchaseResponse = (purchase: any) => {
   const mappedItems = (purchase.items || []).map((item: any) => {
@@ -11,10 +12,22 @@ const mapPurchaseResponse = (purchase: any) => {
     const productName = item.productName || (prodObj ? prodObj.name : null) || (productId ? `Item (${productId.substring(0, 8)}...)` : 'Unknown Product');
     const sku = item.sku || (prodObj ? prodObj.sku : null) || '';
 
-    const price = Number(item.purchasePrice || 0);
+    const price = Number(item.purchasePrice || item.originalPrice || 0);
     const qty = Number(item.quantity || 0);
     const taxRate = Number(item.taxRate || 0);
-    const itemSubtotal = price * qty;
+    const discountPercent = Number(item.discountPercent || 0);
+    const grossAmount = price * qty;
+    const discountAmount = item.discountAmount !== undefined && item.discountAmount !== null && !isNaN(Number(item.discountAmount))
+      ? Number(item.discountAmount)
+      : (grossAmount * discountPercent) / 100;
+    const taxableAmount = item.taxableAmount !== undefined && item.taxableAmount !== null && !isNaN(Number(item.taxableAmount))
+      ? Number(item.taxableAmount)
+      : Math.max(0, grossAmount - discountAmount);
+    const discountedPrice = item.discountedPrice !== undefined && item.discountedPrice !== null && !isNaN(Number(item.discountedPrice))
+      ? Number(item.discountedPrice)
+      : (qty > 0 ? Math.round((taxableAmount / qty) * 100) / 100 : price);
+
+    const itemSubtotal = taxableAmount;
     const itemTax = item.taxAmount !== undefined && item.taxAmount !== null && !isNaN(Number(item.taxAmount))
       ? Number(item.taxAmount)
       : (itemSubtotal * taxRate) / 100;
@@ -36,6 +49,13 @@ const mapPurchaseResponse = (purchase: any) => {
         sku: prodObj.sku,
       } : undefined,
       purchasePrice: price,
+      originalPrice: price,
+      discountPercent,
+      discountAmount,
+      discountedPrice,
+      discountedUnitPrice: discountedPrice,
+      taxableAmount,
+      grossAmount,
       quantity: qty,
       taxRate: taxRate,
       subtotal: itemSubtotal,
@@ -46,11 +66,13 @@ const mapPurchaseResponse = (purchase: any) => {
   });
 
   let subtotal = Number(purchase.subtotal || 0);
+  let totalDiscount = Number(purchase.totalDiscount || 0);
   let taxAmount = Number(purchase.taxAmount || 0);
   let totalAmount = Number(purchase.totalAmount || 0);
 
   if (totalAmount === 0 && mappedItems.length > 0) {
     subtotal = mappedItems.reduce((sum: number, i: any) => sum + i.subtotal, 0);
+    totalDiscount = mappedItems.reduce((sum: number, i: any) => sum + (i.discountAmount || 0), 0);
     taxAmount = mappedItems.reduce((sum: number, i: any) => sum + i.taxAmount, 0);
     totalAmount = subtotal + taxAmount;
   }
@@ -78,6 +100,7 @@ const mapPurchaseResponse = (purchase: any) => {
     purchaseDate: purchase.purchaseDate,
     items: mappedItems,
     subtotal: subtotal,
+    totalDiscount: totalDiscount,
     taxAmount: taxAmount,
     totalGst: taxAmount,
     cgst: purchase.cgst !== undefined && purchase.cgst !== null ? Number(purchase.cgst) : undefined,
@@ -224,7 +247,15 @@ export const createPurchase = async (
             ? itemInput.newProduct.sku.trim().toUpperCase()
             : `PROD-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
-          const costPrice = Number(itemInput.purchasePrice || (itemInput.newProduct && (itemInput.newProduct as any).costPrice) || 0);
+          const calc = calculateLineItem({
+            quantity: itemInput.quantity,
+            rate: itemInput.purchasePrice,
+            discountPercent: itemInput.discountPercent,
+            discountAmount: itemInput.discountAmount,
+            taxRate: itemInput.taxRate,
+            suppliedTaxAmount: itemInput.taxAmount,
+          });
+          const costPrice = calc.discountedUnitPrice > 0 ? calc.discountedUnitPrice : Number(itemInput.purchasePrice || 0);
 
           product = await Product.create({
             name: prodNameClean,
@@ -254,61 +285,56 @@ export const createPurchase = async (
     // 4. Perform Product Stock Updates with Rollback Safeguard
     const purchaseItems: any[] = [];
     let subtotal = 0;
+    let totalDiscount = 0;
     let taxAmount = 0;
 
     for (const { product, itemInput } of productDocs) {
-      const baseAmount = itemInput.purchasePrice * itemInput.quantity;
-      const rateGst = (baseAmount * (itemInput.taxRate || 0)) / 100;
-
-      // Authoritative GST calculation with duplicate GST prevention:
-      // If line taxAmount is explicitly supplied, validate against rateGst when taxRate > 0
-      let lineTax = rateGst;
-      if (itemInput.taxAmount !== undefined && itemInput.taxAmount !== null && !isNaN(Number(itemInput.taxAmount))) {
-        const suppliedTax = Number(itemInput.taxAmount);
-        if (itemInput.taxRate && itemInput.taxRate > 0) {
-          // Allow minor 1-rupee tolerance for rounding discrepancies from OCR / unit-rate splits
-          if (Math.abs(suppliedTax - rateGst) <= 1.0) {
-            lineTax = suppliedTax;
-          } else {
-            // Authoritative calculation takes precedence
-            lineTax = rateGst;
-          }
-        } else {
-          lineTax = suppliedTax;
-        }
-      }
-
-      // Supplier gross total = baseAmount + lineTax (GST added strictly once)
-      const itemTotalCost = baseAmount + lineTax;
+      const calc = calculateLineItem({
+        quantity: itemInput.quantity,
+        rate: itemInput.purchasePrice,
+        discountPercent: itemInput.discountPercent,
+        discountAmount: itemInput.discountAmount,
+        taxRate: itemInput.taxRate,
+        suppliedTaxAmount: itemInput.taxAmount,
+      });
 
       purchaseItems.push({
         product: product._id,
         productName: product.name,
         sku: product.sku,
-        purchasePrice: itemInput.purchasePrice,
-        quantity: itemInput.quantity,
-        taxRate: itemInput.taxRate || 0,
-        taxAmount: lineTax,
-        totalCost: itemTotalCost,
+        purchasePrice: calc.rate,
+        originalPrice: calc.rate,
+        discountPercent: calc.discountPercent,
+        discountAmount: calc.discountAmount,
+        discountedPrice: calc.discountedUnitPrice,
+        taxableAmount: calc.taxableValue,
+        quantity: calc.quantity,
+        taxRate: calc.taxRate,
+        taxAmount: calc.lineTax,
+        totalCost: calc.totalCost,
       });
 
-      subtotal += baseAmount;
-      taxAmount += lineTax;
+      subtotal += calc.taxableValue;
+      totalDiscount += calc.discountAmount;
+      taxAmount += calc.lineTax;
 
-      // Update Product currentStock and costPrice (tax-exclusive purchasePrice)
+      // Update Product currentStock and costPrice (authoritative effective discounted unit price)
       await Product.findByIdAndUpdate(product._id, {
-        $inc: { currentStock: itemInput.quantity },
-        $set: { costPrice: itemInput.purchasePrice },
+        $inc: { currentStock: calc.quantity },
+        $set: { costPrice: calc.discountedUnitPrice },
       });
 
       rollbacks.push({
         productId: product._id,
-        qty: itemInput.quantity,
+        qty: calc.quantity,
         previousCostPrice: product.costPrice || 0,
       });
     }
 
-    const totalAmount = subtotal + taxAmount;
+    subtotal = Math.round(subtotal * 100) / 100;
+    totalDiscount = Math.round(totalDiscount * 100) / 100;
+    taxAmount = Math.round(taxAmount * 100) / 100;
+    const totalAmount = Math.round((subtotal + taxAmount) * 100) / 100;
     const purchaseNumber = input.invoiceNumber
       ? input.invoiceNumber
       : `PUR-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -335,6 +361,7 @@ export const createPurchase = async (
       purchaseDate: parsedPurchaseDate || new Date(),
       items: purchaseItems,
       subtotal,
+      totalDiscount,
       taxAmount,
       cgst: input.cgst !== undefined && input.cgst !== null && !isNaN(Number(input.cgst)) ? Number(input.cgst) : undefined,
       sgst: input.sgst !== undefined && input.sgst !== null && !isNaN(Number(input.sgst)) ? Number(input.sgst) : undefined,

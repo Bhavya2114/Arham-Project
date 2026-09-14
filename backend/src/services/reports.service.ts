@@ -236,9 +236,12 @@ export const getPurchaseSummary = async (query: {
       const prodId: string = item.product ? item.product.toString() : (item.sku || item.productName);
       const qty = item.quantity || 0;
       const price = item.purchasePrice || 0;
-      const itemNet = (item.totalCost !== undefined && item.totalCost > 0)
-        ? (item.purchasePrice * qty)
-        : (price * qty);
+      const effectivePrice = item.discountedPrice !== undefined && item.discountedPrice !== null && !isNaN(Number(item.discountedPrice))
+        ? Number(item.discountedPrice)
+        : price;
+      const itemNet = (item.taxableAmount !== undefined && item.taxableAmount !== null && !isNaN(Number(item.taxableAmount)))
+        ? Number(item.taxableAmount)
+        : (effectivePrice * qty);
 
       pQtyTotal += qty;
 
@@ -249,12 +252,12 @@ export const getPurchaseSummary = async (query: {
           sku: item.sku || 'N/A',
           quantityPurchased: 0,
           netPurchases: 0,
-          latestPurchasePrice: price,
+          latestPurchasePrice: effectivePrice,
         };
       }
       productMap[prodId].quantityPurchased += qty;
       productMap[prodId].netPurchases += itemNet;
-      productMap[prodId].latestPurchasePrice = price;
+      productMap[prodId].latestPurchasePrice = effectivePrice;
     }
 
     quantityPurchased += pQtyTotal;

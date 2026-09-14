@@ -208,30 +208,35 @@ const Purchases = () => {
             {/* Purchased Items List */}
             <div className="space-y-2">
               <h4 className="text-xs font-bold text-gray-700 uppercase">Purchased Items Breakdown</h4>
-              <div className="border border-gray-100 rounded-xl overflow-hidden">
-                <table className="w-full text-left text-xs text-gray-600">
+              <div className="border border-gray-100 rounded-xl overflow-x-auto">
+                <table className="w-full text-left text-xs text-gray-600 min-w-[620px]">
                   <thead className="bg-gray-50 font-bold text-gray-500">
                     <tr>
                       <th className="p-2.5">Product / Item</th>
-                      <th className="p-2.5 text-right">Unit Price (Excl. GST) (₹)</th>
+                      <th className="p-2.5 text-right">Unit Price (₹)</th>
+                      <th className="p-2.5 text-center">Disc %</th>
+                      <th className="p-2.5 text-right">Taxable (₹)</th>
                       <th className="p-2.5 text-center">Qty</th>
                       <th className="p-2.5 text-center">GST %</th>
                       <th className="p-2.5 text-right">Line GST (₹)</th>
-                      <th className="p-2.5 text-right">Line Total (Incl. GST)</th>
+                      <th className="p-2.5 text-right">Line Total (₹)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {activePurchase.items?.map((item, idx) => {
                       const name = item.productName || item.product?.name || (item.productId ? `Product (${item.productId.substring(0, 8)})` : 'Unknown Product');
                       const sku = item.sku || item.product?.sku || '';
-                      const price = item.purchasePrice || 0;
+                      const originalPrice = item.originalPrice !== undefined ? item.originalPrice : (item.purchasePrice || 0);
+                      const discountPercent = item.discountPercent || 0;
                       const qty = item.quantity || 0;
+                      const taxable = item.taxableAmount !== undefined ? item.taxableAmount : (originalPrice * qty);
+                      const discountedUnitPrice = item.discountedPrice !== undefined ? item.discountedPrice : (qty > 0 ? taxable / qty : originalPrice);
                       const taxRate = item.taxRate || 0;
                       const lineTax = item.taxAmount !== undefined && item.taxAmount !== null
                         ? Number(item.taxAmount)
-                        : (price * qty * taxRate) / 100;
+                        : (taxable * taxRate) / 100;
 
-                      const calculatedCost = price * qty + lineTax;
+                      const calculatedCost = taxable + lineTax;
                       const lineTotal = item.totalCost !== undefined && item.totalCost !== null ? item.totalCost : (item.lineTotal || calculatedCost);
 
                       return (
@@ -240,11 +245,28 @@ const Purchases = () => {
                             <span className="font-bold text-gray-900 block">{name}</span>
                             {sku && <span className="text-[11px] font-mono text-gray-400">SKU: {sku}</span>}
                           </td>
-                          <td className="p-2.5 text-right">₹{price.toFixed(2)}</td>
+                          <td className="p-2.5 text-right font-mono">₹{originalPrice.toFixed(2)}</td>
+                          <td className="p-2.5 text-center font-bold">
+                            {discountPercent > 0 ? (
+                              <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded font-black text-[10px]">
+                                {discountPercent}%
+                              </span>
+                            ) : (
+                              <span className="text-gray-400 text-[10px]">0%</span>
+                            )}
+                          </td>
+                          <td className="p-2.5 text-right font-mono">
+                            <div className="font-bold text-slate-900">₹{taxable.toFixed(2)}</div>
+                            {discountPercent > 0 && (
+                              <div className="text-[10px] text-emerald-700 font-medium">
+                                (₹{discountedUnitPrice.toFixed(2)}/u)
+                              </div>
+                            )}
+                          </td>
                           <td className="p-2.5 text-center font-bold">{qty}</td>
                           <td className="p-2.5 text-center">{taxRate}%</td>
-                          <td className="p-2.5 text-right font-medium text-amber-700">₹{lineTax.toFixed(2)}</td>
-                          <td className="p-2.5 text-right font-bold text-emerald-800">
+                          <td className="p-2.5 text-right font-medium text-amber-700 font-mono">₹{lineTax.toFixed(2)}</td>
+                          <td className="p-2.5 text-right font-bold text-emerald-800 font-mono">
                             ₹{lineTotal.toFixed(2)}
                           </td>
                         </tr>
@@ -259,6 +281,12 @@ const Purchases = () => {
             <div className="p-4 bg-slate-900 text-white rounded-xl space-y-2 text-xs">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
                 <div className="flex flex-wrap items-center gap-3 text-slate-300">
+                  {activePurchase.totalDiscount !== undefined && activePurchase.totalDiscount > 0 && (
+                    <>
+                      <span>Total Savings: <strong className="text-emerald-400">−₹{Number(activePurchase.totalDiscount).toFixed(2)}</strong></span>
+                      <span>|</span>
+                    </>
+                  )}
                   <span>Taxable Subtotal: <strong className="text-white">₹{(activePurchase.subtotal || 0).toFixed(2)}</strong></span>
                   <span>|</span>
                   <span>Input GST: <strong className="text-amber-400">₹{(activePurchase.taxAmount !== undefined ? activePurchase.taxAmount : (activePurchase.totalGst || 0)).toFixed(2)}</strong></span>

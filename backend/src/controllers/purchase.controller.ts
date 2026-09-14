@@ -231,27 +231,48 @@ export const extractPurchaseBill = async (req: Request, res: Response, next: Nex
         }
       }
 
+      const qty = item.quantity || 0;
+      const rate = item.unitPrice || 0;
+      const rawDiscPct = item.discountPercent ?? (item as any).discount ?? (item as any).discountPercentage ?? (item as any).discount_percent ?? (item as any).discountRate ?? 0;
+      let discPct = Number(rawDiscPct) || 0;
+      let discAmt = Number(item.discountAmount ?? (item as any).discount_amount ?? (item as any).discAmount ?? 0) || 0;
+
+      if (discPct === 0 && discAmt > 0 && qty * rate > 0) {
+        discPct = Math.round(((discAmt / (qty * rate)) * 100) * 100) / 100;
+      } else if (discPct > 0 && (!discAmt || discAmt === 0) && qty * rate > 0) {
+        discAmt = Math.round(((qty * rate * discPct) / 100) * 100) / 100;
+      }
+
+      const taxable = item.taxableAmount !== undefined && item.taxableAmount !== null && Number(item.taxableAmount) > 0
+        ? Number(item.taxableAmount)
+        : Math.max(0, Math.round((qty * rate - discAmt) * 100) / 100);
+      const effectiveCostPrice = qty > 0 ? Math.round((taxable / qty) * 100) / 100 : (discPct > 0 ? Math.round(rate * (1 - discPct / 100) * 100) / 100 : rate);
+
       if (!matchedProduct) {
         matchedProduct = {
           matched: false,
           isNew: true,
           name: item.itemName,
           unit: item.unit || 'Pcs',
-          costPrice: item.unitPrice || 0,
+          costPrice: effectiveCostPrice,
           gstRate: item.gstRate !== undefined ? item.gstRate : 18,
           hsnCode: item.hsnSac || undefined,
         };
       }
 
-      const lineGst = (item as any).taxAmount !== undefined && (item as any).taxAmount !== null
-        ? Number((item as any).taxAmount)
-        : ((item.cgstAmount || 0) + (item.sgstAmount || 0) + (item.igstAmount || 0));
+      const extractedTax = Number((item as any).taxAmount);
+      const computedTax = (item.cgstAmount || 0) + (item.sgstAmount || 0) + (item.igstAmount || 0);
+      const lineGst = !isNaN(extractedTax) && extractedTax > 0 ? extractedTax : computedTax;
 
       return {
         extractedItemName: item.itemName,
         quantity: item.quantity,
         unit: item.unit || 'Pcs',
         unitPrice: item.unitPrice,
+        discountPercent: discPct,
+        discountAmount: discAmt,
+        taxableAmount: taxable,
+        effectiveUnitPrice: effectiveCostPrice,
         gstPercent: item.gstRate,
         taxAmount: lineGst,
         cgstAmount: item.cgstAmount,

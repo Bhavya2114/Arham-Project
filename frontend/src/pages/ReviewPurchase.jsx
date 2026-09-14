@@ -13,6 +13,7 @@ import {
   FaSpinner,
   FaArrowUp
 } from 'react-icons/fa';
+import { calculateLineItem, calculatePurchaseTotals } from '../utils/purchaseCalculations';
 
 const ReviewPurchase = () => {
   const navigate = useNavigate();
@@ -89,16 +90,22 @@ const ReviewPurchase = () => {
   // Calculate Financial Totals
   const lineItems = formData.items.map((item) => {
     const qty = Number(item.quantity || item.qty || 0);
-    const price = Number(item.unitPrice || item.price || 0);
+    const price = Number(item.unitPrice || item.price || item.purchasePrice || 0);
+    const discountPercent = Number(item.discountPercent || item.discount || 0);
     const gstPct = Number(item.gstPercent || item.gstPct || 0);
 
-    const gross = qty * price;
-    const totalGst = (gross * gstPct) / 100;
-    const cgst = item.cgstAmount !== undefined && item.cgstAmount !== null && Number(item.cgstAmount) > 0 ? Number(item.cgstAmount) : totalGst / 2;
-    const sgst = item.sgstAmount !== undefined && item.sgstAmount !== null && Number(item.sgstAmount) > 0 ? Number(item.sgstAmount) : totalGst / 2;
-    const igst = item.igstAmount !== undefined && item.igstAmount !== null && Number(item.igstAmount) > 0 ? Number(item.igstAmount) : 0;
-    const lineTaxAmount = item.taxAmount !== undefined && item.taxAmount !== null && Number(item.taxAmount) > 0 ? Number(item.taxAmount) : totalGst;
-    const lineTotal = gross + lineTaxAmount;
+    const lineCalc = calculateLineItem({
+      quantity: qty,
+      unitPrice: price,
+      discountPercent,
+      gstRate: gstPct
+    });
+
+    const cgst = item.cgstAmount !== undefined && item.cgstAmount !== null && Number(item.cgstAmount) > 0 ? Number(item.cgstAmount) : lineCalc.cgstAmount;
+    const sgst = item.sgstAmount !== undefined && item.sgstAmount !== null && Number(item.sgstAmount) > 0 ? Number(item.sgstAmount) : lineCalc.sgstAmount;
+    const igst = item.igstAmount !== undefined && item.igstAmount !== null && Number(item.igstAmount) > 0 ? Number(item.igstAmount) : lineCalc.igstAmount;
+    const lineTaxAmount = item.taxAmount !== undefined && item.taxAmount !== null && Number(item.taxAmount) > 0 ? Number(item.taxAmount) : lineCalc.taxAmount;
+    const lineTotal = lineCalc.lineTotal;
 
     const existingProd = item.productId ? productsMap[item.productId] : null;
 
@@ -106,8 +113,12 @@ const ReviewPurchase = () => {
       ...item,
       qty,
       price,
+      discountPercent,
+      discountAmount: lineCalc.discountAmount,
+      taxableAmount: lineCalc.taxableAmount,
+      discountedUnitPrice: lineCalc.discountedUnitPrice,
       gstPct,
-      gross,
+      gross: lineCalc.grossAmount,
       cgst,
       sgst,
       igst,
@@ -120,9 +131,17 @@ const ReviewPurchase = () => {
     };
   });
 
-  const grandGross = lineItems.reduce((acc, i) => acc + i.gross, 0);
-  const grandTax = lineItems.reduce((acc, i) => acc + i.totalGst, 0);
-  const grandTotal = grandGross + grandTax;
+  const totals = calculatePurchaseTotals({
+    items: lineItems,
+    suppliedCgst: formData.cgst,
+    suppliedSgst: formData.sgst,
+    suppliedIgst: formData.igst,
+  });
+  const grandGross = totals.grossTotal || 0;
+  const grandDiscount = totals.totalDiscount || 0;
+  const grandTaxable = totals.taxableTotal || totals.subtotal || 0;
+  const grandTax = totals.totalTax || totals.taxAmount || 0;
+  const grandTotal = totals.grandTotal || totals.totalAmount || 0;
   const totalQtyAdded = lineItems.reduce((acc, i) => acc + i.qty, 0);
 
   // Confirm Purchase Action -> Calls POST /api/purchases
@@ -159,10 +178,14 @@ const ReviewPurchase = () => {
           newProduct: isNewProd ? {
             name: i.newProduct?.name || i.productName || i.extractedItemName || 'New Product',
             unit: i.unit || 'Pcs',
-            costPrice: Number(i.price || 0),
+            costPrice: Number(i.discountedUnitPrice || i.price || 0),
             gstRate: Number(i.gstPct || 0),
           } : undefined,
           purchasePrice: Number(i.price || 0),
+          discountPercent: Number(i.discountPercent || 0),
+          discountAmount: Number(i.discountAmount || 0),
+          taxableAmount: Number(i.taxableAmount || 0),
+          discountedPrice: Number(i.discountedUnitPrice || i.price || 0),
           quantity: Number(i.qty || 1),
           taxRate: Number(i.gstPct || 0),
           taxAmount: i.taxAmount !== undefined && i.taxAmount !== null ? Number(i.taxAmount) : undefined,
@@ -328,18 +351,20 @@ const ReviewPurchase = () => {
         </div>
 
         <div className="overflow-x-auto max-h-72 overflow-y-auto">
-          <table className="w-full text-left text-xs text-gray-600 min-w-[950px]">
+          <table className="w-full text-left text-xs text-gray-600 min-w-[1050px]">
             <thead className="bg-gray-50/80 border-b border-gray-200 text-gray-400 font-extrabold text-[11px] uppercase tracking-wider sticky top-0 bg-white shadow-xs z-10">
               <tr>
-                <th className="px-4 py-3 min-w-[220px]">ITEM / PRODUCT</th>
-                <th className="px-3 py-3 w-20 text-center">QUANTITY</th>
-                <th className="px-3 py-3 w-16">UNIT</th>
-                <th className="px-3 py-3 w-24 text-center">UNIT PURCHASE PRICE (EXCL. GST) (₹)</th>
-                <th className="px-3 py-3 w-16 text-center">GST %</th>
-                <th className="px-3 py-3 w-20 text-center">CGST (₹)</th>
-                <th className="px-3 py-3 w-20 text-center">SGST (₹)</th>
-                <th className="px-3 py-3 w-20 text-center">IGST (₹)</th>
-                <th className="px-4 py-3 w-24 text-right">LINE TOTAL (INCL. GST) (₹)</th>
+                <th className="px-4 py-3 min-w-[200px]">ITEM / PRODUCT</th>
+                <th className="px-3 py-3 w-16 text-center">QTY</th>
+                <th className="px-2 py-3 w-14">UNIT</th>
+                <th className="px-3 py-3 w-24 text-right">UNIT RATE (₹)</th>
+                <th className="px-2 py-3 w-16 text-center">DISC %</th>
+                <th className="px-3 py-3 w-28 text-right">TAXABLE (₹)</th>
+                <th className="px-2 py-3 w-14 text-center">GST %</th>
+                <th className="px-3 py-3 w-20 text-right">CGST (₹)</th>
+                <th className="px-3 py-3 w-20 text-right">SGST (₹)</th>
+                <th className="px-3 py-3 w-20 text-right">IGST (₹)</th>
+                <th className="px-4 py-3 w-24 text-right">LINE TOTAL (₹)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 font-medium">
@@ -370,14 +395,35 @@ const ReviewPurchase = () => {
                     )}
                   </td>
                   <td className="px-3 py-3 text-center font-extrabold text-slate-900">{item.qty}</td>
-                  <td className="px-3 py-3 font-semibold text-gray-600">{item.unit || 'Pcs'}</td>
-                  <td className="px-3 py-3 text-center font-bold text-gray-700">{item.price.toFixed(2)}</td>
-                  <td className="px-3 py-3 text-center font-bold text-emerald-700">{item.gstPct}%</td>
-                  <td className="px-3 py-3 text-center font-medium text-gray-600">{item.cgst.toFixed(2)}</td>
-                  <td className="px-3 py-3 text-center font-medium text-gray-600">{item.sgst.toFixed(2)}</td>
-                  <td className="px-3 py-3 text-center font-medium text-gray-400">{item.igst.toFixed(2)}</td>
-                  <td className="px-4 py-3 text-right font-black text-slate-900 text-sm">
-                    {item.lineTotal.toFixed(2)}
+                  <td className="px-2 py-3 font-semibold text-gray-600">{item.unit || 'Pcs'}</td>
+                  <td className="px-3 py-3 text-right font-medium text-gray-700 font-mono">
+                    ₹{item.price.toFixed(2)}
+                  </td>
+                  <td className="px-2 py-3 text-center font-bold">
+                    {item.discountPercent > 0 ? (
+                      <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded font-black text-[10px]">
+                        {item.discountPercent}%
+                      </span>
+                    ) : (
+                      <span className="text-gray-400 text-[10px]">0%</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    <div className="font-bold text-slate-900 font-mono">
+                      ₹{item.taxableAmount.toFixed(2)}
+                    </div>
+                    {item.discountPercent > 0 && (
+                      <div className="text-[10px] text-emerald-700 font-medium">
+                        (₹{item.discountedUnitPrice.toFixed(2)}/u)
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-2 py-3 text-center font-bold text-emerald-700">{item.gstPct}%</td>
+                  <td className="px-3 py-3 text-right font-medium text-gray-600 font-mono">{item.cgst.toFixed(2)}</td>
+                  <td className="px-3 py-3 text-right font-medium text-gray-600 font-mono">{item.sgst.toFixed(2)}</td>
+                  <td className="px-3 py-3 text-right font-medium text-gray-400 font-mono">{item.igst.toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right font-black text-slate-900 text-sm font-mono">
+                    ₹{item.lineTotal.toFixed(2)}
                   </td>
                 </tr>
               ))}
@@ -394,10 +440,20 @@ const ReviewPurchase = () => {
             <h4 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider border-b border-gray-100 pb-3">
               Financial Summary
             </h4>
-            <div className="space-y-3 text-xs pt-4">
+            <div className="space-y-2.5 text-xs pt-4">
               <div className="flex items-center justify-between text-gray-600">
-                <span>Taxable Subtotal (Excl. GST)</span>
+                <span>Gross Subtotal (Before Discount)</span>
                 <span className="font-bold text-slate-900 font-mono">₹{grandGross.toFixed(2)}</span>
+              </div>
+              {grandDiscount > 0 && (
+                <div className="flex items-center justify-between text-emerald-700 font-medium bg-emerald-50/70 px-2.5 py-1.5 rounded-lg">
+                  <span className="font-bold">Total Discount Savings</span>
+                  <span className="font-black font-mono">−₹{grandDiscount.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between text-gray-600">
+                <span>Taxable Subtotal (Post-Discount)</span>
+                <span className="font-bold text-slate-900 font-mono">₹{grandTaxable.toFixed(2)}</span>
               </div>
               <div className="flex items-center justify-between text-gray-600">
                 <span>Input GST (Total Tax)</span>
@@ -443,7 +499,7 @@ const ReviewPurchase = () => {
                 Inventory Impact Preview
               </h4>
               <p className="text-[11px] text-gray-400 font-medium">
-                This purchase will update inventory stock levels as shown below.
+                Inventory valuation will update using effective discounted purchase cost.
               </p>
             </div>
 
@@ -466,19 +522,22 @@ const ReviewPurchase = () => {
                     )}
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2 text-center text-xs border-t border-gray-200/60 pt-2">
+                  <div className="grid grid-cols-4 gap-2 text-center text-xs border-t border-gray-200/60 pt-2">
                     <div>
-                      <div className="text-[10px] font-bold text-gray-400 uppercase">Current Stock</div>
+                      <div className="text-[10px] font-bold text-gray-400 uppercase">Current</div>
                       <div className="font-bold text-gray-600">{item.currentStock}</div>
                     </div>
                     <div>
-                      <div className="text-[10px] font-bold text-gray-400 uppercase">Purchase Qty</div>
-                      <div className="font-extrabold text-emerald-600">+{item.qty} {item.unit || 'Roll'}</div>
+                      <div className="text-[10px] font-bold text-gray-400 uppercase">Purchase</div>
+                      <div className="font-extrabold text-emerald-600">+{item.qty} {item.unit || 'Pcs'}</div>
                     </div>
                     <div>
                       <div className="text-[10px] font-bold text-gray-400 uppercase">New Stock</div>
                       <div className="font-black text-slate-900">{item.newStock}</div>
-                      <div className="text-[9px] text-gray-400 font-normal">After this purchase</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-bold text-gray-400 uppercase">Cost Basis</div>
+                      <div className="font-bold text-emerald-700 font-mono">₹{item.discountedUnitPrice.toFixed(2)}</div>
                     </div>
                   </div>
                 </div>

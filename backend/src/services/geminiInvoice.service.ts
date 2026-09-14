@@ -7,14 +7,22 @@ Analyze the provided document/image of a supplier invoice and extract all struct
 
 CRITICAL INSTRUCTIONS:
 1. EXTRACT ONLY VISIBLE DATA. Never invent, hallucinate, or guess missing information.
-2. If an invoice field is absent, return null.
+2. If an invoice field is absent, return null (or 0 for monetary / numeric fields).
 3. Preserve line items exactly as shown on the bill. Do NOT merge distinct items.
-4. All monetary and rate values MUST be pure numbers (e.g. 10670.40, 18, 9). Do NOT include currency symbols ("₹") or percent signs ("%").
+4. All monetary and rate values MUST be pure numbers (e.g. 10670.40, 18, 9, 62). Do NOT include currency symbols ("₹") or percent signs ("%").
 5. Normalize all dates to "YYYY-MM-DD" format (e.g., "22-Jun-26" or "22/06/2026" becomes "2026-06-22"). If a date is unreadable or absent, return null.
-6. Understand Indian GST structures:
+6. Handle Item Discounts:
+   - Supplier bills frequently have item discounts printed in columns like "Disc %", "Disc", "Discount", "Discount %", "Trade Discount", or "Less: Disc."
+   - Check every line item row carefully for discount percentages (such as "62%", "62", "10%", etc.) or discount amounts.
+   - "unitPrice" MUST be the original unit rate BEFORE discount (e.g., 180).
+   - "discountPercent": pure number of the discount percentage (e.g. 62 for 62%). If the invoice shows a discount like 62%, return 62. If no discount is present on the invoice for this item, return 0.
+   - "discountAmount": monetary discount amount in rupees (e.g. 17856). If absent on the invoice but discount percent is given, calculate as (quantity * unitPrice * discountPercent / 100). If no discount is present, return 0.
+   - "taxableAmount": net taxable value after discount, i.e. (quantity * unitPrice) - discountAmount.
+   - GST (CGST/SGST/IGST rates and amounts) must be calculated on the discounted "taxableAmount", NOT on gross.
+7. Understand Indian GST structures:
    - If GST is 18% with CGST 9% and SGST 9%, set gstRate=18, cgstRate=9, sgstRate=9, igstRate=0.
    - For interstate purchases with IGST 18%, set gstRate=18, cgstRate=0, sgstRate=0, igstRate=18.
-7. Return ONLY valid JSON adhering strictly to the JSON schema without free-form markdown or explanations.
+8. Return ONLY valid JSON adhering strictly to the JSON schema without free-form markdown or explanations.
 
 JSON SCHEMA:
 {
@@ -152,6 +160,52 @@ export const extractInvoiceFromBuffer = async (
     throw error;
   }
 
+  // Preprocess items in rawParsed to handle potential naming differences, string percentages, or missing discount conversions
+  if (rawParsed && Array.isArray(rawParsed.items)) {
+    rawParsed.items = rawParsed.items.map((it: any) => {
+      if (!it || typeof it !== 'object') return it;
+      const cleanNum = (val: any) => {
+        if (val === undefined || val === null || val === '') return undefined;
+        if (typeof val === 'number') return isNaN(val) ? 0 : val;
+        if (typeof val === 'string') {
+          const num = Number(val.replace(/[₹,%]/g, '').trim());
+          return isNaN(num) ? 0 : num;
+        }
+        return 0;
+      };
+
+      const rawDiscPct = it.discountPercent ?? it.discount_percent ?? it.discountPercentage ?? it.discount_rate ?? it.discountRate ?? it.discount ?? it.discPercent ?? it.discPct ?? it.disc_percent;
+      const rawDiscAmt = it.discountAmount ?? it.discount_amount ?? it.discAmount ?? it.disc_amount ?? it.totalDiscount;
+
+      let discPct = cleanNum(rawDiscPct) || 0;
+      let discAmt = cleanNum(rawDiscAmt) || 0;
+      const qty = cleanNum(it.quantity) || 0;
+      const rate = cleanNum(it.unitPrice) || 0;
+      const gross = qty * rate;
+
+      if (discPct === 0 && discAmt > 0 && gross > 0) {
+        discPct = Math.round(((discAmt / gross) * 100) * 100) / 100;
+      }
+      if (discPct > 0 && discAmt === 0 && gross > 0) {
+        discAmt = Math.round(((gross * discPct) / 100) * 100) / 100;
+      }
+
+      let taxable = cleanNum(it.taxableAmount);
+      if (taxable === undefined || taxable === null || taxable === 0) {
+        taxable = Math.max(0, Math.round((gross - discAmt) * 100) / 100);
+      }
+
+      return {
+        ...it,
+        quantity: qty,
+        unitPrice: rate,
+        discountPercent: discPct,
+        discountAmount: discAmt,
+        taxableAmount: taxable,
+      };
+    });
+  }
+
   // Validate extracted data schema using Zod
   const validationResult = extractedBillSchema.safeParse(rawParsed);
   if (!validationResult.success) {
@@ -163,13 +217,22 @@ export const extractInvoiceFromBuffer = async (
 
   const extracted = validationResult.data;
 
-  // Run Diagnostic Mathematical Validation
+  // Run Diagnostic Mathematical Validation and normalize missing discount calculations
   const warnings: string[] = [];
   let itemsCalculationMatch = true;
 
   extracted.items.forEach((item, index) => {
     const gross = item.quantity * item.unitPrice;
-    const expectedTaxable = gross - item.discountAmount;
+    let discAmt = item.discountAmount || 0;
+    if (item.discountPercent > 0 && (!discAmt || discAmt === 0)) {
+      discAmt = (gross * item.discountPercent) / 100;
+      item.discountAmount = Math.round(discAmt * 100) / 100;
+    }
+    if (!item.taxableAmount || item.taxableAmount === 0) {
+      item.taxableAmount = Math.max(0, Math.round((gross - discAmt) * 100) / 100);
+    }
+
+    const expectedTaxable = Math.max(0, gross - discAmt);
 
     // Check item taxable amount tolerance
     if (Math.abs(expectedTaxable - item.taxableAmount) > 1.0) {

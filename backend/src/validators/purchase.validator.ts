@@ -39,6 +39,16 @@ export const purchaseItemSchema = z
     productId: optionalString,
     newProduct: newProductSchema,
     purchasePrice: z.coerce.number().nonnegative('Purchase price must be non-negative'),
+    originalPrice: z.coerce.number().nonnegative('Original price must be non-negative').optional(),
+    discountPercent: z.coerce
+      .number()
+      .min(0, 'Discount percent cannot be negative')
+      .max(100, 'Discount percent cannot exceed 100%')
+      .optional()
+      .default(0),
+    discountAmount: z.coerce.number().nonnegative('Discount amount must be non-negative').optional().default(0),
+    discountedPrice: z.coerce.number().nonnegative('Discounted price must be non-negative').optional(),
+    taxableAmount: z.coerce.number().nonnegative('Taxable amount must be non-negative').optional(),
     quantity: z.coerce.number().positive('Quantity must be at least 1'),
     taxRate: z.coerce.number().nonnegative('Tax rate must be non-negative').optional().default(0),
     taxAmount: z.coerce.number().nonnegative('Tax amount must be non-negative').optional(),
@@ -65,6 +75,7 @@ export const createPurchaseSchema = z
     deliveryNoteDate: optionalString,
     ewayBillNo: optionalString,
     placeOfSupply: optionalString,
+    totalDiscount: z.coerce.number().nonnegative('Total discount must be non-negative').optional().default(0),
     cgst: z.coerce.number().nonnegative('CGST must be non-negative').optional(),
     sgst: z.coerce.number().nonnegative('SGST must be non-negative').optional(),
     igst: z.coerce.number().nonnegative('IGST must be non-negative').optional(),

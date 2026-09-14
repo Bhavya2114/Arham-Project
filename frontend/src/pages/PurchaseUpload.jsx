@@ -233,9 +233,39 @@ const PurchaseUpload = () => {
       const isSupplierNew = matchedSupplier.isNew === true || !matchedSupplier.id;
 
       const matchedItems = (matching.items || []).map((item, idx) => {
+        const extItem = (extracted.items && extracted.items[idx]) || {};
         const isItemNew = item.isNew === true || !item.matchedProduct || !item.matchedProduct.id;
 
         const matchedProd = item.matchedProduct || {};
+
+        // Resolve discountPercent from all possible sources (matching item, extracted item, aliases)
+        const rawDiscPct = item.discountPercent ?? extItem.discountPercent ?? item.discount ?? extItem.discount ?? item.discountPercentage ?? extItem.discountPercentage ?? item.discount_percent ?? extItem.discount_percent ?? item.discPct ?? extItem.discPct;
+        let parsedDiscPct = rawDiscPct !== undefined && rawDiscPct !== null && rawDiscPct !== '' ? Number(String(rawDiscPct).replace(/%/g, '').trim()) : 0;
+        if (isNaN(parsedDiscPct)) parsedDiscPct = 0;
+
+        const rawDiscAmt = item.discountAmount ?? extItem.discountAmount ?? item.discount_amount ?? extItem.discount_amount ?? item.discAmount ?? extItem.discAmount;
+        let parsedDiscAmt = rawDiscAmt !== undefined && rawDiscAmt !== null && rawDiscAmt !== '' ? Number(String(rawDiscAmt).replace(/[₹,]/g, '').trim()) : 0;
+        if (isNaN(parsedDiscAmt)) parsedDiscAmt = 0;
+
+        const qty = item.quantity > 0 ? Number(item.quantity) : (extItem.quantity > 0 ? Number(extItem.quantity) : 1);
+        const rate = item.unitPrice !== undefined ? Number(item.unitPrice) : (extItem.unitPrice !== undefined ? Number(extItem.unitPrice) : 0);
+        const gross = qty * rate;
+
+        if (parsedDiscPct === 0 && parsedDiscAmt > 0 && gross > 0) {
+          parsedDiscPct = Math.round(((parsedDiscAmt / gross) * 100) * 100) / 100;
+        }
+        if (parsedDiscPct > 0 && parsedDiscAmt === 0 && gross > 0) {
+          parsedDiscAmt = Math.round(((gross * parsedDiscPct) / 100) * 100) / 100;
+        }
+
+        const rawTaxable = item.taxableAmount ?? extItem.taxableAmount;
+        const taxable = rawTaxable !== undefined && rawTaxable !== null && !isNaN(Number(rawTaxable)) && Number(rawTaxable) > 0
+          ? Number(rawTaxable)
+          : Math.max(0, Math.round((gross - parsedDiscAmt) * 100) / 100);
+
+        const effectiveCost = item.effectiveUnitPrice !== undefined && item.effectiveUnitPrice !== null
+          ? Number(item.effectiveUnitPrice)
+          : (qty > 0 ? Math.round((taxable / qty) * 100) / 100 : (matchedProd.costPrice !== undefined ? Number(matchedProd.costPrice) : rate));
 
         return {
           id: Date.now() + idx,
@@ -243,25 +273,29 @@ const PurchaseUpload = () => {
           productId: isItemNew ? '' : matchedProd.id,
           isNewProduct: isItemNew,
           newProduct: isItemNew ? {
-            name: item.extractedItemName || matchedProd.name || 'New Product',
-            unit: item.unit || 'Pcs',
-            unitPrice: item.unitPrice || 0,
-            costPrice: item.unitPrice || 0,
-            gstRate: item.gstPercent !== undefined ? item.gstPercent : 18,
+            name: item.extractedItemName || extItem.itemName || matchedProd.name || 'New Product',
+            unit: item.unit || extItem.unit || 'Pcs',
+            unitPrice: rate,
+            costPrice: effectiveCost,
+            gstRate: item.gstPercent !== undefined ? item.gstPercent : (extItem.gstRate !== undefined ? extItem.gstRate : 18),
           } : null,
-          productName: item.extractedItemName || matchedProd.name || '',
-          quantity: item.quantity > 0 ? item.quantity : 1,
-          unit: item.unit || 'Pcs',
-          unitPrice: item.unitPrice || 0,
-          gstPercent: item.gstPercent !== undefined ? item.gstPercent : 18,
+          productName: item.extractedItemName || extItem.itemName || matchedProd.name || '',
+          quantity: qty,
+          unit: item.unit || extItem.unit || 'Pcs',
+          unitPrice: rate,
+          discountPercent: parsedDiscPct,
+          discountAmount: parsedDiscAmt,
+          taxableAmount: taxable,
+          effectiveUnitPrice: effectiveCost,
+          gstPercent: item.gstPercent !== undefined ? item.gstPercent : (extItem.gstRate !== undefined ? extItem.gstRate : 18),
           taxAmount: item.taxAmount !== undefined && item.taxAmount !== null
             ? Number(item.taxAmount)
-            : ((item.cgstAmount || 0) + (item.sgstAmount || 0) + (item.igstAmount || 0)),
-          cgstAmount: item.cgstAmount || 0,
-          sgstAmount: item.sgstAmount || 0,
-          igstAmount: item.igstAmount || 0,
-          total: item.lineTotal || 0,
-          extractedItemName: item.extractedItemName,
+            : ((item.cgstAmount || extItem.cgstAmount || 0) + (item.sgstAmount || extItem.sgstAmount || 0) + (item.igstAmount || extItem.igstAmount || 0)),
+          cgstAmount: item.cgstAmount || extItem.cgstAmount || 0,
+          sgstAmount: item.sgstAmount || extItem.sgstAmount || 0,
+          igstAmount: item.igstAmount || extItem.igstAmount || 0,
+          total: item.lineTotal || extItem.lineTotal || 0,
+          extractedItemName: item.extractedItemName || extItem.itemName,
           matched: !isItemNew,
         };
       });
@@ -280,6 +314,7 @@ const PurchaseUpload = () => {
         invoiceNumber: extracted.invoice?.invoiceNumber || '',
         invoiceDate: extracted.invoice?.invoiceDate || new Date().toISOString().split('T')[0],
         notes: extracted.invoice?.notes || '',
+        totalDiscount: extracted.totals?.totalDiscount || 0,
         cgst: extracted.totals?.totalCGST !== undefined ? extracted.totals.totalCGST : (extracted.totals?.cgst !== undefined ? extracted.totals.cgst : undefined),
         sgst: extracted.totals?.totalSGST !== undefined ? extracted.totals.totalSGST : (extracted.totals?.sgst !== undefined ? extracted.totals.sgst : undefined),
         igst: extracted.totals?.totalIGST !== undefined ? extracted.totals.totalIGST : (extracted.totals?.igst !== undefined ? extracted.totals.igst : undefined),
@@ -289,11 +324,13 @@ const PurchaseUpload = () => {
             selected: false,
             productId: '',
             isNewProduct: true,
-            newProduct: { name: 'New Item', unit: 'Pcs', unitPrice: 0, gstRate: 18 },
+            newProduct: { name: 'New Item', unit: 'Pcs', unitPrice: 0, costPrice: 0, gstRate: 18 },
             productName: 'New Item',
             quantity: 1,
             unit: 'Pcs',
             unitPrice: 0,
+            discountPercent: 0,
+            discountAmount: 0,
             gstPercent: 18,
           }
         ],

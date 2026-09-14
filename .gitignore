@@ -22,3 +22,8 @@ Thumbs.db
 # Test and coverage
 coverage/
 **/coverage/
+
+# Database backups and temporary files
+backups/
+**/backups/
+*.log
