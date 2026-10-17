@@ -9,6 +9,7 @@
     "start": "node dist/server.js",
     "seed": "tsx src/seed.ts",
     "migrate:remove-product-selling-price": "tsx src/scripts/removeProductSellingPrice.ts",
+    "gemini:keys": "tsx scripts/manage-gemini-keys.ts",
     "test": "jest"
   },
   "engines": {

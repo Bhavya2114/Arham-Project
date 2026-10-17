@@ -11,9 +11,11 @@ import {
   FaBoxOpen,
   FaCalendarAlt,
   FaSpinner,
-  FaArrowUp
+  FaArrowUp,
+  FaCloudUploadAlt
 } from 'react-icons/fa';
-import { calculateLineItem, calculatePurchaseTotals } from '../utils/purchaseCalculations';
+import { calculateLineItem, calculatePurchaseTotals, toSafeNumber, parseExplicitRoundOff } from '../utils/purchaseCalculations';
+import { formatDateToIndian, formatDateShortMonth, toApiDateFormat } from '../utils/dateUtils';
 
 const ReviewPurchase = () => {
   const navigate = useNavigate();
@@ -65,84 +67,133 @@ const ReviewPurchase = () => {
     fetchDetails();
   }, [formData]);
 
-  if (!formData || !formData.items || formData.items.length === 0) {
+  // Empty-state guard: ensure valid items exist
+  const rawItems = formData && Array.isArray(formData.items) ? formData.items : [];
+  const hasValidItems = rawItems.length > 0 && rawItems.some((it) => it && (it.productName || it.newProduct?.name || it.productId || it.unitPrice !== undefined || it.quantity !== undefined));
+
+  if (!hasValidItems) {
     return (
-      <div className="max-w-4xl mx-auto py-12 px-4 text-center space-y-4">
-        <div className="p-8 bg-white border border-gray-200 rounded-2xl shadow-sm space-y-4">
-          <FaExclamationTriangle className="text-amber-500 text-4xl mx-auto" />
-          <h3 className="text-lg font-extrabold text-slate-900">No Purchase Data Found</h3>
-          <p className="text-xs text-gray-500 max-w-md mx-auto">
-            No purchase information was passed to the review page. Please fill out the purchase details first.
-          </p>
-          <button
-            type="button"
-            onClick={() => navigate('/purchases/new/manual')}
-            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition-all inline-flex items-center space-x-2"
-          >
-            <FaArrowLeft className="text-xs" />
-            <span>Go to Record Purchase</span>
-          </button>
+      <div className="max-w-4xl mx-auto py-12 px-4 text-center space-y-4 animate-fadeIn">
+        <div className="p-8 bg-white border border-gray-200 rounded-2xl shadow-sm space-y-5">
+          <div className="w-16 h-16 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center text-3xl mx-auto shadow-inner">
+            <FaExclamationTriangle />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-xl font-extrabold text-slate-900">No Purchase Items to Review</h3>
+            <p className="text-xs text-gray-500 max-w-md mx-auto">
+              No purchase items were passed to the review page. Please extract a bill or enter purchase items manually before reviewing.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => navigate('/purchases/new/upload')}
+              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition-all inline-flex items-center space-x-2"
+            >
+              <FaCloudUploadAlt className="text-sm" />
+              <span>Upload Bill</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/purchases/new/manual')}
+              className="px-5 py-2.5 border border-gray-300 hover:bg-gray-100 text-gray-700 font-bold text-xs rounded-xl shadow-sm transition-all inline-flex items-center space-x-2 bg-white"
+            >
+              <FaArrowLeft className="text-xs" />
+              <span>Enter Manually</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/purchases')}
+              className="px-5 py-2.5 border border-gray-200 hover:bg-gray-50 text-gray-500 font-bold text-xs rounded-xl transition-all"
+            >
+              Back to Purchases
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
-  // Calculate Financial Totals
-  const lineItems = formData.items.map((item) => {
-    const qty = Number(item.quantity || item.qty || 0);
-    const price = Number(item.unitPrice || item.price || item.purchasePrice || 0);
-    const discountPercent = Number(item.discountPercent || item.discount || 0);
-    const gstPct = Number(item.gstPercent || item.gstPct || 0);
+  // Calculate Financial Totals with full defensive normalization
+  const lineItems = rawItems.map((item, idx) => {
+    const qty = Math.max(0, toSafeNumber(item.quantity ?? item.qty, 1));
+    const price = Math.max(0, toSafeNumber(item.unitPrice ?? item.price ?? item.purchasePrice, 0));
+    const discountPercent = Math.max(0, Math.min(100, toSafeNumber(item.discountPercent ?? item.discount, 0)));
+    const gstPct = Math.max(0, toSafeNumber(item.gstPercent ?? item.gstPct ?? item.taxRate, 0));
 
     const lineCalc = calculateLineItem({
       quantity: qty,
       unitPrice: price,
       discountPercent,
-      gstRate: gstPct
+      gstRate: gstPct,
+      suppliedTaxAmount: item.taxAmount,
+      cgstAmount: item.cgstAmount ?? item.cgst,
+      sgstAmount: item.sgstAmount ?? item.sgst,
+      igstAmount: item.igstAmount ?? item.igst,
     });
 
-    const cgst = item.cgstAmount !== undefined && item.cgstAmount !== null && Number(item.cgstAmount) > 0 ? Number(item.cgstAmount) : lineCalc.cgstAmount;
-    const sgst = item.sgstAmount !== undefined && item.sgstAmount !== null && Number(item.sgstAmount) > 0 ? Number(item.sgstAmount) : lineCalc.sgstAmount;
-    const igst = item.igstAmount !== undefined && item.igstAmount !== null && Number(item.igstAmount) > 0 ? Number(item.igstAmount) : lineCalc.igstAmount;
-    const lineTaxAmount = item.taxAmount !== undefined && item.taxAmount !== null && Number(item.taxAmount) > 0 ? Number(item.taxAmount) : lineCalc.taxAmount;
-    const lineTotal = lineCalc.lineTotal;
+    const cgst = toSafeNumber(item.cgstAmount ?? item.cgst ?? lineCalc.cgstAmount, 0);
+    const sgst = toSafeNumber(item.sgstAmount ?? item.sgst ?? lineCalc.sgstAmount, 0);
+    const igst = toSafeNumber(item.igstAmount ?? item.igst ?? lineCalc.igstAmount, 0);
+    const lineTaxAmount = toSafeNumber(item.taxAmount ?? lineCalc.lineTax, 0);
+    const taxableAmount = toSafeNumber(lineCalc.taxableValue ?? lineCalc.taxableAmount ?? item.taxableAmount, 0);
+    const discountedUnitPrice = toSafeNumber(lineCalc.discountedUnitPrice ?? item.discountedUnitPrice, price);
+    const lineTotal = toSafeNumber(lineCalc.totalCost ?? lineCalc.lineTotal ?? item.lineTotal ?? item.total, 0);
 
     const existingProd = item.productId ? productsMap[item.productId] : null;
 
     return {
       ...item,
+      id: item.id || `line-${idx}-${Date.now()}`,
       qty,
       price,
+      unitPrice: price,
       discountPercent,
-      discountAmount: lineCalc.discountAmount,
-      taxableAmount: lineCalc.taxableAmount,
-      discountedUnitPrice: lineCalc.discountedUnitPrice,
+      discountAmount: toSafeNumber(lineCalc.discountAmount),
+      taxableAmount,
+      taxableValue: taxableAmount,
+      discountedUnitPrice,
       gstPct,
-      gross: lineCalc.grossAmount,
+      gross: toSafeNumber(lineCalc.grossAmount),
       cgst,
       sgst,
       igst,
       totalGst: lineTaxAmount,
       taxAmount: lineTaxAmount,
       lineTotal,
+      total: lineTotal,
       existingProd,
-      currentStock: existingProd ? Number(existingProd.currentStock || 0) : 0,
-      newStock: existingProd ? Number(existingProd.currentStock || 0) + qty : qty,
+      currentStock: existingProd ? toSafeNumber(existingProd.currentStock, 0) : 0,
+      newStock: existingProd ? toSafeNumber(existingProd.currentStock, 0) + qty : qty,
     };
   });
+
+  const rawRound = formData.roundedOffAmount !== undefined && formData.roundedOffAmount !== null
+    ? formData.roundedOffAmount
+    : formData.roundOff;
+  const parsedRound = parseExplicitRoundOff(rawRound);
+  const roundedOffAmount = parsedRound ? parsedRound.amount : null;
+  const roundedOffType = parsedRound ? (formData.roundedOffType || parsedRound.type) : null;
+  const hasRoundedOff = roundedOffAmount !== null && roundedOffAmount !== 0;
 
   const totals = calculatePurchaseTotals({
     items: lineItems,
     suppliedCgst: formData.cgst,
     suppliedSgst: formData.sgst,
     suppliedIgst: formData.igst,
+    roundedOffAmount: hasRoundedOff ? roundedOffAmount : null,
   });
-  const grandGross = totals.grossTotal || 0;
-  const grandDiscount = totals.totalDiscount || 0;
-  const grandTaxable = totals.taxableTotal || totals.subtotal || 0;
-  const grandTax = totals.totalTax || totals.taxAmount || 0;
-  const grandTotal = totals.grandTotal || totals.totalAmount || 0;
-  const totalQtyAdded = lineItems.reduce((acc, i) => acc + i.qty, 0);
+  const grandGross = toSafeNumber(totals.grossTotal);
+  const grandDiscount = toSafeNumber(totals.totalDiscount);
+  const grandTaxable = toSafeNumber(totals.taxableTotal ?? totals.subtotal);
+  const grandTax = toSafeNumber(totals.totalTax ?? totals.taxAmount);
+  const grandTotal = toSafeNumber(totals.grandTotal ?? totals.totalAmount);
+  const totalQtyAdded = lineItems.reduce((acc, i) => acc + toSafeNumber(i.qty, 0), 0);
+
+  const extractedTotal = formData.extractedGrandTotal !== undefined && formData.extractedGrandTotal !== null
+    ? toSafeNumber(formData.extractedGrandTotal)
+    : null;
+  const isTotalMismatch = extractedTotal !== null && Math.abs(grandTotal - extractedTotal) > 1.0;
 
   // Confirm Purchase Action -> Calls POST /api/purchases
   const handleConfirmPurchase = async () => {
@@ -164,12 +215,14 @@ const ReviewPurchase = () => {
         stateCode: formData.newSupplier?.stateCode || undefined,
       } : undefined,
       invoiceNumber: formData.invoiceNumber,
-      invoiceDate: formData.invoiceDate,
-      purchaseDate: formData.invoiceDate || formData.purchaseDate,
+      invoiceDate: toApiDateFormat(formData.invoiceDate),
+      purchaseDate: toApiDateFormat(formData.invoiceDate || formData.purchaseDate),
       notes: formData.notes || undefined,
       cgst: formData.cgst !== undefined && formData.cgst !== null ? Number(formData.cgst) : undefined,
       sgst: formData.sgst !== undefined && formData.sgst !== null ? Number(formData.sgst) : undefined,
       igst: formData.igst !== undefined && formData.igst !== null ? Number(formData.igst) : undefined,
+      roundedOffAmount: hasRoundedOff ? roundedOffAmount : null,
+      roundedOffType: hasRoundedOff ? roundedOffType : null,
       items: lineItems.map((i) => {
         const isNewProd = i.isNewProduct || (!i.productId && (i.newProduct?.name || i.productName || i.extractedItemName));
 
@@ -256,13 +309,26 @@ const ReviewPurchase = () => {
         <button
           type="button"
           disabled={submitting}
-          onClick={() => navigate('/purchases/new/manual', { state: formData })}
+          onClick={() => navigate('/purchases/new/manual', { state: { ...formData, roundedOffAmount, roundedOffType } })}
           className="px-4 py-2 border border-gray-300 hover:bg-gray-100 text-gray-700 font-bold text-xs rounded-xl shadow-sm transition-all self-start sm:self-auto flex items-center space-x-2 bg-white disabled:opacity-50"
         >
           <FaArrowLeft className="text-xs" />
           <span>Back to Edit</span>
         </button>
       </div>
+
+      {/* Extracted Total Discrepancy Alert Banner */}
+      {isTotalMismatch && (
+        <div className="p-4 bg-amber-50 border border-amber-300 text-amber-900 rounded-2xl text-xs font-semibold flex items-start space-x-3 shadow-sm">
+          <FaExclamationTriangle className="text-amber-600 text-base flex-shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <div className="font-extrabold text-amber-950">Invoice Total Discrepancy Warning</div>
+            <div className="text-amber-800">
+              Calculated supplier bill total (₹{grandTotal.toFixed(2)}) differs from the extracted invoice grand total (₹{extractedTotal.toFixed(2)}). Please inspect line items, GST, and rounding before confirming.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* API Error Alert Banner (Renders Detailed Validation Issues) */}
       {apiError && (
@@ -325,9 +391,14 @@ const ReviewPurchase = () => {
           {/* Invoice Date */}
           <div className="space-y-1">
             <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">INVOICE DATE</span>
-            <div className="font-extrabold text-slate-900 flex items-center space-x-1.5">
+            <div className="font-extrabold text-slate-900 flex items-center space-x-2">
               <FaCalendarAlt className="text-emerald-600 text-xs" />
-              <span>{formData.invoiceDate}</span>
+              <span>{formatDateToIndian(formData.invoiceDate)}</span>
+              {formData.invoiceDate && (
+                <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
+                  {formatDateShortMonth(formData.invoiceDate)}
+                </span>
+              )}
             </div>
           </div>
 
@@ -397,12 +468,12 @@ const ReviewPurchase = () => {
                   <td className="px-3 py-3 text-center font-extrabold text-slate-900">{item.qty}</td>
                   <td className="px-2 py-3 font-semibold text-gray-600">{item.unit || 'Pcs'}</td>
                   <td className="px-3 py-3 text-right font-medium text-gray-700 font-mono">
-                    ₹{item.price.toFixed(2)}
+                    ₹{toSafeNumber(item.price).toFixed(2)}
                   </td>
                   <td className="px-2 py-3 text-center font-bold">
-                    {item.discountPercent > 0 ? (
+                    {toSafeNumber(item.discountPercent) > 0 ? (
                       <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded font-black text-[10px]">
-                        {item.discountPercent}%
+                        {toSafeNumber(item.discountPercent)}%
                       </span>
                     ) : (
                       <span className="text-gray-400 text-[10px]">0%</span>
@@ -410,20 +481,20 @@ const ReviewPurchase = () => {
                   </td>
                   <td className="px-3 py-3 text-right">
                     <div className="font-bold text-slate-900 font-mono">
-                      ₹{item.taxableAmount.toFixed(2)}
+                      ₹{toSafeNumber(item.taxableAmount).toFixed(2)}
                     </div>
-                    {item.discountPercent > 0 && (
+                    {toSafeNumber(item.discountPercent) > 0 && (
                       <div className="text-[10px] text-emerald-700 font-medium">
-                        (₹{item.discountedUnitPrice.toFixed(2)}/u)
+                        (₹{toSafeNumber(item.discountedUnitPrice).toFixed(2)}/u)
                       </div>
                     )}
                   </td>
-                  <td className="px-2 py-3 text-center font-bold text-emerald-700">{item.gstPct}%</td>
-                  <td className="px-3 py-3 text-right font-medium text-gray-600 font-mono">{item.cgst.toFixed(2)}</td>
-                  <td className="px-3 py-3 text-right font-medium text-gray-600 font-mono">{item.sgst.toFixed(2)}</td>
-                  <td className="px-3 py-3 text-right font-medium text-gray-400 font-mono">{item.igst.toFixed(2)}</td>
+                  <td className="px-2 py-3 text-center font-bold text-emerald-700">{toSafeNumber(item.gstPct)}%</td>
+                  <td className="px-3 py-3 text-right font-medium text-gray-600 font-mono">{toSafeNumber(item.cgst).toFixed(2)}</td>
+                  <td className="px-3 py-3 text-right font-medium text-gray-600 font-mono">{toSafeNumber(item.sgst).toFixed(2)}</td>
+                  <td className="px-3 py-3 text-right font-medium text-gray-400 font-mono">{toSafeNumber(item.igst).toFixed(2)}</td>
                   <td className="px-4 py-3 text-right font-black text-slate-900 text-sm font-mono">
-                    ₹{item.lineTotal.toFixed(2)}
+                    ₹{toSafeNumber(item.lineTotal).toFixed(2)}
                   </td>
                 </tr>
               ))}
@@ -443,38 +514,48 @@ const ReviewPurchase = () => {
             <div className="space-y-2.5 text-xs pt-4">
               <div className="flex items-center justify-between text-gray-600">
                 <span>Gross Subtotal (Before Discount)</span>
-                <span className="font-bold text-slate-900 font-mono">₹{grandGross.toFixed(2)}</span>
+                <span className="font-bold text-slate-900 font-mono">₹{toSafeNumber(grandGross).toFixed(2)}</span>
               </div>
-              {grandDiscount > 0 && (
+              {toSafeNumber(grandDiscount) > 0 && (
                 <div className="flex items-center justify-between text-emerald-700 font-medium bg-emerald-50/70 px-2.5 py-1.5 rounded-lg">
                   <span className="font-bold">Total Discount Savings</span>
-                  <span className="font-black font-mono">−₹{grandDiscount.toFixed(2)}</span>
+                  <span className="font-black font-mono">−₹{toSafeNumber(grandDiscount).toFixed(2)}</span>
                 </div>
               )}
               <div className="flex items-center justify-between text-gray-600">
                 <span>Taxable Subtotal (Post-Discount)</span>
-                <span className="font-bold text-slate-900 font-mono">₹{grandTaxable.toFixed(2)}</span>
+                <span className="font-bold text-slate-900 font-mono">₹{toSafeNumber(grandTaxable).toFixed(2)}</span>
               </div>
               <div className="flex items-center justify-between text-gray-600">
                 <span>Input GST (Total Tax)</span>
-                <span className="font-bold text-emerald-700 font-mono">₹{grandTax.toFixed(2)}</span>
+                <span className="font-bold text-emerald-700 font-mono">₹{toSafeNumber(grandTax).toFixed(2)}</span>
               </div>
               {formData.cgst !== undefined && formData.cgst !== null && (
                 <div className="flex items-center justify-between text-[11px] text-gray-400 pl-3">
                   <span>CGST Breakdown</span>
-                  <span className="font-mono">₹{Number(formData.cgst).toFixed(2)}</span>
+                  <span className="font-mono">₹{toSafeNumber(formData.cgst).toFixed(2)}</span>
                 </div>
               )}
               {formData.sgst !== undefined && formData.sgst !== null && (
                 <div className="flex items-center justify-between text-[11px] text-gray-400 pl-3">
                   <span>SGST Breakdown</span>
-                  <span className="font-mono">₹{Number(formData.sgst).toFixed(2)}</span>
+                  <span className="font-mono">₹{toSafeNumber(formData.sgst).toFixed(2)}</span>
                 </div>
               )}
               {formData.igst !== undefined && formData.igst !== null && Number(formData.igst) > 0 && (
                 <div className="flex items-center justify-between text-[11px] text-gray-400 pl-3">
                   <span>IGST Breakdown</span>
-                  <span className="font-mono">₹{Number(formData.igst).toFixed(2)}</span>
+                  <span className="font-mono">₹{toSafeNumber(formData.igst).toFixed(2)}</span>
+                </div>
+              )}
+
+              {/* Conditionally Render Rounded Off Amount - ONLY if explicitly present on bill */}
+              {hasRoundedOff && (
+                <div className="flex items-center justify-between text-gray-700 font-semibold bg-gray-50/80 px-2.5 py-1.5 rounded-lg border border-gray-100">
+                  <span>Rounded Off ({roundedOffAmount < 0 || roundedOffType === 'less' ? '−' : '+'})</span>
+                  <span className={`font-mono font-bold ${roundedOffAmount < 0 ? 'text-amber-700' : 'text-slate-900'}`}>
+                    {roundedOffAmount < 0 ? `−₹${Math.abs(roundedOffAmount).toFixed(2)}` : `₹${roundedOffAmount.toFixed(2)}`}
+                  </span>
                 </div>
               )}
             </div>
@@ -483,7 +564,7 @@ const ReviewPurchase = () => {
           <div className="pt-4 border-t border-gray-200 space-y-1">
             <div className="flex items-center justify-between text-slate-900">
               <span className="font-black text-sm uppercase tracking-wider">Supplier Bill Total</span>
-              <span className="text-emerald-600 font-black text-xl font-mono">₹{grandTotal.toFixed(2)}</span>
+              <span className="text-emerald-600 font-black text-xl font-mono">₹{toSafeNumber(grandTotal).toFixed(2)}</span>
             </div>
             <p className="text-[10px] text-gray-400 italic">
               * Input GST is paid to supplier and does not enter operational project material cost.
@@ -525,19 +606,19 @@ const ReviewPurchase = () => {
                   <div className="grid grid-cols-4 gap-2 text-center text-xs border-t border-gray-200/60 pt-2">
                     <div>
                       <div className="text-[10px] font-bold text-gray-400 uppercase">Current</div>
-                      <div className="font-bold text-gray-600">{item.currentStock}</div>
+                      <div className="font-bold text-gray-600">{toSafeNumber(item.currentStock)}</div>
                     </div>
                     <div>
                       <div className="text-[10px] font-bold text-gray-400 uppercase">Purchase</div>
-                      <div className="font-extrabold text-emerald-600">+{item.qty} {item.unit || 'Pcs'}</div>
+                      <div className="font-extrabold text-emerald-600">+{toSafeNumber(item.qty)} {item.unit || 'Pcs'}</div>
                     </div>
                     <div>
                       <div className="text-[10px] font-bold text-gray-400 uppercase">New Stock</div>
-                      <div className="font-black text-slate-900">{item.newStock}</div>
+                      <div className="font-black text-slate-900">{toSafeNumber(item.newStock)}</div>
                     </div>
                     <div>
                       <div className="text-[10px] font-bold text-gray-400 uppercase">Cost Basis</div>
-                      <div className="font-bold text-emerald-700 font-mono">₹{item.discountedUnitPrice.toFixed(2)}</div>
+                      <div className="font-bold text-emerald-700 font-mono">₹{toSafeNumber(item.discountedUnitPrice).toFixed(2)}</div>
                     </div>
                   </div>
                 </div>

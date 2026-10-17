@@ -15,7 +15,6 @@ const Header = ({ onMenuToggle }) => {
     if (path === '/stock') return 'Stock Ledger & Inventory';
     if (path === '/purchases/new') return 'Add New Purchase Entry';
     if (path === '/purchases') return 'Purchase History';
-    if (path === '/customers') return 'Customer CRM';
     if (path === '/suppliers') return 'Suppliers Directory';
     if (path.startsWith('/reports')) return 'Reports & Financial Analytics';
     if (path === '/settings') return 'Settings';

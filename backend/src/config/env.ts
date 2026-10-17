@@ -11,8 +11,9 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string().default('gemini-3.6-flash'),
+  GEMINI_KEY_COOLDOWN_SECONDS: z.coerce.number().default(60),
   FRONTEND_URL: z.string().default('https://arham-inventory-frontend.vercel.app'),
-});
+}).passthrough();
 
 export const env = envSchema.parse(process.env);
 

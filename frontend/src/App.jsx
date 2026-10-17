@@ -2,7 +2,6 @@ import React from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
-import Customers from "./pages/Customers";
 import Products from "./pages/Products";
 import Categories from "./pages/Categories";
 import Suppliers from "./pages/Suppliers";
@@ -21,6 +20,8 @@ import AddProject from "./pages/AddProject";
 import ProjectDetails from "./pages/ProjectDetails";
 import CreateProjectInvoice from "./pages/CreateProjectInvoice";
 import ProjectInvoiceDetails from "./pages/ProjectInvoiceDetails";
+import Labour from "./pages/Labour";
+import LabourDetails from "./pages/LabourDetails";
 import AuthProvider from "./context/AuthContext";
 import { ToastProvider } from "./context/ToastContext";
 import Root from "./utils/Root";
@@ -46,13 +47,14 @@ const App = () => (
             }
           >
             <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/customers" element={<Customers />} />
             <Route path="/projects" element={<Projects />} />
             <Route path="/projects/new" element={<AddProject />} />
             <Route path="/projects/:id" element={<ProjectDetails />} />
             <Route path="/projects/:id/edit" element={<AddProject />} />
             <Route path="/projects/:projectId/invoices/new" element={<CreateProjectInvoice />} />
             <Route path="/project-invoices/:id" element={<ProjectInvoiceDetails />} />
+            <Route path="/labour" element={<Labour />} />
+            <Route path="/labour/:id" element={<LabourDetails />} />
             <Route path="/products" element={<Products />} />
             <Route path="/categories" element={<Categories />} />
             <Route path="/suppliers" element={<Suppliers />} />

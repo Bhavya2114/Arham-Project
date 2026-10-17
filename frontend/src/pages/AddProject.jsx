@@ -4,16 +4,12 @@ import axiosInstance from '../utils/api';
 import { useToast } from '../context/ToastContext';
 import { getErrorMessage } from '../utils/apiError';
 import { formatIndianNumber, numberToIndianWords } from '../utils/numberToWords';
+import { toApiDateFormat } from '../utils/dateUtils';
+import IndianDateInput from '../components/IndianDateInput';
 import {
-  FaBuilding,
-  FaArrowLeft,
-  FaSave,
   FaSpinner,
   FaExclamationTriangle,
-  FaUserCheck,
-  FaCalendarAlt,
-  FaMapMarkerAlt,
-  FaRupeeSign
+  FaLock,
 } from 'react-icons/fa';
 
 const AddProject = () => {
@@ -22,7 +18,6 @@ const AddProject = () => {
   const toast = useToast();
   const isEditMode = Boolean(id) && id !== 'new';
 
-  const [customers, setCustomers] = useState([]);
   const [loadingPrereqs, setLoadingPrereqs] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState(null);
@@ -30,23 +25,19 @@ const AddProject = () => {
   const [formData, setFormData] = useState({
     projectCode: '',
     name: '',
-    customer: '',
     siteAddress: '',
-    startDate: new Date().toISOString().split('T')[0],
+    startDate: toApiDateFormat(new Date()),
     expectedEndDate: '',
     status: 'PLANNING',
     budget: '',
     notes: '',
   });
 
-  // Fetch active customers list & project details if edit mode
+  // Fetch project details if edit mode
   useEffect(() => {
     const loadInitialData = async () => {
       setLoadingPrereqs(true);
       try {
-        const custRes = await axiosInstance.get('/customers');
-        const activeCusts = (custRes.data.data || []).filter((c) => c.status === 'ACTIVE');
-        setCustomers(activeCusts);
 
         if (isEditMode) {
           const projRes = await axiosInstance.get(`/projects/${id}`);
@@ -55,10 +46,9 @@ const AddProject = () => {
             setFormData({
               projectCode: p.projectCode || '',
               name: p.name || '',
-              customer: p.customerId || p.customer?.id || p.customer?._id || '',
               siteAddress: p.siteAddress || '',
-              startDate: p.startDate ? new Date(p.startDate).toISOString().split('T')[0] : '',
-              expectedEndDate: p.expectedEndDate ? new Date(p.expectedEndDate).toISOString().split('T')[0] : '',
+              startDate: p.startDate ? toApiDateFormat(p.startDate) : '',
+              expectedEndDate: p.expectedEndDate ? toApiDateFormat(p.expectedEndDate) : '',
               status: p.status || 'PLANNING',
               budget: p.budget !== undefined && p.budget !== null ? formatIndianNumber(p.budget) : '',
               notes: p.notes || '',
@@ -135,10 +125,6 @@ const AddProject = () => {
       setFormError('Project Name is required.');
       return;
     }
-    if (!formData.customer) {
-      setFormError('Please select a valid Customer/Client.');
-      return;
-    }
     if (!formData.siteAddress.trim()) {
       setFormError('Site Address is required.');
       return;
@@ -164,10 +150,9 @@ const AddProject = () => {
     const payload = {
       projectCode: formData.projectCode.trim(),
       name: formData.name.trim(),
-      customer: formData.customer,
       siteAddress: formData.siteAddress.trim(),
-      startDate: formData.startDate,
-      expectedEndDate: formData.expectedEndDate ? formData.expectedEndDate : undefined,
+      startDate: toApiDateFormat(formData.startDate),
+      expectedEndDate: formData.expectedEndDate ? toApiDateFormat(formData.expectedEndDate) : undefined,
       status: formData.status,
       budget: rawBudget !== '' ? Number(rawBudget) : undefined,
       notes: formData.notes.trim() ? formData.notes.trim() : undefined,
@@ -194,273 +179,252 @@ const AddProject = () => {
 
   if (loadingPrereqs) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 space-y-3">
-        <div className="animate-spin rounded-full h-9 w-9 border-b-2 border-emerald-600"></div>
-        <p className="text-sm text-gray-400 font-medium">Loading form prerequisites...</p>
+      <div className="flex flex-col items-center justify-center py-24 space-y-3">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#007a4d]"></div>
+        <p className="text-xs text-slate-400 font-medium">Loading form prerequisites...</p>
       </div>
     );
   }
 
   return (
-    <div className="max-w-3xl mx-auto py-6 px-4 space-y-6 animate-fadeIn pb-16">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-200 pb-4">
-        <div className="flex items-center space-x-3">
-          <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center text-lg shadow-sm">
-            <FaBuilding />
-          </div>
-          <div>
-            <h2 className="text-2xl font-extrabold text-slate-900">
-              {isEditMode ? 'Edit Project' : 'Create New Construction Project'}
-            </h2>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Fill in project code, client allocation, site details, and timeline.
-            </p>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => navigate('/projects')}
-          className="px-4 py-2 border border-gray-300 hover:bg-gray-100 text-gray-700 font-bold text-xs rounded-xl transition-all flex items-center space-x-2 bg-white"
-        >
-          <FaArrowLeft />
-          <span>Cancel</span>
-        </button>
+    <div className="w-full max-w-5xl mx-auto px-2 sm:px-4">
+      {/* Page Header - Clean, modern ERP style without any back button */}
+      <div className="mb-3.5">
+        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+          {isEditMode ? 'Edit Construction Project' : 'Create New Construction Project'}
+        </h1>
       </div>
 
-      {/* Error Alert */}
-      {formError && (
-        <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-2xl text-xs font-semibold flex items-center space-x-3 shadow-sm">
-          <FaExclamationTriangle className="text-red-500 text-base flex-shrink-0" />
-          <span>{formError}</span>
-        </div>
-      )}
-
-      {/* Main Form */}
-      <form onSubmit={handleSubmit} className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm space-y-6">
-        {/* Project Basic Info */}
-        <div className="space-y-4">
-          <h3 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider border-b border-gray-100 pb-2">
-            1. Basic Project Identity
-          </h3>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Project Code */}
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">
-                Project Code <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="text"
-                name="projectCode"
-                value={formData.projectCode}
-                onChange={handleChange}
-                placeholder="e.g. PRJ-2026-001"
-                className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-emerald-500 bg-gray-50/50 focus:bg-white uppercase"
-                required
-              />
-            </div>
-
-            {/* Project Name */}
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">
-                Project Name <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="text"
-                name="name"
-                value={formData.name}
-                onChange={handleChange}
-                placeholder="e.g. XYZ Building Construction"
-                className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-xs font-bold focus:outline-none focus:border-emerald-500 bg-gray-50/50 focus:bg-white"
-                required
-              />
-            </div>
+      {/* Main Form Card Container */}
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-5 sm:p-6 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+        {/* Error Alert */}
+        {formError && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs font-medium flex items-center gap-2.5">
+            <FaExclamationTriangle className="text-red-500 text-sm shrink-0" />
+            <span>{formError}</span>
           </div>
-        </div>
+        )}
 
-        {/* Client & Location */}
-        <div className="space-y-4 pt-2">
-          <h3 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider border-b border-gray-100 pb-2">
-            2. Customer & Construction Site
-          </h3>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Customer Dropdown */}
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1 flex items-center justify-between">
-                <span>Customer / Client <span className="text-rose-500">*</span></span>
-                <span className="text-[10px] text-gray-400 font-normal">Active Clients Only</span>
-              </label>
-              <div className="relative">
-                <select
-                  name="customer"
-                  value={formData.customer}
-                  onChange={handleChange}
-                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-xs font-bold focus:outline-none focus:border-emerald-500 bg-gray-50/50 focus:bg-white text-slate-900"
-                  required
-                >
-                  <option value="">-- Select Client --</option>
-                  {customers.map((c) => (
-                    <option key={c.id || c._id} value={c.id || c._id}>
-                      {c.name} {c.businessName ? `(${c.businessName})` : ''} {c.gstNumber ? `- GST: ${c.gstNumber}` : ''}
-                    </option>
-                  ))}
-                </select>
+        <form onSubmit={handleSubmit} noValidate={false}>
+          {/* Section 1 — Project */}
+          <div>
+            <div className="flex items-center gap-2.5 mb-3">
+              <div className="w-5 h-5 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                1
               </div>
+              <h2 className="text-base font-bold text-slate-900">Project</h2>
             </div>
 
-            {/* Site Address */}
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">
-                Site Location Address <span className="text-rose-500">*</span>
-              </label>
-              <div className="relative">
+            {/* 2-Column Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3.5">
+              {/* Project Code */}
+              <div>
+                <div className="flex items-center gap-1 mb-1">
+                  <label htmlFor="projectCode" className="block text-xs font-semibold text-slate-700">
+                    Project Code
+                  </label>
+                  <span className="text-slate-400 inline-flex items-center" title="Automatically generated identifier">
+                    <svg className="w-3.5 h-3.5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="10" />
+                      <line x1="12" y1="16" x2="12" />
+                      <line x1="12" y1="8" x2="12.01" y2="8" />
+                    </svg>
+                  </span>
+                </div>
+                <div className="relative flex items-center">
+                  <div className="absolute left-3.5 text-[#007a4d] pointer-events-none flex items-center">
+                    <FaLock className="text-xs" />
+                  </div>
+                  <input
+                    type="text"
+                    id="projectCode"
+                    name="projectCode"
+                    value={formData.projectCode}
+                    onChange={handleChange}
+                    readOnly
+                    className="w-full pl-9 pr-3.5 py-2 bg-[#f4f6f8] border border-slate-200 rounded-lg text-sm font-semibold text-slate-800 cursor-default select-all focus:outline-none"
+                    required
+                  />
+                </div>
+                <p className="text-[11px] text-slate-400 mt-0.5">Automatically generated</p>
+              </div>
+
+              {/* Project Name */}
+              <div>
+                <label htmlFor="name" className="block text-xs font-semibold text-slate-700 mb-1">
+                  Project Name <span className="text-red-500">*</span>
+                </label>
                 <input
                   type="text"
+                  id="name"
+                  name="name"
+                  value={formData.name}
+                  onChange={handleChange}
+                  placeholder="e.g. XYZ Building Construction"
+                  className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
+                  required
+                />
+              </div>
+
+              {/* Site Location Address */}
+              <div>
+                <label htmlFor="siteAddress" className="block text-xs font-semibold text-slate-700 mb-1">
+                  Site Location Address <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  id="siteAddress"
                   name="siteAddress"
                   value={formData.siteAddress}
                   onChange={handleChange}
                   placeholder="e.g. Plot 45, Kothrud, Pune, Maharashtra"
-                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-xs font-medium focus:outline-none focus:border-emerald-500 bg-gray-50/50 focus:bg-white"
+                  className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
                   required
                 />
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Schedule & Budget */}
-        <div className="space-y-4 pt-2">
-          <h3 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider border-b border-gray-100 pb-2">
-            3. Schedule, Budget & Status
-          </h3>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Start Date */}
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">
-                Start Date <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="date"
-                name="startDate"
-                value={formData.startDate}
-                onChange={handleChange}
-                className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-xs font-medium focus:outline-none focus:border-emerald-500 bg-gray-50/50 focus:bg-white"
-                required
-              />
+          {/* Section 2 — Schedule & Budget */}
+          <div className="mt-4">
+            <div className="flex items-center gap-2.5 mb-3">
+              <div className="w-5 h-5 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                2
+              </div>
+              <h2 className="text-base font-bold text-slate-900">Schedule & Budget</h2>
             </div>
 
-            {/* Expected End Date */}
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">
-                Expected End Date
-              </label>
-              <input
-                type="date"
-                name="expectedEndDate"
-                value={formData.expectedEndDate}
-                onChange={handleChange}
-                className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-xs font-medium focus:outline-none focus:border-emerald-500 bg-gray-50/50 focus:bg-white"
-              />
-            </div>
-
-            {/* Status */}
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">
-                Project Status
-              </label>
-              <select
-                name="status"
-                value={formData.status}
-                onChange={handleChange}
-                className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-xs font-bold focus:outline-none focus:border-emerald-500 bg-gray-50/50 focus:bg-white text-slate-900"
-              >
-                <option value="PLANNING">Planning</option>
-                <option value="IN_PROGRESS">In Progress</option>
-                <option value="ON_HOLD">On Hold</option>
-                <option value="COMPLETED">Completed</option>
-                <option value="CANCELLED">Cancelled</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-            {/* Budget */}
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">
-                Project Target Budget (₹)
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  name="budget"
-                  value={formData.budget}
-                  onChange={handleBudgetChange}
-                  placeholder="e.g. 50,00,000"
-                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-emerald-500 bg-gray-50/50 focus:bg-white text-slate-900"
+            {/* Row 1: 4 Columns */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Start Date */}
+              <div>
+                <label htmlFor="startDate" className="block text-xs font-semibold text-slate-700 mb-1">
+                  Start Date <span className="text-red-500">*</span>
+                </label>
+                <IndianDateInput
+                  id="startDate"
+                  name="startDate"
+                  value={formData.startDate}
+                  onChange={(val) => setFormData((prev) => ({ ...prev, startDate: val }))}
+                  placeholder="DD/MM/YYYY"
+                  className="!py-2 !px-3.5 !pr-9 !text-sm !font-normal !rounded-lg !border-slate-200 !bg-white text-slate-900 focus:!border-emerald-500 focus:!ring-1 focus:!ring-emerald-500"
                 />
               </div>
-              {numberToIndianWords(formData.budget) && (
-                <div className="mt-1.5 px-3 py-1.5 bg-emerald-50/70 border border-emerald-100/80 rounded-xl flex items-center space-x-1.5 text-xs text-emerald-800 animate-fadeIn">
-                  <span className="font-bold text-emerald-600">In words:</span>
-                  <span className="font-semibold">{numberToIndianWords(formData.budget)}</span>
+
+              {/* Expected End Date */}
+              <div>
+                <label htmlFor="expectedEndDate" className="block text-xs font-semibold text-slate-700 mb-1">
+                  Expected End Date
+                </label>
+                <IndianDateInput
+                  id="expectedEndDate"
+                  name="expectedEndDate"
+                  value={formData.expectedEndDate}
+                  onChange={(val) => setFormData((prev) => ({ ...prev, expectedEndDate: val }))}
+                  placeholder="DD/MM/YYYY"
+                  className="!py-2 !px-3.5 !pr-9 !text-sm !font-normal !rounded-lg !border-slate-200 !bg-white text-slate-900 focus:!border-emerald-500 focus:!ring-1 focus:!ring-emerald-500"
+                />
+              </div>
+
+              {/* Project Status */}
+              <div>
+                <label htmlFor="status" className="block text-xs font-semibold text-slate-700 mb-1">
+                  Project Status
+                </label>
+                <div className="relative">
+                  <select
+                    id="status"
+                    name="status"
+                    value={formData.status}
+                    onChange={handleChange}
+                    className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 appearance-none pr-9 transition-colors font-normal"
+                  >
+                    <option value="PLANNING">Planning</option>
+                    <option value="IN_PROGRESS">In Progress</option>
+                    <option value="ON_HOLD">On Hold</option>
+                    <option value="COMPLETED">Completed</option>
+                    <option value="CANCELLED">Cancelled</option>
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-slate-400">
+                    <svg className="w-4 h-4 fill-current" viewBox="0 0 20 20">
+                      <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
+                    </svg>
+                  </div>
                 </div>
-              )}
-              <p className="text-[11px] text-gray-400 mt-1">
-                Enter total estimated budget for this project
-              </p>
+              </div>
+
+              {/* Target Budget (₹) */}
+              <div>
+                <label htmlFor="budget" className="block text-xs font-semibold text-slate-700 mb-1">
+                  Target Budget (₹)
+                </label>
+                <div className="relative flex items-center">
+                  <span className="absolute left-3.5 text-slate-400 text-sm font-normal pointer-events-none">
+                    ₹
+                  </span>
+                  <input
+                    type="text"
+                    id="budget"
+                    inputMode="decimal"
+                    name="budget"
+                    value={formData.budget}
+                    onChange={handleBudgetChange}
+                    placeholder="50,00,000"
+                    className="w-full pl-8 pr-3.5 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
+                  />
+                </div>
+                {numberToIndianWords(formData.budget) && (
+                  <p className="text-[11px] text-emerald-700 font-medium mt-0.5 truncate" title={numberToIndianWords(formData.budget)}>
+                    {numberToIndianWords(formData.budget)}
+                  </p>
+                )}
+              </div>
             </div>
 
-            {/* Notes */}
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">
-                Notes & Descriptions
+            {/* Row 2: Notes Full Width */}
+            <div className="mt-3.5">
+              <label htmlFor="notes" className="block text-xs font-semibold text-slate-700 mb-1">
+                Notes
               </label>
-              <input
-                type="text"
+              <textarea
+                id="notes"
                 name="notes"
+                rows={2}
                 value={formData.notes}
                 onChange={handleChange}
-                placeholder="Optional notes or project scope comments"
-                className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-xs font-medium focus:outline-none focus:border-emerald-500 bg-gray-50/50 focus:bg-white"
+                placeholder="Optional"
+                className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 transition-colors resize-y min-h-[60px]"
               />
             </div>
           </div>
-        </div>
 
-        {/* Submit Actions */}
-        <div className="flex items-center justify-end space-x-3 border-t border-gray-100 pt-4">
-          <button
-            type="button"
-            disabled={submitting}
-            onClick={() => navigate('/projects')}
-            className="px-5 py-2.5 border border-gray-300 hover:bg-gray-100 text-gray-700 font-bold text-xs rounded-xl transition-all disabled:opacity-50 bg-white"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={submitting}
-            className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-md transition-all flex items-center space-x-2 disabled:opacity-50"
-          >
-            {submitting ? (
-              <>
-                <FaSpinner className="animate-spin text-sm" />
-                <span>Saving Project...</span>
-              </>
-            ) : (
-              <>
-                <FaSave className="text-xs" />
+          {/* Action Buttons at Bottom Right */}
+          <div className="flex items-center justify-end gap-5 mt-4 pt-1">
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => navigate('/projects')}
+              className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors focus:outline-none disabled:opacity-50 px-2 py-1.5"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="px-6 py-2 bg-[#007a4d] hover:bg-[#006841] active:bg-[#005a38] text-white font-semibold text-sm rounded-lg shadow-xs transition-colors flex items-center justify-center gap-2 disabled:opacity-50 min-w-[130px]"
+            >
+              {submitting ? (
+                <>
+                  <FaSpinner className="animate-spin text-sm" />
+                  <span>Saving...</span>
+                </>
+              ) : (
                 <span>{isEditMode ? 'Update Project' : 'Save Project'}</span>
-              </>
-            )}
-          </button>
-        </div>
-      </form>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 };

@@ -1,68 +1,92 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axiosInstance from '../utils/api';
 import { 
-  FaChartBar, 
-  FaRupeeSign, 
-  FaChartLine, 
-  FaExclamationTriangle, 
-  FaCalendarAlt,
-  FaBoxes,
-  FaFileAlt,
-  FaUser,
-  FaBox,
-  FaReceipt,
-  FaTruckLoading,
-  FaShoppingCart,
-  FaInfoCircle,
   FaSearch,
-  FaLayerGroup
+  FaTable,
+  FaThLarge,
+  FaTimes,
+  FaExternalLinkAlt,
+  FaBuilding,
+  FaChartLine,
+  FaWallet,
+  FaClock
 } from 'react-icons/fa';
+import { formatDateToIndian } from '../utils/dateUtils';
+
+const STATUS_BADGES = {
+  PLANNING: 'bg-blue-100 text-blue-800 border-blue-200',
+  IN_PROGRESS: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  ACTIVE: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  ON_HOLD: 'bg-amber-100 text-amber-800 border-amber-200',
+  COMPLETED: 'bg-purple-100 text-purple-800 border-purple-200',
+  CANCELLED: 'bg-rose-100 text-rose-800 border-rose-200',
+};
+
+const formatIndianCurrency = (val, showDecimals = false) => {
+  const num = Number(val) || 0;
+  if (showDecimals) {
+    return num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  return num.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+};
+
+const getCardStatusBadge = (status) => {
+  if (status === 'COMPLETED') {
+    return {
+      label: 'Completed',
+      className: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    };
+  }
+  if (status === 'IN_PROGRESS' || status === 'ACTIVE') {
+    return {
+      label: 'Ongoing',
+      className: 'bg-blue-50 text-blue-700 border-blue-200',
+    };
+  }
+  if (status === 'PLANNING') {
+    return {
+      label: 'Planning',
+      className: 'bg-sky-50 text-sky-700 border-sky-200',
+    };
+  }
+  if (status === 'ON_HOLD') {
+    return {
+      label: 'On Hold',
+      className: 'bg-amber-50 text-amber-700 border-amber-200',
+    };
+  }
+  return {
+    label: (status || 'N/A').replace('_', ' '),
+    className: 'bg-slate-50 text-slate-700 border-slate-200',
+  };
+};
 
 const Reports = () => {
-  const [activeTab, setActiveTab] = useState('projects'); // 'projects', 'purchases', 'gst', 'inventory', 'low-stock'
-  const [range, setRange] = useState('month'); // 'today', 'week', 'month', 'custom'
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState('projects'); // 'projects'
 
   // Data States
-  const [purchaseReport, setPurchaseReport] = useState(null);
-  const [inventoryAnalytics, setInventoryAnalytics] = useState(null);
-  const [lowStockList, setLowStockList] = useState([]);
   const [projectsProfitability, setProjectsProfitability] = useState([]);
-  const [gstSummary, setGstSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Projects Profitability interactive states
+  const [viewMode, setViewMode] = useState('cards'); // 'cards' (default) | 'table'
+  const [filterStatus, setFilterStatus] = useState('ALL'); // 'ALL' | 'ONGOING' | 'COMPLETED'
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedProject, setSelectedProject] = useState(null);
+
   useEffect(() => {
     fetchReportData();
-  }, [activeTab, range, startDate, endDate]);
+  }, []);
 
   const fetchReportData = async () => {
     setLoading(true);
     setError(null);
     try {
-      let params = `?range=${range}`;
-      if (range === 'custom' && (startDate || endDate)) {
-        params = `?startDate=${startDate}&endDate=${endDate}`;
-      }
-
-      if (activeTab === 'purchases') {
-        const res = await axiosInstance.get(`/reports/purchases${params}`);
-        setPurchaseReport(res.data.data);
-      } else if (activeTab === 'inventory') {
-        const res = await axiosInstance.get(`/reports/inventory`);
-        setInventoryAnalytics(res.data.data);
-      } else if (activeTab === 'low-stock') {
-        const res = await axiosInstance.get(`/reports/low-stock`);
-        setLowStockList(res.data.data || []);
-      } else if (activeTab === 'projects') {
-        const res = await axiosInstance.get(`/reports/projects-profitability`);
-        setProjectsProfitability(res.data.data || []);
-      } else if (activeTab === 'gst') {
-        const res = await axiosInstance.get(`/reports/gst-summary${params}`);
-        setGstSummary(res.data.data);
-      }
+      const res = await axiosInstance.get('/reports/projects-profitability');
+      setProjectsProfitability(res.data.data || []);
     } catch (err) {
       console.error('Error fetching report:', err);
       setError(err.response?.data?.message || 'Failed to load report data');
@@ -71,100 +95,70 @@ const Reports = () => {
     }
   };
 
+  // KPI aggregates for Projects Profitability
+  const totalProjectsCount = projectsProfitability.length;
+  const totalProfitSum = projectsProfitability.reduce((sum, p) => {
+    const profit = p.projectProfit !== undefined ? p.projectProfit : (p.grossProfit || 0);
+    return sum + Number(profit || 0);
+  }, 0);
+  const totalReceivedSum = projectsProfitability.reduce((sum, p) => {
+    return sum + Number(p.totalReceived || 0);
+  }, 0);
+  const pendingCollectionSum = projectsProfitability.reduce((sum, p) => {
+    const invoiced = p.totalInvoiced !== undefined ? p.totalInvoiced : (p.revenue || 0);
+    const received = p.totalReceived || 0;
+    return sum + Math.max(0, invoiced - received);
+  }, 0);
+
+  // Filter counts
+  const allCount = projectsProfitability.length;
+  const ongoingCount = projectsProfitability.filter(p => p.status !== 'COMPLETED' && p.status !== 'CANCELLED').length;
+  const completedCount = projectsProfitability.filter(p => p.status === 'COMPLETED').length;
+
+  // Filtered projects
+  const filteredProjects = projectsProfitability.filter((p) => {
+    if (filterStatus === 'ONGOING' && (p.status === 'COMPLETED' || p.status === 'CANCELLED')) {
+      return false;
+    }
+    if (filterStatus === 'COMPLETED' && p.status !== 'COMPLETED') {
+      return false;
+    }
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase().trim();
+      const nameMatch = (p.projectName || '').toLowerCase().includes(q);
+      const clientMatch = (p.customerName || '').toLowerCase().includes(q);
+      const codeMatch = (p.projectCode || '').toLowerCase().includes(q);
+      if (!nameMatch && !clientMatch && !codeMatch) {
+        return false;
+      }
+    }
+    return true;
+  });
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">Reports & Business Analytics</h2>
-          <p className="text-gray-500 text-sm">Analyze project performance, purchase procurement, inventory levels, and GST tax summary.</p>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Reports & Business Analytics</h1>
+          <p className="text-slate-500 text-xs sm:text-sm mt-0.5">Analyze project performance and profitability.</p>
         </div>
       </div>
 
-      {/* Tabs & Date Range Filter Bar */}
-      <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-        {/* Navigation Tabs */}
-        <div className="flex bg-gray-100 p-1 rounded-xl space-x-1 self-start md:self-auto overflow-x-auto">
+      {/* Report Tabs Row */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-2 overflow-x-auto">
           <button
             onClick={() => setActiveTab('projects')}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-              activeTab === 'projects' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+            className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap ${
+              activeTab === 'projects'
+                ? 'bg-slate-900 text-white shadow-sm'
+                : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200/80'
             }`}
           >
-            🏗️ Projects Profitability
-          </button>
-          <button
-            onClick={() => setActiveTab('purchases')}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-              activeTab === 'purchases' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            🛒 Purchase Report
-          </button>
-          <button
-            onClick={() => setActiveTab('gst')}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-              activeTab === 'gst' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            🏛️ GST & Tax Summary
-          </button>
-          <button
-            onClick={() => setActiveTab('inventory')}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-              activeTab === 'inventory' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            📦 Inventory Analytics
-          </button>
-          <button
-            onClick={() => setActiveTab('low-stock')}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-              activeTab === 'low-stock' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            ⚠️ Low Stock Alert
+            Projects Profitability
           </button>
         </div>
-
-        {/* Date Range Selector */}
-        {activeTab !== 'low-stock' && activeTab !== 'inventory' && activeTab !== 'projects' && (
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center space-x-2 text-xs font-semibold text-gray-600">
-              <FaCalendarAlt />
-              <span>Range:</span>
-            </div>
-
-            <select
-              value={range}
-              onChange={(e) => setRange(e.target.value)}
-              className="px-3 py-1.5 border border-gray-200 rounded-xl text-xs font-bold text-gray-700 bg-white focus:outline-none focus:border-emerald-500"
-            >
-              <option value="today">Today</option>
-              <option value="week">This Week</option>
-              <option value="month">This Calendar Month</option>
-              <option value="custom">Custom Range</option>
-            </select>
-
-            {range === 'custom' && (
-              <div className="flex items-center space-x-2">
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="px-2.5 py-1 border border-gray-200 rounded-xl text-xs bg-white"
-                />
-                <span className="text-xs text-gray-400">to</span>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="px-2.5 py-1 border border-gray-200 rounded-xl text-xs bg-white"
-                />
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {error && (
@@ -174,424 +168,227 @@ const Reports = () => {
       )}
 
       {loading ? (
-        <div className="flex flex-col items-center justify-center py-12 space-y-3 bg-white border border-gray-200 rounded-2xl">
+        <div className="flex flex-col items-center justify-center py-16 space-y-3 bg-white border border-gray-200 rounded-2xl">
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-emerald-600"></div>
           <p className="text-sm text-gray-400">Generating report analytics...</p>
         </div>
       ) : (
-        <>
-          {/* TAB 2: PURCHASE REPORT */}
-          {activeTab === 'purchases' && purchaseReport && (
-            <div className="space-y-8">
-              {/* Purchase Summary KPI Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Total Purchase Orders</span>
-                  <p className="text-3xl font-black text-slate-900">{purchaseReport.summary?.orderCount || 0}</p>
-                  <span className="text-xs text-gray-500 font-medium">Procurement Orders</span>
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Net Purchase Value</span>
-                  <p className="text-3xl font-black text-slate-900">₹{(purchaseReport.summary?.netPurchases || 0).toLocaleString('en-IN')}</p>
-                  <span className="text-xs text-slate-500 font-semibold">Excludes GST Tax</span>
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">GST Tax Paid</span>
-                  <p className="text-3xl font-black text-amber-600">₹{(purchaseReport.summary?.gstPaid || 0).toLocaleString('en-IN')}</p>
-                  <span className="text-xs text-amber-600 font-semibold">Input GST Tax</span>
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Gross Purchase Spend</span>
-                  <p className="text-3xl font-black text-blue-600">₹{(purchaseReport.summary?.grossPurchases || 0).toLocaleString('en-IN')}</p>
-                  <span className="text-xs text-blue-600 font-semibold">Includes GST Tax</span>
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Quantity Purchased</span>
-                  <p className="text-3xl font-black text-indigo-600">{purchaseReport.summary?.quantityPurchased || 0}</p>
-                  <span className="text-xs text-indigo-600 font-semibold">Total Purchased Units</span>
-                </div>
-
-                <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Average Order Value</span>
-                  <p className="text-3xl font-black text-emerald-400">₹{(purchaseReport.summary?.averageOrderValue || 0).toLocaleString('en-IN')}</p>
-                  <span className="text-xs text-slate-400 font-medium">Gross Spend / Orders</span>
-                </div>
+        <div className="space-y-5">
+          {/* Four KPI Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* 1. Total Projects */}
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-sm space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">TOTAL PROJECTS</span>
+                <FaBuilding className="text-slate-300 text-xs" />
               </div>
-
-              {/* Supplier-Wise Purchase Breakdown Table */}
-              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden space-y-4">
-                <div className="px-6 py-4 border-b border-gray-100 font-bold text-gray-800 text-base flex justify-between items-center">
-                  <div className="flex items-center space-x-2">
-                    <FaTruckLoading className="text-slate-800" />
-                    <span>Supplier-Wise Purchase Breakdown</span>
-                  </div>
-                  <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-3 py-1 rounded-full">
-                    {purchaseReport.supplierAnalysis?.length || 0} Suppliers
-                  </span>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm text-gray-600 min-w-[700px]">
-                    <thead className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase">
-                      <tr>
-                        <th className="px-6 py-3">Supplier Name</th>
-                        <th className="px-6 py-3 text-center">Orders</th>
-                        <th className="px-6 py-3 text-right">Qty Purchased</th>
-                        <th className="px-6 py-3 text-right">Taxable Purchase (₹)</th>
-                        <th className="px-6 py-3 text-right">Input GST (₹)</th>
-                        <th className="px-6 py-3 text-right">Supplier Total (₹)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {(purchaseReport.supplierAnalysis || []).length === 0 ? (
-                        <tr>
-                          <td colSpan="6" className="px-6 py-4 text-center text-gray-400 text-sm">No supplier purchases recorded in this period</td>
-                        </tr>
-                      ) : (
-                        (purchaseReport.supplierAnalysis || []).map((s, idx) => (
-                          <tr key={s.supplierId || idx} className="hover:bg-gray-50/50">
-                            <td className="px-6 py-3 font-bold text-gray-900">{s.supplierName}</td>
-                            <td className="px-6 py-3 text-center font-extrabold text-slate-800">{s.orderCount}</td>
-                            <td className="px-6 py-3 text-right font-semibold text-slate-900">{s.quantityPurchased}</td>
-                            <td className="px-6 py-3 text-right font-bold text-gray-800">₹{s.netPurchases?.toFixed(2)}</td>
-                            <td className="px-6 py-3 text-right text-amber-600 font-semibold">₹{s.gstPaid?.toFixed(2)}</td>
-                            <td className="px-6 py-3 text-right font-extrabold text-blue-600">₹{s.grossPurchases?.toFixed(2)}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Product-Wise Purchase Analysis Table */}
-              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden space-y-4">
-                <div className="px-6 py-4 border-b border-gray-100 font-bold text-gray-800 text-base flex justify-between items-center">
-                  <div className="flex items-center space-x-2">
-                    <FaBox className="text-indigo-600" />
-                    <span>Product-Wise Purchase Analysis</span>
-                  </div>
-                  <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-3 py-1 rounded-full">
-                    {purchaseReport.productAnalysis?.length || 0} Products Procured
-                  </span>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm text-gray-600 min-w-[700px]">
-                    <thead className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase">
-                      <tr>
-                        <th className="px-6 py-3">Product Name</th>
-                        <th className="px-6 py-3">SKU</th>
-                        <th className="px-6 py-3 text-right">Qty Purchased</th>
-                        <th className="px-6 py-3 text-right">Net Spend (₹)</th>
-                        <th className="px-6 py-3 text-right">Avg Purchase Price (₹)</th>
-                        <th className="px-6 py-3 text-right">Latest Purchase Price (₹)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {(purchaseReport.productAnalysis || []).length === 0 ? (
-                        <tr>
-                          <td colSpan="6" className="px-6 py-4 text-center text-gray-400 text-sm">No product purchases recorded in this period</td>
-                        </tr>
-                      ) : (
-                        (purchaseReport.productAnalysis || []).map((p, idx) => (
-                          <tr key={p.productId || idx} className="hover:bg-gray-50/50">
-                            <td className="px-6 py-3 font-bold text-gray-900">{p.productName}</td>
-                            <td className="px-6 py-3 font-mono text-xs text-gray-400">{p.sku}</td>
-                            <td className="px-6 py-3 text-right font-extrabold text-slate-900">{p.quantityPurchased}</td>
-                            <td className="px-6 py-3 text-right font-extrabold text-slate-900">₹{p.netPurchases?.toFixed(2)}</td>
-                            <td className="px-6 py-3 text-right font-semibold text-indigo-600">₹{p.averagePurchasePrice?.toFixed(2)}</td>
-                            <td className="px-6 py-3 text-right font-bold text-emerald-600">₹{p.latestPurchasePrice?.toFixed(2)}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Purchase Transactions Table */}
-              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-100 font-bold text-gray-800 text-base flex justify-between items-center">
-                  <span>Purchase Transactions List</span>
-                  <span className="text-xs font-semibold text-gray-400">
-                    {(purchaseReport.transactions || []).length} Procurement Documents
-                  </span>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm text-gray-600 min-w-[700px]">
-                    <thead className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase">
-                      <tr>
-                        <th className="px-6 py-3">Purchase #</th>
-                        <th className="px-6 py-3">Supplier</th>
-                        <th className="px-6 py-3">Date</th>
-                        <th className="px-6 py-3 text-center">Items</th>
-                        <th className="px-6 py-3 text-right">Taxable Subtotal (₹)</th>
-                        <th className="px-6 py-3 text-right">Input GST (₹)</th>
-                        <th className="px-6 py-3 text-right">Supplier Total (₹)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {(purchaseReport.transactions || []).map((p) => (
-                        <tr key={p.id} className="hover:bg-gray-50/50">
-                          <td className="px-6 py-3 font-mono font-bold text-slate-900">{p.purchaseNumber}</td>
-                          <td className="px-6 py-3 font-semibold text-gray-800">{p.supplierName}</td>
-                          <td className="px-6 py-3 text-gray-600">{new Date(p.purchaseDate).toLocaleDateString()}</td>
-                          <td className="px-6 py-3 text-center font-bold text-gray-700">{p.itemsCount}</td>
-                          <td className="px-6 py-3 text-right text-gray-700">₹{p.subtotal?.toFixed(2)}</td>
-                          <td className="px-6 py-3 text-right text-amber-600 font-medium">₹{p.taxAmount?.toFixed(2)}</td>
-                          <td className="px-6 py-3 text-right font-extrabold text-slate-900">₹{p.totalAmount?.toFixed(2)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              <p className="text-3xl font-extrabold text-slate-900">{totalProjectsCount}</p>
             </div>
-          )}
 
-          {/* TAB 4: INVENTORY ANALYTICS */}
-          {activeTab === 'inventory' && inventoryAnalytics && (
-            <div className="space-y-8">
-              {/* Inventory Summary KPI Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Total Products</span>
-                  <p className="text-3xl font-black text-slate-900">{inventoryAnalytics.summary?.totalProducts || 0}</p>
-                  <span className="text-xs text-gray-500 font-medium">Catalog Items</span>
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Total Stock Units</span>
-                  <p className="text-3xl font-black text-indigo-600">{inventoryAnalytics.summary?.totalStock || 0}</p>
-                  <span className="text-xs text-indigo-600 font-semibold">Physical Stock On Hand</span>
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Inventory Asset Value</span>
-                  <p className="text-3xl font-black text-emerald-600">₹{(inventoryAnalytics.summary?.inventoryCostValue || 0).toLocaleString('en-IN')}</p>
-                  <span className="text-xs text-emerald-600 font-semibold">Cost Price Baseline</span>
-                </div>
+            {/* 2. Total Profit */}
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-sm space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">TOTAL PROFIT</span>
+                <FaChartLine className="text-emerald-400 text-xs" />
               </div>
-
-              {/* Secondary Inventory Status KPIs */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">In Stock Products</span>
-                  <p className="text-2xl font-black text-emerald-600">{inventoryAnalytics.summary?.inStock || 0}</p>
-                  <span className="text-xs text-emerald-600 font-semibold">Above Minimum Stock</span>
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Low Stock Products</span>
-                  <p className="text-2xl font-black text-amber-600">{inventoryAnalytics.summary?.lowStock || 0}</p>
-                  <span className="text-xs text-amber-600 font-semibold">At or Below Minimum Stock</span>
-                </div>
-
-                <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-1">
-                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Out of Stock Products</span>
-                  <p className="text-2xl font-black text-red-600">{inventoryAnalytics.summary?.outOfStock || 0}</p>
-                  <span className="text-xs text-red-600 font-semibold">Zero Units Remaining</span>
-                </div>
-              </div>
-
-              {/* Category-Wise Inventory Analysis Table */}
-              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden space-y-4">
-                <div className="px-6 py-4 border-b border-gray-100 font-bold text-gray-800 text-base flex justify-between items-center">
-                  <div className="flex items-center space-x-2">
-                    <FaLayerGroup className="text-indigo-600" />
-                    <span>Category-Wise Inventory Valuation</span>
-                  </div>
-                  <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-3 py-1 rounded-full">
-                    {inventoryAnalytics.categoryAnalysis?.length || 0} Categories
-                  </span>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm text-gray-600 min-w-[700px]">
-                    <thead className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase">
-                      <tr>
-                        <th className="px-6 py-3">Category Name</th>
-                        <th className="px-6 py-3 text-center">Products</th>
-                        <th className="px-6 py-3 text-right">Total Stock Units</th>
-                        <th className="px-6 py-3 text-right">Inventory Cost Value (₹)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {(inventoryAnalytics.categoryAnalysis || []).map((c, idx) => (
-                        <tr key={c.categoryName || idx} className="hover:bg-gray-50/50">
-                          <td className="px-6 py-3 font-bold text-gray-900">{c.categoryName}</td>
-                          <td className="px-6 py-3 text-center font-extrabold text-slate-800">{c.productCount}</td>
-                          <td className="px-6 py-3 text-right font-bold text-indigo-600">{c.totalStock}</td>
-                          <td className="px-6 py-3 text-right font-extrabold text-emerald-600">₹{c.inventoryCostValue?.toFixed(2)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Top Inventory Value Products Table */}
-              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden space-y-4">
-                <div className="px-6 py-4 border-b border-gray-100 font-bold text-gray-800 text-base flex justify-between items-center">
-                  <div className="flex items-center space-x-2">
-                    <FaBoxes className="text-emerald-600" />
-                    <span>Top Inventory Asset Value Products</span>
-                  </div>
-                  <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-3 py-1 rounded-full">
-                    Top 10 High-Value Products
-                  </span>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm text-gray-600 min-w-[700px]">
-                    <thead className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase">
-                      <tr>
-                        <th className="px-6 py-3">Product Name</th>
-                        <th className="px-6 py-3">SKU</th>
-                        <th className="px-6 py-3">Category</th>
-                        <th className="px-6 py-3 text-right">Current Stock</th>
-                        <th className="px-6 py-3 text-right">Cost Price (₹)</th>
-                        <th className="px-6 py-3 text-right">Inventory Cost Value (₹)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {(inventoryAnalytics.topValueProducts || []).map((p, idx) => (
-                        <tr key={p.id || idx} className="hover:bg-gray-50/50">
-                          <td className="px-6 py-3 font-bold text-gray-900">{p.name}</td>
-                          <td className="px-6 py-3 font-mono text-xs text-gray-400">{p.sku}</td>
-                          <td className="px-6 py-3 text-gray-700">{p.category}</td>
-                          <td className="px-6 py-3 text-right font-extrabold text-indigo-600">{p.currentStock}</td>
-                          <td className="px-6 py-3 text-right text-gray-700 font-medium">₹{p.costPrice?.toFixed(2)}</td>
-                          <td className="px-6 py-3 text-right font-extrabold text-emerald-600">₹{p.inventoryCostValue?.toFixed(2)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Full Product Inventory Table with Search */}
-              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden space-y-4">
-                <div className="px-6 py-4 border-b border-gray-100 font-bold text-gray-800 text-base flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                  <div className="flex items-center space-x-2">
-                    <FaBox className="text-slate-800" />
-                    <span>Complete Product Catalog Inventory</span>
-                  </div>
-                  <div className="relative w-full sm:w-72">
-                    <FaSearch className="absolute left-3 top-2.5 text-gray-400 text-xs" />
-                    <input
-                      type="text"
-                      placeholder="Search product name or SKU..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full pl-8 pr-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-gray-50 focus:bg-white focus:outline-none focus:border-emerald-500 transition-all"
-                    />
-                  </div>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm text-gray-600 min-w-[800px]">
-                    <thead className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase">
-                      <tr>
-                        <th className="px-6 py-3">Product Name</th>
-                        <th className="px-6 py-3">SKU</th>
-                        <th className="px-6 py-3">Category</th>
-                        <th className="px-6 py-3">Supplier</th>
-                        <th className="px-6 py-3 text-right">Stock</th>
-                        <th className="px-6 py-3 text-right">Cost (₹)</th>
-                        <th className="px-6 py-3 text-right">Asset Value (₹)</th>
-                        <th className="px-6 py-3 text-center">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {(inventoryAnalytics.products || [])
-                        .filter((p) =>
-                          p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          p.sku.toLowerCase().includes(searchTerm.toLowerCase())
-                        )
-                        .map((p) => (
-                          <tr key={p.id} className="hover:bg-gray-50/50">
-                            <td className="px-6 py-3 font-bold text-gray-900">{p.name}</td>
-                            <td className="px-6 py-3 font-mono text-xs text-gray-400">{p.sku}</td>
-                            <td className="px-6 py-3 text-gray-700">{p.category}</td>
-                            <td className="px-6 py-3 text-gray-600 text-xs">{p.supplierName}</td>
-                            <td className="px-6 py-3 text-right font-extrabold text-slate-900">{p.currentStock}</td>
-                            <td className="px-6 py-3 text-right text-gray-700">₹{p.costPrice?.toFixed(2)}</td>
-                            <td className="px-6 py-3 text-right font-extrabold text-emerald-600">₹{p.inventoryCostValue?.toFixed(2)}</td>
-                            <td className="px-6 py-3 text-center">
-                              <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                                p.status === 'OUT_OF_STOCK'
-                                  ? 'bg-red-100 text-red-800'
-                                  : p.status === 'LOW_STOCK'
-                                  ? 'bg-amber-100 text-amber-800'
-                                  : 'bg-emerald-100 text-emerald-800'
-                              }`}>
-                                {p.status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              <p className="text-3xl font-extrabold text-emerald-700">₹{formatIndianCurrency(totalProfitSum, true)}</p>
             </div>
-          )}
 
-          {/* TAB 5: LOW STOCK REPORT */}
-          {activeTab === 'low-stock' && (
-            <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-100 font-bold text-gray-800 text-base flex justify-between items-center">
-                <span>Inventory Deficit & Reorder List</span>
-                <span className="text-xs font-bold bg-amber-100 text-amber-800 px-3 py-1 rounded-full">
-                  {lowStockList.length} Deficit Products
-                </span>
+            {/* 3. Total Received */}
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-sm space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">TOTAL RECEIVED</span>
+                <FaWallet className="text-slate-300 text-xs" />
               </div>
-              {lowStockList.length === 0 ? (
-                <div className="p-8 text-center text-emerald-600 font-bold text-sm">
-                  🎉 All inventory items are currently above minimum stock thresholds!
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm text-gray-600 min-w-[700px]">
-                    <thead className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase">
-                      <tr>
-                        <th className="px-6 py-3">Product Name</th>
-                        <th className="px-6 py-3">SKU</th>
-                        <th className="px-6 py-3">Category</th>
-                        <th className="px-6 py-3 text-right">Current Stock</th>
-                        <th className="px-6 py-3 text-right">Min Stock Required</th>
-                        <th className="px-6 py-3 text-right">Reorder Deficit</th>
-                        <th className="px-6 py-3 text-center">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {lowStockList.map((p) => (
-                        <tr key={p.id} className="hover:bg-gray-50/50">
-                          <td className="px-6 py-3 font-bold text-gray-900">{p.name}</td>
-                          <td className="px-6 py-3 font-mono text-gray-400 text-xs">{p.sku}</td>
-                          <td className="px-6 py-3">{p.category}</td>
-                          <td className="px-6 py-3 text-right font-extrabold text-red-600">{p.currentStock}</td>
-                          <td className="px-6 py-3 text-right font-semibold">{p.minStockQuantity}</td>
-                          <td className="px-6 py-3 text-right font-extrabold text-amber-700">+{p.deficit}</td>
-                          <td className="px-6 py-3 text-center">
-                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                              p.status === 'OUT_OF_STOCK' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'
-                            }`}>
-                              {p.status}
+              <p className="text-3xl font-extrabold text-slate-900">₹{formatIndianCurrency(totalReceivedSum, true)}</p>
+            </div>
+
+            {/* 4. Pending Collection */}
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-sm space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">PENDING COLLECTION</span>
+                <FaClock className="text-amber-400 text-xs" />
+              </div>
+              <p className="text-3xl font-extrabold text-amber-600">₹{formatIndianCurrency(pendingCollectionSum, true)}</p>
+            </div>
+          </div>
+
+          {/* Filter & Action Row */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+            {/* Left Filter Buttons */}
+            <div className="flex items-center gap-1.5 overflow-x-auto">
+              <button
+                onClick={() => setFilterStatus('ALL')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                  filterStatus === 'ALL'
+                    ? 'bg-slate-200 text-slate-900 border border-slate-300 shadow-xs'
+                    : 'bg-white hover:bg-slate-100 text-slate-600 border border-transparent'
+                }`}
+              >
+                All · {allCount}
+              </button>
+              <button
+                onClick={() => setFilterStatus('ONGOING')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                  filterStatus === 'ONGOING'
+                    ? 'bg-slate-200 text-slate-900 border border-slate-300 shadow-xs'
+                    : 'bg-white hover:bg-slate-100 text-slate-600 border border-transparent'
+                }`}
+              >
+                Ongoing · {ongoingCount}
+              </button>
+              <button
+                onClick={() => setFilterStatus('COMPLETED')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                  filterStatus === 'COMPLETED'
+                    ? 'bg-slate-200 text-slate-900 border border-slate-300 shadow-xs'
+                    : 'bg-white hover:bg-slate-100 text-slate-600 border border-transparent'
+                }`}
+              >
+                Completed · {completedCount}
+              </button>
+            </div>
+
+            {/* Right Controls: Search + View Toggle */}
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Search project or client"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-48 sm:w-60 pl-3 pr-8 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-slate-400 shadow-xs"
+                />
+                <FaSearch className="absolute right-2.5 top-2.5 text-slate-300 text-xs pointer-events-none" />
+              </div>
+
+              <button
+                onClick={() => setViewMode(viewMode === 'cards' ? 'table' : 'cards')}
+                className="px-3.5 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 shadow-xs transition-colors flex items-center space-x-1.5 whitespace-nowrap"
+              >
+                {viewMode === 'cards' ? (
+                  <>
+                    <FaTable className="text-slate-400 text-xs" />
+                    <span>Table view</span>
+                  </>
+                ) : (
+                  <>
+                    <FaThLarge className="text-slate-400 text-xs" />
+                    <span>Cards view</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* CARD VIEW (DEFAULT) */}
+          {viewMode === 'cards' && (
+            filteredProjects.length === 0 ? (
+              <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center text-slate-400 text-xs">
+                No projects found matching the selected filter or search term.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                {filteredProjects.map((p) => {
+                  const profit = p.projectProfit !== undefined ? p.projectProfit : (p.grossProfit || 0);
+                  const margin = p.projectMargin !== undefined ? p.projectMargin : (p.grossMargin || 0);
+                  const budget = p.projectBudget !== undefined ? p.projectBudget : (p.revenue || 0);
+                  const cost = p.actualProjectCost !== undefined ? p.actualProjectCost : (p.totalProjectCost || 0);
+                  const invoiced = p.totalInvoiced !== undefined ? p.totalInvoiced : (p.revenue || 0);
+                  const received = p.totalReceived || 0;
+                  const budgetUsedPercent = budget > 0 ? Math.round((cost / budget) * 100) : 0;
+                  const statusBadge = getCardStatusBadge(p.status);
+                  const isSelected = selectedProject?.projectId === p.projectId;
+
+                  return (
+                    <div
+                      key={p.projectId}
+                      className={`bg-white rounded-2xl p-5 shadow-sm transition-all flex flex-col justify-between ${
+                        isSelected
+                          ? 'border-2 border-emerald-500 shadow-md ring-2 ring-emerald-50'
+                          : 'border border-slate-200 hover:border-slate-300 hover:shadow-md'
+                      }`}
+                    >
+                      {/* Card Header: Project Name & Status */}
+                      <div>
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="font-bold text-slate-900 text-base leading-tight truncate">
+                            {p.projectName}
+                          </h3>
+                          <span className={`px-2.5 py-0.5 text-[11px] font-semibold rounded-full border whitespace-nowrap ${statusBadge.className}`}>
+                            {statusBadge.label}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 font-medium truncate mt-0.5">
+                          {p.customerName} · {p.projectCode}
+                        </p>
+
+                        {/* Project Profit Section */}
+                        <div className="mt-4">
+                          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                            PROJECT PROFIT
+                          </span>
+                          <div className="flex items-baseline space-x-2 mt-0.5">
+                            <span className={`text-2xl font-black ${profit >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                              ₹{formatIndianCurrency(profit)}
                             </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+                            {margin > 0 && margin < 100 && (
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                                margin < 25
+                                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                  : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              }`}>
+                                {margin}%
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Budget Used & Progress Bar */}
+                        <div className="mt-4 space-y-1.5">
+                          <div className="flex justify-between items-center text-xs text-slate-500 font-medium">
+                            <span>Budget used</span>
+                            <span className="font-semibold text-slate-700">{budgetUsedPercent}%</span>
+                          </div>
+                          <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-300 ${
+                                budgetUsedPercent > 80 ? 'bg-amber-500' : 'bg-slate-400'
+                              }`}
+                              style={{ width: `${Math.min(100, Math.max(0, budgetUsedPercent))}%` }}
+                            ></div>
+                          </div>
+                        </div>
+
+                        {/* Compact Financial Summary Lines */}
+                        <div className="mt-3.5 space-y-1 text-xs text-slate-500">
+                          <p className="truncate">
+                            Budget: ₹{formatIndianCurrency(budget)} · Cost: ₹{formatIndianCurrency(cost)}
+                          </p>
+                          <p className="truncate">
+                            Received: ₹{formatIndianCurrency(received)} of ₹{formatIndianCurrency(invoiced)} invoiced
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* View Details Button */}
+                      <div className="mt-5 pt-3 border-t border-slate-100">
+                        <button
+                          onClick={() => setSelectedProject(p)}
+                          className="w-full py-2 px-3 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 transition-colors shadow-xs text-center"
+                        >
+                          View details
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )
           )}
 
-          {/* TAB 6: PROJECTS PROFITABILITY REPORT */}
-          {activeTab === 'projects' && (
+          {/* TABLE VIEW (ALTERNATIVE) */}
+          {viewMode === 'table' && (
             <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden space-y-4">
               <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
                 <div>
@@ -599,21 +396,22 @@ const Reports = () => {
                   <p className="text-xs text-gray-500">Executive comparison of Project Budget, actual costs (materials + expenses), project profit, margins & cash collections.</p>
                 </div>
                 <span className="text-xs font-bold bg-purple-100 text-purple-800 px-3 py-1 rounded-full">
-                  {projectsProfitability.length} Active Projects
+                  {projectsProfitability.length} Projects
                 </span>
               </div>
 
-              {projectsProfitability.length === 0 ? (
+              {filteredProjects.length === 0 ? (
                 <div className="p-8 text-center text-gray-400 text-xs">
                   No project profitability records found.
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs text-gray-600 min-w-[1050px]">
+                  <table className="w-full text-left text-xs text-gray-600 min-w-[1150px]">
                     <thead className="bg-gray-50 border-b border-gray-200 text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
                       <tr>
                         <th className="px-4 py-3">Project / Client</th>
                         <th className="px-4 py-3">Code</th>
+                        <th className="px-4 py-3 text-center">Status</th>
                         <th className="px-4 py-3 text-right">Project Budget (Excl. GST) (₹)</th>
                         <th className="px-4 py-3 text-right">Material Cost (Excl. GST) (₹)</th>
                         <th className="px-4 py-3 text-right">Expenses (₹)</th>
@@ -625,7 +423,7 @@ const Reports = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 font-medium">
-                      {projectsProfitability.map((p) => {
+                      {filteredProjects.map((p) => {
                         const profit = p.projectProfit !== undefined ? p.projectProfit : p.grossProfit;
                         const margin = p.projectMargin !== undefined ? p.projectMargin : (p.grossMargin || 0);
                         const isPositive = profit >= 0;
@@ -637,6 +435,11 @@ const Reports = () => {
                               <span className="text-[10px] text-gray-400 font-semibold">{p.customerName}</span>
                             </td>
                             <td className="px-4 py-3 font-mono text-emerald-700 font-bold">{p.projectCode}</td>
+                            <td className="px-4 py-3 text-center">
+                              <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded border whitespace-nowrap ${STATUS_BADGES[p.status] || 'bg-gray-100 text-gray-800 border-gray-200'}`}>
+                                {p.status ? p.status.replace('_', ' ') : 'N/A'}
+                              </span>
+                            </td>
                             <td className="px-4 py-3 text-right font-black text-indigo-950">
                               ₹{(p.projectBudget !== undefined ? p.projectBudget : (p.revenue || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                             </td>
@@ -672,341 +475,169 @@ const Reports = () => {
               )}
             </div>
           )}
+        </div>
+      )}
 
-          {/* GST & Tax Summary Tab */}
-          {activeTab === 'gst' && gstSummary && (
-            <div className="space-y-6">
-              {/* Informational Policy Banner */}
-              <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-5 text-sm text-amber-900 shadow-sm flex items-start space-x-3">
-                <FaInfoCircle className="text-amber-600 mt-0.5 flex-shrink-0 text-base" />
-                <div className="space-y-1">
-                  <p className="font-bold text-amber-950">Statutory GST & Operational Profitability Separation</p>
-                  <p className="text-amber-900 leading-relaxed">
-                    Input GST is GST charged by suppliers. Output GST is GST collected from customers. GST amounts are shown separately from operational project profitability.
+      {/* PROJECT DETAILS SLIDE-OVER DRAWER */}
+      {selectedProject && (
+        <div className="fixed inset-0 z-50 overflow-hidden">
+          {/* Backdrop overlay */}
+          <div
+            className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs transition-opacity"
+            onClick={() => setSelectedProject(null)}
+          />
+
+          <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
+            <div className="w-screen max-w-md sm:max-w-lg bg-white shadow-2xl flex flex-col border-l border-slate-200">
+              {/* Drawer Header */}
+              <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-bold text-slate-900">{selectedProject.projectName}</h2>
+                    <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-full border ${getCardStatusBadge(selectedProject.status).className}`}>
+                      {getCardStatusBadge(selectedProject.status).label}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 font-medium mt-0.5">
+                    {selectedProject.customerName} · <span className="font-mono text-emerald-700 font-bold">{selectedProject.projectCode}</span>
                   </p>
-                  <div className="flex flex-wrap gap-2 pt-1 text-xs font-semibold">
-                    <span className="bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-full border border-amber-300">
-                      ITC Eligibility Status: UNKNOWN / NOT DETERMINED
-                    </span>
-                    <span className="bg-white/80 text-slate-700 px-2.5 py-0.5 rounded-full border border-amber-200">
-                      Input GST is NOT project material cost
-                    </span>
-                    <span className="bg-white/80 text-slate-700 px-2.5 py-0.5 rounded-full border border-amber-200">
-                      Output GST is NOT project revenue/profit
-                    </span>
-                  </div>
                 </div>
+                <button
+                  onClick={() => setSelectedProject(null)}
+                  className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors"
+                >
+                  <FaTimes className="text-sm" />
+                </button>
               </div>
 
-              {/* Three KPI Summary Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* 1. Input GST (Purchases) */}
-                <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm space-y-4">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">PURCHASES / PROCUREMENT</span>
-                      <h3 className="text-lg font-black text-slate-900">Input GST Charged</h3>
-                    </div>
-                    <span className="bg-emerald-50 text-emerald-700 text-xs font-black px-2.5 py-1 rounded-full border border-emerald-200">
-                      {gstSummary.summary?.purchaseCount || 0} Bills
-                    </span>
-                  </div>
-
-                  <div className="space-y-2 border-y border-slate-100 py-3">
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-slate-500 font-medium">Taxable Purchases:</span>
-                      <span className="font-bold text-slate-800">
-                        ₹{(gstSummary.summary?.taxablePurchases || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-amber-600 font-bold">Input GST Charged:</span>
-                      <span className="font-black text-amber-600">
-                        ₹{(gstSummary.summary?.inputGst || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-slate-900 font-bold">Supplier Total (Gross):</span>
-                      <span className="font-black text-slate-900">
-                        ₹{(gstSummary.summary?.supplierTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-50 rounded-xl p-3 space-y-1 text-xs border border-slate-100">
-                    <span className="font-bold text-slate-500 block uppercase tracking-wider text-[10px]">Tax Component Breakdown</span>
-                    <div className="grid grid-cols-3 gap-1 pt-1 font-mono text-center">
-                      <div className="bg-white p-1 rounded border border-slate-200">
-                        <span className="block text-[9px] text-slate-400 font-bold">CGST</span>
-                        <span className="font-bold text-slate-700">₹{(gstSummary.summary?.cgstTotal || 0).toFixed(2)}</span>
-                      </div>
-                      <div className="bg-white p-1 rounded border border-slate-200">
-                        <span className="block text-[9px] text-slate-400 font-bold">SGST</span>
-                        <span className="font-bold text-slate-700">₹{(gstSummary.summary?.sgstTotal || 0).toFixed(2)}</span>
-                      </div>
-                      <div className="bg-white p-1 rounded border border-slate-200">
-                        <span className="block text-[9px] text-slate-400 font-bold">IGST</span>
-                        <span className="font-bold text-slate-700">₹{(gstSummary.summary?.igstTotal || 0).toFixed(2)}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 2. Output GST (Customer Invoices) */}
-                <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm space-y-4">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">SALES / CUSTOMER BILLING</span>
-                      <h3 className="text-lg font-black text-slate-900">Output GST</h3>
-                    </div>
-                    <span className="bg-blue-50 text-blue-700 text-xs font-black px-2.5 py-1 rounded-full border border-blue-200">
-                      {gstSummary.summary?.outputCount || 0} Invoices
-                    </span>
-                  </div>
-
-                  <div className="space-y-2 border-y border-slate-100 py-3">
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-slate-500 font-medium">Taxable Sales/Invoices:</span>
-                      <span className="font-bold text-slate-800">
-                        ₹{(gstSummary.summary?.taxableOutput || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-blue-600 font-bold">Output GST Charged:</span>
-                      <span className="font-black text-blue-600">
-                        ₹{(gstSummary.summary?.outputGst || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-slate-900 font-bold">Customer Invoice Total:</span>
-                      <span className="font-black text-slate-900">
-                        ₹{(gstSummary.summary?.customerInvoiceTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="bg-blue-50/50 rounded-xl p-3 text-xs text-blue-800 border border-blue-100 space-y-1">
-                    <p className="font-bold">Customer Billing Independence</p>
-                    <p className="text-[11px] text-blue-700 leading-snug">
-                      Customer invoice amounts and Output GST reflect billed commitments and do not enter internal project operational cost or project profitability formulas.
+              {/* Drawer Content */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-5">
+                {/* Profit Highlight Banner */}
+                <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-4 flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">PROJECT PROFIT</span>
+                    <p className="text-2xl font-black text-emerald-700 mt-0.5">
+                      ₹{formatIndianCurrency(selectedProject.projectProfit !== undefined ? selectedProject.projectProfit : (selectedProject.grossProfit || 0), true)}
                     </p>
                   </div>
-                </div>
-
-                {/* 3. GST Difference */}
-                <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-sm space-y-4 flex flex-col justify-between">
-                  <div className="space-y-1">
-                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">REPORTING DIFFERENCE</span>
-                    <h3 className="text-lg font-black text-white">GST Difference</h3>
-                    <p className="text-xs text-slate-400">= Output GST − Input GST</p>
-                  </div>
-
-                  <div className="space-y-2 py-2">
-                    <div className="flex items-baseline space-x-2">
-                      <span className="text-3xl font-black text-emerald-400">
-                        ₹{Math.abs(gstSummary.summary?.netGstPosition || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                    <span className="inline-block text-xs font-extrabold px-3 py-1 rounded-full uppercase tracking-wider bg-slate-800 text-slate-300 border border-slate-700">
-                      Input vs Output GST Difference
-                    </span>
-                  </div>
-
-                  <div className="bg-slate-800/80 rounded-xl p-3 text-[11px] text-slate-300 border border-slate-700 space-y-1">
-                    <p className="font-bold text-slate-200">Reporting Disclaimer</p>
-                    <p className="text-slate-400 leading-snug">
-                      Output GST minus Input GST. This is a reporting difference only and does not determine legally payable tax or eligible ITC.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Purchase / Input GST Ledger Table */}
-              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden space-y-4">
-                <div className="px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
-                  <div className="flex items-center space-x-2">
-                    <FaTruckLoading className="text-slate-800 text-lg" />
-                    <div>
-                      <h4 className="font-bold text-gray-800 text-base">Purchase Input GST Register</h4>
-                      <p className="text-xs text-slate-500">All purchase invoices with taxable values and supplier-charged GST breakdown</p>
-                    </div>
-                  </div>
-                  <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-3 py-1 rounded-full self-start sm:self-auto">
-                    {gstSummary.purchaseTransactions?.length || 0} Purchase Records
+                  <span className="px-3 py-1 bg-white text-emerald-800 rounded-full border border-emerald-200 text-xs font-bold shadow-xs">
+                    Margin: {selectedProject.projectMargin !== undefined ? selectedProject.projectMargin : (selectedProject.grossMargin || 0)}%
                   </span>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm text-gray-600 min-w-[900px]">
-                    <thead className="bg-slate-50 border-b border-gray-200 text-[11px] font-bold text-slate-500 uppercase">
-                      <tr>
-                        <th className="px-5 py-3">Purchase #</th>
-                        <th className="px-5 py-3">Supplier</th>
-                        <th className="px-5 py-3">Date</th>
-                        <th className="px-5 py-3 text-right">Taxable Subtotal (₹)</th>
-                        <th className="px-4 py-3 text-right">CGST (₹)</th>
-                        <th className="px-4 py-3 text-right">SGST (₹)</th>
-                        <th className="px-4 py-3 text-right">IGST (₹)</th>
-                        <th className="px-5 py-3 text-right text-amber-600">Input GST (₹)</th>
-                        <th className="px-5 py-3 text-right font-black text-slate-900">Supplier Total (₹)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {(gstSummary.purchaseTransactions || []).length === 0 ? (
-                        <tr>
-                          <td colSpan="9" className="px-6 py-8 text-center text-gray-400 text-sm font-medium">
-                            No purchases recorded in this period
-                          </td>
-                        </tr>
-                      ) : (
-                        (gstSummary.purchaseTransactions || []).map((p) => (
-                          <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
-                            <td className="px-5 py-3 font-mono font-bold text-slate-800 text-xs">
-                              {p.purchaseNumber}
-                            </td>
-                            <td className="px-5 py-3 font-semibold text-gray-900">
-                              {p.supplierName}
-                            </td>
-                            <td className="px-5 py-3 text-xs text-slate-500">
-                              {new Date(p.date).toLocaleDateString('en-IN')}
-                            </td>
-                            <td className="px-5 py-3 text-right font-bold text-slate-800">
-                              ₹{p.taxableAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="px-4 py-3 text-right font-mono text-xs text-slate-600">
-                              {p.hasBreakdown && p.cgst !== null ? `₹${p.cgst.toFixed(2)}` : '—'}
-                            </td>
-                            <td className="px-4 py-3 text-right font-mono text-xs text-slate-600">
-                              {p.hasBreakdown && p.sgst !== null ? `₹${p.sgst.toFixed(2)}` : '—'}
-                            </td>
-                            <td className="px-4 py-3 text-right font-mono text-xs text-slate-600">
-                              {p.hasBreakdown && p.igst !== null ? `₹${p.igst.toFixed(2)}` : '—'}
-                            </td>
-                            <td className="px-5 py-3 text-right font-black text-amber-600">
-                              ₹{p.inputGst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="px-5 py-3 text-right font-black text-slate-900">
-                              ₹{p.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                    <tfoot className="bg-slate-50 border-t-2 border-slate-200 font-bold text-xs text-slate-800">
-                      <tr>
-                        <td colSpan="3" className="px-5 py-3 text-slate-600 uppercase">Total Input GST</td>
-                        <td className="px-5 py-3 text-right font-black text-slate-900">
-                          ₹{(gstSummary.summary?.taxablePurchases || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono">
-                          ₹{(gstSummary.summary?.cgstTotal || 0).toFixed(2)}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono">
-                          ₹{(gstSummary.summary?.sgstTotal || 0).toFixed(2)}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono">
-                          ₹{(gstSummary.summary?.igstTotal || 0).toFixed(2)}
-                        </td>
-                        <td className="px-5 py-3 text-right font-black text-amber-600">
-                          ₹{(gstSummary.summary?.inputGst || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="px-5 py-3 text-right font-black text-slate-900">
-                          ₹{(gstSummary.summary?.supplierTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
+                {/* Section 1: PROJECT DETAILS */}
+                <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 space-y-3">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">PROJECT DETAILS</span>
+                  <div className="space-y-2 text-xs divide-y divide-slate-100">
+                    <div className="flex justify-between items-center pt-1.5 first:pt-0">
+                      <span className="text-slate-500 font-medium">Project Name:</span>
+                      <span className="font-bold text-slate-900">{selectedProject.projectName}</span>
+                    </div>
+                    <div className="flex justify-between items-center pt-1.5">
+                      <span className="text-slate-500 font-medium">Project Code:</span>
+                      <span className="font-mono font-bold text-slate-900">{selectedProject.projectCode}</span>
+                    </div>
+                    <div className="flex justify-between items-center pt-1.5">
+                      <span className="text-slate-500 font-medium">Client:</span>
+                      <span className="font-semibold text-slate-900">{selectedProject.customerName || 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between items-center pt-1.5">
+                      <span className="text-slate-500 font-medium">Status:</span>
+                      <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded border ${STATUS_BADGES[selectedProject.status] || 'bg-gray-100 text-gray-800 border-gray-200'}`}>
+                        {selectedProject.status ? selectedProject.status.replace('_', ' ') : 'N/A'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center pt-1.5">
+                      <span className="text-slate-500 font-medium">Start Date:</span>
+                      <span className="text-slate-700 font-medium">
+                        {selectedProject.startDate ? formatDateToIndian(selectedProject.startDate) : 'N/A'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center pt-1.5">
+                      <span className="text-slate-500 font-medium">End Date:</span>
+                      <span className="text-slate-700 font-medium">
+                        {selectedProject.expectedEndDate ? formatDateToIndian(selectedProject.expectedEndDate) : 'N/A'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center pt-1.5">
+                      <span className="text-slate-500 font-medium">Location:</span>
+                      <span className="text-slate-700 font-medium truncate max-w-[200px] text-right">
+                        {selectedProject.siteAddress || 'N/A'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 2: COSTS */}
+                <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 space-y-3">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">COSTS</span>
+                  <div className="space-y-2 text-xs divide-y divide-slate-100">
+                    <div className="flex justify-between items-center pt-1.5 first:pt-0">
+                      <span className="text-slate-500 font-medium">Project Budget (Excl. GST):</span>
+                      <span className="font-bold text-slate-900">
+                        ₹{formatIndianCurrency(selectedProject.projectBudget !== undefined ? selectedProject.projectBudget : (selectedProject.revenue || 0), true)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center pt-1.5">
+                      <span className="text-slate-500 font-medium">Material Cost (Excl. GST):</span>
+                      <span className="font-semibold text-slate-700">
+                        ₹{formatIndianCurrency(selectedProject.totalMaterialCost || 0, true)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center pt-1.5">
+                      <span className="text-slate-500 font-medium">Other Expenses:</span>
+                      <span className="font-semibold text-slate-700">
+                        ₹{formatIndianCurrency(selectedProject.totalProjectExpenses || 0, true)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center pt-1.5">
+                      <span className="text-slate-900 font-bold">Actual Cost (Excl. GST):</span>
+                      <span className="font-extrabold text-slate-900">
+                        ₹{formatIndianCurrency(selectedProject.actualProjectCost !== undefined ? selectedProject.actualProjectCost : (selectedProject.totalProjectCost || 0), true)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 3: COLLECTIONS */}
+                <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 space-y-3">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">COLLECTIONS</span>
+                  <div className="space-y-2 text-xs divide-y divide-slate-100">
+                    <div className="flex justify-between items-center pt-1.5 first:pt-0">
+                      <span className="text-slate-500 font-medium">Invoiced (Incl. GST):</span>
+                      <span className="font-bold text-slate-900">
+                        ₹{formatIndianCurrency(selectedProject.totalInvoiced !== undefined ? selectedProject.totalInvoiced : (selectedProject.revenue || 0), true)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center pt-1.5">
+                      <span className="text-slate-500 font-medium">Received:</span>
+                      <span className="font-extrabold text-blue-700">
+                        ₹{formatIndianCurrency(selectedProject.totalReceived || 0, true)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center pt-1.5">
+                      <span className="text-amber-700 font-bold">Pending Collection:</span>
+                      <span className="font-extrabold text-amber-600">
+                        ₹{formatIndianCurrency(Math.max(0, (selectedProject.totalInvoiced !== undefined ? selectedProject.totalInvoiced : (selectedProject.revenue || 0)) - (selectedProject.totalReceived || 0)), true)}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* Customer / Output GST Ledger Table */}
-              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden space-y-4">
-                <div className="px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
-                  <div className="flex items-center space-x-2">
-                    <FaReceipt className="text-slate-800 text-lg" />
-                    <div>
-                      <h4 className="font-bold text-gray-800 text-base">Customer Output GST Register</h4>
-                      <p className="text-xs text-slate-500">Project customer invoices with taxable values and customer-billed GST breakdown</p>
-                    </div>
-                  </div>
-                  <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-3 py-1 rounded-full self-start sm:self-auto">
-                    {gstSummary.outputTransactions?.length || 0} Invoices
-                  </span>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm text-gray-600 min-w-[800px]">
-                    <thead className="bg-slate-50 border-b border-gray-200 text-[11px] font-bold text-slate-500 uppercase">
-                      <tr>
-                        <th className="px-5 py-3">Type</th>
-                        <th className="px-5 py-3">Reference #</th>
-                        <th className="px-5 py-3">Customer / Project</th>
-                        <th className="px-5 py-3">Date</th>
-                        <th className="px-5 py-3 text-right">Taxable Value (₹)</th>
-                        <th className="px-5 py-3 text-right text-blue-600">Output GST (₹)</th>
-                        <th className="px-5 py-3 text-right font-black text-slate-900">Customer Total (₹)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {(gstSummary.outputTransactions || []).length === 0 ? (
-                        <tr>
-                          <td colSpan="7" className="px-6 py-8 text-center text-gray-400 text-sm font-medium">
-                            No customer invoices recorded in this period
-                          </td>
-                        </tr>
-                      ) : (
-                        (gstSummary.outputTransactions || []).map((o) => (
-                          <tr key={o.id} className="hover:bg-slate-50/50 transition-colors">
-                            <td className="px-5 py-3">
-                              <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase bg-blue-50 text-blue-700 border border-blue-200">
-                                Project Invoice
-                              </span>
-                            </td>
-                            <td className="px-5 py-3 font-mono font-bold text-slate-800 text-xs">
-                              {o.referenceNumber}
-                            </td>
-                            <td className="px-5 py-3">
-                              <span className="font-semibold text-gray-900 block">{o.customerName}</span>
-                              {o.projectName && (
-                                <span className="text-[11px] text-slate-400 block font-medium">Project: {o.projectName}</span>
-                              )}
-                            </td>
-                            <td className="px-5 py-3 text-xs text-slate-500">
-                              {new Date(o.date).toLocaleDateString('en-IN')}
-                            </td>
-                            <td className="px-5 py-3 text-right font-bold text-slate-800">
-                              ₹{o.taxableAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="px-5 py-3 text-right font-black text-blue-600">
-                              ₹{o.outputGst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="px-5 py-3 text-right font-black text-slate-900">
-                              ₹{o.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                    <tfoot className="bg-slate-50 border-t-2 border-slate-200 font-bold text-xs text-slate-800">
-                      <tr>
-                        <td colSpan="4" className="px-5 py-3 text-slate-600 uppercase">Total Output GST</td>
-                        <td className="px-5 py-3 text-right font-black text-slate-900">
-                          ₹{(gstSummary.summary?.taxableOutput || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="px-5 py-3 text-right font-black text-blue-600">
-                          ₹{(gstSummary.summary?.outputGst || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="px-5 py-3 text-right font-black text-slate-900">
-                          ₹{(gstSummary.summary?.customerInvoiceTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
+              {/* Drawer Footer Actions */}
+              <div className="p-5 border-t border-slate-200 bg-white">
+                <button
+                  onClick={() => navigate(`/projects/${selectedProject.projectId}`)}
+                  className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center space-x-2"
+                >
+                  <FaExternalLinkAlt className="text-xs" />
+                  <span>Open Project</span>
+                </button>
               </div>
             </div>
-          )}
-        </>
+          </div>
+        </div>
       )}
     </div>
   );

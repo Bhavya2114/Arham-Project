@@ -23,6 +23,7 @@ describe('Reports & Financial Analytics API integration tests', () => {
     expect(res.body.data).toHaveProperty('projects');
     expect(res.body.data).toHaveProperty('invoices');
     expect(res.body.data).toHaveProperty('purchases');
+    expect(res.body.data).toHaveProperty('labour');
     expect(res.body.data).toHaveProperty('recentActivity');
   });
 

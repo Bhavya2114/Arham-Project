@@ -188,7 +188,7 @@ export const extractPurchaseBill = async (req: Request, res: Response, next: Nex
 
     // 2. Product Matching Logic per Extracted Item against existing database
     const allProducts = await Product.find({ isDeleted: { $ne: true } }).lean();
-    const matchedItems = extracted.items.map((item) => {
+    const matchedItems = (extracted.items && Array.isArray(extracted.items) ? extracted.items : []).map((item) => {
       const nameToMatch = item.itemName ? item.itemName.trim().toLowerCase() : '';
       let matchedProduct: any = null;
 
@@ -231,8 +231,8 @@ export const extractPurchaseBill = async (req: Request, res: Response, next: Nex
         }
       }
 
-      const qty = item.quantity || 0;
-      const rate = item.unitPrice || 0;
+      const qty = typeof item.quantity === 'number' && item.quantity > 0 ? item.quantity : 1;
+      const rate = typeof item.unitPrice === 'number' && item.unitPrice >= 0 ? item.unitPrice : 0;
       const rawDiscPct = item.discountPercent ?? (item as any).discount ?? (item as any).discountPercentage ?? (item as any).discount_percent ?? (item as any).discountRate ?? 0;
       let discPct = Number(rawDiscPct) || 0;
       let discAmt = Number(item.discountAmount ?? (item as any).discount_amount ?? (item as any).discAmount ?? 0) || 0;
@@ -252,7 +252,7 @@ export const extractPurchaseBill = async (req: Request, res: Response, next: Nex
         matchedProduct = {
           matched: false,
           isNew: true,
-          name: item.itemName,
+          name: item.itemName || 'Product',
           unit: item.unit || 'Pcs',
           costPrice: effectiveCostPrice,
           gstRate: item.gstRate !== undefined ? item.gstRate : 18,
@@ -260,30 +260,52 @@ export const extractPurchaseBill = async (req: Request, res: Response, next: Nex
         };
       }
 
+      const gstRate = item.gstRate !== undefined ? Number(item.gstRate) : 18;
+      let cgstAmount = Number(item.cgstAmount || 0);
+      let sgstAmount = Number(item.sgstAmount || 0);
+      let igstAmount = Number(item.igstAmount || 0);
       const extractedTax = Number((item as any).taxAmount);
-      const computedTax = (item.cgstAmount || 0) + (item.sgstAmount || 0) + (item.igstAmount || 0);
-      const lineGst = !isNaN(extractedTax) && extractedTax > 0 ? extractedTax : computedTax;
+
+      let lineGst = 0;
+      if (!isNaN(extractedTax) && extractedTax > 0) {
+        lineGst = extractedTax;
+      } else if (cgstAmount + sgstAmount + igstAmount > 0) {
+        lineGst = Math.round((cgstAmount + sgstAmount + igstAmount) * 100) / 100;
+      } else if (gstRate > 0) {
+        lineGst = Math.round(((taxable * gstRate) / 100) * 100) / 100;
+      }
+
+      if (cgstAmount === 0 && sgstAmount === 0 && igstAmount === 0 && lineGst > 0) {
+        cgstAmount = Math.round((lineGst / 2) * 100) / 100;
+        sgstAmount = Math.round((lineGst - cgstAmount) * 100) / 100;
+      }
+
+      const lineTotal = item.lineTotal !== undefined && item.lineTotal !== null
+        ? Number(item.lineTotal)
+        : Math.round((taxable + lineGst) * 100) / 100;
 
       return {
         extractedItemName: item.itemName,
-        quantity: item.quantity,
+        quantity: qty,
         unit: item.unit || 'Pcs',
-        unitPrice: item.unitPrice,
+        unitPrice: rate,
         discountPercent: discPct,
         discountAmount: discAmt,
         taxableAmount: taxable,
         effectiveUnitPrice: effectiveCostPrice,
-        gstPercent: item.gstRate,
+        gstPercent: gstRate,
         taxAmount: lineGst,
-        cgstAmount: item.cgstAmount,
-        sgstAmount: item.sgstAmount,
-        igstAmount: item.igstAmount,
-        lineTotal: item.lineTotal,
+        cgstAmount,
+        sgstAmount,
+        igstAmount,
+        lineTotal,
         matchedProduct,
         matched: matchedProduct.matched === true,
         isNew: matchedProduct.isNew === true,
       };
     });
+
+
 
     const responsePayload = {
       ...extractionResult,

@@ -106,6 +106,9 @@ const mapPurchaseResponse = (purchase: any) => {
     cgst: purchase.cgst !== undefined && purchase.cgst !== null ? Number(purchase.cgst) : undefined,
     sgst: purchase.sgst !== undefined && purchase.sgst !== null ? Number(purchase.sgst) : undefined,
     igst: purchase.igst !== undefined && purchase.igst !== null ? Number(purchase.igst) : undefined,
+    roundedOffAmount: purchase.roundedOffAmount !== undefined && purchase.roundedOffAmount !== null ? Number(purchase.roundedOffAmount) : null,
+    roundedOffType: purchase.roundedOffType || (purchase.roundedOffAmount !== undefined && purchase.roundedOffAmount !== null ? (Number(purchase.roundedOffAmount) < 0 ? 'less' : 'add') : null),
+    roundOff: purchase.roundedOffAmount !== undefined && purchase.roundedOffAmount !== null ? Number(purchase.roundedOffAmount) : null,
     totalAmount: totalAmount,
     grandTotal: totalAmount,
     notes: purchase.notes,
@@ -334,7 +337,13 @@ export const createPurchase = async (
     subtotal = Math.round(subtotal * 100) / 100;
     totalDiscount = Math.round(totalDiscount * 100) / 100;
     taxAmount = Math.round(taxAmount * 100) / 100;
-    const totalAmount = Math.round((subtotal + taxAmount) * 100) / 100;
+
+    const roundedOffAmount = input.roundedOffAmount !== undefined && input.roundedOffAmount !== null && !isNaN(Number(input.roundedOffAmount))
+      ? Number(input.roundedOffAmount)
+      : null;
+    const roundedOffType = input.roundedOffType || (roundedOffAmount !== null ? (roundedOffAmount < 0 ? 'less' : 'add') : null);
+
+    const totalAmount = Math.round((subtotal + taxAmount + (roundedOffAmount || 0)) * 100) / 100;
     const purchaseNumber = input.invoiceNumber
       ? input.invoiceNumber
       : `PUR-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -366,6 +375,8 @@ export const createPurchase = async (
       cgst: input.cgst !== undefined && input.cgst !== null && !isNaN(Number(input.cgst)) ? Number(input.cgst) : undefined,
       sgst: input.sgst !== undefined && input.sgst !== null && !isNaN(Number(input.sgst)) ? Number(input.sgst) : undefined,
       igst: input.igst !== undefined && input.igst !== null && !isNaN(Number(input.igst)) ? Number(input.igst) : undefined,
+      roundedOffAmount,
+      roundedOffType,
       totalAmount,
       notes: input.notes,
       createdBy: userObj._id,

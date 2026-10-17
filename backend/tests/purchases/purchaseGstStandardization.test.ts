@@ -1,6 +1,7 @@
 import request from 'supertest';
 import app from '../../src/app';
 import { getAuthToken } from '../helpers/auth.helper';
+import { createTestCustomer } from '../helpers/customer.helper';
 
 describe('Phase 2 — GST Data Structure Standardization Tests', () => {
   let adminToken: string;
@@ -226,20 +227,16 @@ describe('Phase 2 — GST Data Structure Standardization Tests', () => {
 
   // Test 10: Project profitability remains unaffected by purchase GST
   it('10. should ensure project profitability formula uses tax-exclusive material cost and ignores purchase GST', async () => {
-    // 1. Create a customer
-    const custRes = await request(app)
-      .post('/api/customers')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        name: 'Profitability Test Customer',
-        businessName: 'Profitability Business',
-        mobile: `97${Date.now().toString().slice(-8)}`,
-        type: 'WHOLESALE',
-        address: '100 Profitability Lane, Mumbai',
-        status: 'ACTIVE',
-      });
-    expect(custRes.status).toBe(201);
-    const customerId = custRes.body.data.id;
+    // 1. Create a customer fixture
+    const customer = await createTestCustomer({
+      name: 'Profitability Test Customer',
+      businessName: 'Profitability Business',
+      mobile: `97${Date.now().toString().slice(-8)}`,
+      type: 'WHOLESALE',
+      address: '100 Profitability Lane, Mumbai',
+      status: 'ACTIVE',
+    });
+    const customerId = customer._id.toString();
 
     // 2. Create a project with GST-exclusive budget = 50,000
     const projRes = await request(app)
@@ -293,20 +290,16 @@ describe('Phase 2 — GST Data Structure Standardization Tests', () => {
 
   // Test 11: Customer invoice GST remains separate from project profitability
   it('11. should confirm project invoice GST remains untouched and does not alter project budget or profitability', async () => {
-    // 1. Create a customer
-    const custRes = await request(app)
-      .post('/api/customers')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        name: 'Invoice GST Test Customer',
-        businessName: 'Invoice Test Corp',
-        mobile: `96${Date.now().toString().slice(-8)}`,
-        type: 'WHOLESALE',
-        address: '200 Invoice Road, Pune',
-        status: 'ACTIVE',
-      });
-    expect(custRes.status).toBe(201);
-    const customerId = custRes.body.data.id;
+    // 1. Create a customer fixture
+    const customer = await createTestCustomer({
+      name: 'Invoice GST Test Customer',
+      businessName: 'Invoice Test Corp',
+      mobile: `96${Date.now().toString().slice(-8)}`,
+      type: 'WHOLESALE',
+      address: '200 Invoice Road, Pune',
+      status: 'ACTIVE',
+    });
+    const customerId = customer._id.toString();
 
     // 2. Create project with budget = 100,000
     const projRes = await request(app)

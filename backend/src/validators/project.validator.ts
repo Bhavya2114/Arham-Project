@@ -10,7 +10,7 @@ export const createProjectSchema = z
   .object({
     projectCode: z.string().trim().min(1, 'Project code is required'),
     name: z.string().trim().min(1, 'Project name is required'),
-    customer: z.string().trim().min(1, 'Customer ID is required'),
+    customer: optionalString,
     siteAddress: z.string().trim().min(1, 'Site address is required'),
     startDate: z.string().trim().min(1, 'Start date is required'),
     expectedEndDate: optionalString,
@@ -42,7 +42,7 @@ export const updateProjectSchema = z
   .object({
     projectCode: z.string().trim().min(1, 'Project code cannot be empty').optional(),
     name: z.string().trim().min(1, 'Project name cannot be empty').optional(),
-    customer: z.string().trim().min(1, 'Customer ID cannot be empty').optional(),
+    customer: optionalString,
     siteAddress: z.string().trim().min(1, 'Site address cannot be empty').optional(),
     startDate: z.string().trim().min(1, 'Start date cannot be empty').optional(),
     expectedEndDate: optionalString,

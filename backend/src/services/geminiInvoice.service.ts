@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { extractedBillSchema, ExtractedBillData } from '../validators/billExtraction.validator';
+import { geminiKeyManager } from './geminiKeyManager.service';
 
 const SYSTEM_EXTRACTION_PROMPT = `
 You are an expert Indian GST Purchase Invoice / Supplier Bill OCR Data Extractor.
@@ -22,7 +23,18 @@ CRITICAL INSTRUCTIONS:
 7. Understand Indian GST structures:
    - If GST is 18% with CGST 9% and SGST 9%, set gstRate=18, cgstRate=9, sgstRate=9, igstRate=0.
    - For interstate purchases with IGST 18%, set gstRate=18, cgstRate=0, sgstRate=0, igstRate=18.
-8. Return ONLY valid JSON adhering strictly to the JSON schema without free-form markdown or explanations.
+8. Handle Explicit Rounded-Off Lines:
+   - Carefully inspect the invoice totals and summary block for explicit rounded-off lines such as:
+     "Add : Rounded Off (+)", "Less: Rounded Off (-)", "Add: Round Off", "Less: Round Off", "Round Off", "Rounding", etc.
+   - When an explicit rounded-off line is present on the invoice:
+     * Extract the numeric value (e.g. 0.37 or 0.50).
+     * If positive / added (e.g. "Add : Rounded Off (+) 0.37"), set:
+       "roundedOffAmount": 0.37, "roundedOffType": "add", "roundOff": 0.37
+     * If negative / subtracted (e.g. "Less: Rounded Off (-) 0.50"), set:
+       "roundedOffAmount": -0.50, "roundedOffType": "less", "roundOff": -0.50
+   - CRITICAL: If the invoice DOES NOT contain an explicit rounded-off line, return null for "roundedOffAmount", "roundedOffType", and "roundOff".
+   - NEVER guess, invent, or assign any difference between the grand total and the sum of taxable+GST to roundedOffAmount. Only extract an explicit line printed on the bill.
+9. Return ONLY valid JSON adhering strictly to the JSON schema without free-form markdown or explanations.
 
 JSON SCHEMA:
 {
@@ -74,7 +86,9 @@ JSON SCHEMA:
     "totalSGST": number,
     "totalIGST": number,
     "totalGST": number,
-    "roundOff": number,
+    "roundedOffAmount": "number or null",
+    "roundedOffType": "'add' or 'less' or null",
+    "roundOff": "number or null",
     "grandTotal": number
   }
 }
@@ -98,21 +112,18 @@ export const extractInvoiceFromBuffer = async (
   mimeType: string,
   fileName: string
 ): Promise<ExtractionResult> => {
-  const apiKey = process.env.GEMINI_API_KEY;
-
-  if (!apiKey) {
+  const configuredKeys = geminiKeyManager.getConfiguredKeys();
+  if (configuredKeys.length === 0) {
     const error = new Error('GEMINI_API_KEY environment variable is not configured on backend server.');
     (error as any).statusCode = 500;
     throw error;
   }
 
   const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-  const ai = new GoogleGenAI({ apiKey });
-
   const base64Data = buffer.toString('base64');
 
-  let responseText = '';
-  try {
+  const responseText = await geminiKeyManager.executeWithFailover(async (apiKey) => {
+    const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
       model: modelName,
       contents: [
@@ -129,19 +140,15 @@ export const extractInvoiceFromBuffer = async (
       },
     });
 
-    responseText = response.text || '';
-  } catch (err: any) {
-    console.error('Gemini API call error:', err);
-    const error = new Error(`Gemini AI service error: ${err.message || 'Extraction failed'}`);
-    (error as any).statusCode = 502;
-    throw error;
-  }
+    const text = response.text || '';
+    if (!text || !text.trim()) {
+      const error = new Error('Empty response received from Gemini API.');
+      (error as any).statusCode = 502;
+      throw error;
+    }
 
-  if (!responseText || !responseText.trim()) {
-    const error = new Error('Empty response received from Gemini API.');
-    (error as any).statusCode = 502;
-    throw error;
-  }
+    return text;
+  });
 
   // Clean markdown json fences if present
   let cleanJson = responseText.trim();
@@ -246,7 +253,8 @@ export const extractInvoiceFromBuffer = async (
   });
 
   const sumTaxable = extracted.items.reduce((acc, item) => acc + item.taxableAmount, 0);
-  const expectedGrandTotal = extracted.totals.taxableAmount + extracted.totals.totalGST + extracted.totals.roundOff;
+  const roundingAdjustment = extracted.totals.roundedOffAmount ?? extracted.totals.roundOff ?? 0;
+  const expectedGrandTotal = extracted.totals.taxableAmount + extracted.totals.totalGST + roundingAdjustment;
   let totalsCalculationMatch = true;
 
   if (Math.abs(sumTaxable - extracted.totals.taxableAmount) > 1.0) {

@@ -1,6 +1,7 @@
 import request from 'supertest';
 import app from '../../src/app';
 import { getAuthToken } from '../helpers/auth.helper';
+import { createTestCustomer } from '../helpers/customer.helper';
 
 describe('Phase 3 — GST End-to-End Behavior & Profitability Verification', () => {
   let adminToken: string;
@@ -24,22 +25,18 @@ describe('Phase 3 — GST End-to-End Behavior & Profitability Verification', () 
     return res.body.data.id;
   };
 
-  // Helper to create a customer
+  // Helper to create a customer fixture
   const createCustomer = async (name: string) => {
     const timestamp = Date.now();
-    const res = await request(app)
-      .post('/api/customers')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        name,
-        businessName: `${name} Business`,
-        mobile: `97${timestamp.toString().slice(-8)}`,
-        type: 'WHOLESALE',
-        address: '100 Marine Drive, Mumbai',
-        status: 'ACTIVE',
-      });
-    expect(res.status).toBe(201);
-    return res.body.data.id;
+    const customer = await createTestCustomer({
+      name,
+      businessName: `${name} Business`,
+      mobile: `97${timestamp.toString().slice(-8)}`,
+      type: 'WHOLESALE',
+      address: '100 Marine Drive, Mumbai',
+      status: 'ACTIVE',
+    });
+    return customer._id.toString();
   };
 
   // Helper to create a product

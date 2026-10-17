@@ -36,8 +36,11 @@ export const getErrorMessage = (error, defaultFallback = 'An unexpected error oc
         return 'This action cannot be completed because the record is referenced by existing transactions.';
       case 422:
         return 'Validation failed. Please verify form values.';
-      case 500:
+      case 429:
+        return 'Rate limit or quota exceeded. Please wait a few moments before trying again.';
       case 502:
+        return 'AI extraction service is temporarily unavailable (Bad Gateway). Please try again or enter details manually.';
+      case 500:
       case 503:
         return 'Something went wrong on the server. Please try again later.';
       default:

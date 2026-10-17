@@ -120,7 +120,9 @@ export interface PurchaseTotalsCalculationInput {
   suppliedCgst?: number;
   suppliedSgst?: number;
   suppliedIgst?: number;
-  roundOff?: number;
+  roundedOffAmount?: number | null;
+  roundedOffType?: 'add' | 'less' | null;
+  roundOff?: number | null;
 }
 
 export interface PurchaseTotalsResult {
@@ -136,7 +138,12 @@ export interface PurchaseTotalsResult {
 }
 
 export const calculatePurchaseTotals = (input: PurchaseTotalsCalculationInput): PurchaseTotalsResult => {
-  const { items, suppliedCgst, suppliedSgst, suppliedIgst, roundOff = 0 } = input;
+  const { items, suppliedCgst, suppliedSgst, suppliedIgst } = input;
+  // Primary field priority: roundedOffAmount takes precedence over legacy roundOff
+  const rawRound = input.roundedOffAmount !== undefined && input.roundedOffAmount !== null
+    ? Number(input.roundedOffAmount)
+    : (input.roundOff !== undefined && input.roundOff !== null ? Number(input.roundOff) : 0);
+  const roundOff = isNaN(rawRound) ? 0 : roundToTwo(rawRound);
 
   const grossTotal = roundToTwo(items.reduce((sum, item) => sum + item.grossAmount, 0));
   const totalDiscount = roundToTwo(items.reduce((sum, item) => sum + item.discountAmount, 0));

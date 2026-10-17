@@ -5,7 +5,7 @@ export type ProjectStatus = 'PLANNING' | 'IN_PROGRESS' | 'ON_HOLD' | 'COMPLETED'
 export interface IProject extends Document {
   projectCode: string;
   name: string;
-  customer: mongoose.Types.ObjectId;
+  customer?: mongoose.Types.ObjectId;
   siteAddress: string;
   startDate: Date;
   expectedEndDate?: Date;
@@ -35,7 +35,7 @@ const projectSchema = new Schema<IProject>(
     customer: {
       type: Schema.Types.ObjectId,
       ref: 'Customer',
-      required: true,
+      required: false,
       index: true,
     },
     siteAddress: {

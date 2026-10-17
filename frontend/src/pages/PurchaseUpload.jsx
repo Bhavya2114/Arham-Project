@@ -16,6 +16,8 @@ import {
   FaCheck,
   FaFileAlt
 } from 'react-icons/fa';
+import { toApiDateFormat } from '../utils/dateUtils';
+import { toSafeNumber, roundToTwo, parseExplicitRoundOff } from '../utils/purchaseCalculations';
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 const ALLOWED_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
@@ -215,6 +217,10 @@ const PurchaseUpload = () => {
 
       console.log('Extraction API Response Received:', response.status, response.data);
 
+      if (!response.data || response.data.success === false || !response.data.data) {
+        throw new Error(response.data?.message || 'Bill extraction failed. Please try again.');
+      }
+
       // Clear progress interval
       if (progressTimerRef.current) {
         clearInterval(progressTimerRef.current);
@@ -228,44 +234,71 @@ const PurchaseUpload = () => {
       const matching = resData.matching || {};
       const validation = resData.validation || {};
 
+      const rawItems = (matching.items && Array.isArray(matching.items) && matching.items.length > 0)
+        ? matching.items
+        : (extracted.items && Array.isArray(extracted.items) && extracted.items.length > 0 ? extracted.items : []);
+
+      if (rawItems.length === 0) {
+        throw new Error('No line items could be detected in this bill. Please ensure the bill is clear and legible, or enter details manually.');
+      }
+
       // Transform extracted + matched response into Record Purchase form state
       const matchedSupplier = matching.supplier || {};
       const isSupplierNew = matchedSupplier.isNew === true || !matchedSupplier.id;
 
-      const matchedItems = (matching.items || []).map((item, idx) => {
+      const matchedItems = rawItems.map((item, idx) => {
         const extItem = (extracted.items && extracted.items[idx]) || {};
         const isItemNew = item.isNew === true || !item.matchedProduct || !item.matchedProduct.id;
-
         const matchedProd = item.matchedProduct || {};
 
-        // Resolve discountPercent from all possible sources (matching item, extracted item, aliases)
+        // Quantity (defaults safely to 1, finite positive number)
+        const rawQty = item.quantity ?? extItem.quantity;
+        const qty = Math.max(1, toSafeNumber(rawQty, 1));
+
+        // Unit Rate (defaults safely to 0, finite non-negative number)
+        const rawRate = item.unitPrice ?? extItem.unitPrice ?? matchedProd.costPrice;
+        const rate = Math.max(0, toSafeNumber(rawRate, 0));
+
+        // Discount Percent & Amount (defaults safely to 0)
         const rawDiscPct = item.discountPercent ?? extItem.discountPercent ?? item.discount ?? extItem.discount ?? item.discountPercentage ?? extItem.discountPercentage ?? item.discount_percent ?? extItem.discount_percent ?? item.discPct ?? extItem.discPct;
-        let parsedDiscPct = rawDiscPct !== undefined && rawDiscPct !== null && rawDiscPct !== '' ? Number(String(rawDiscPct).replace(/%/g, '').trim()) : 0;
-        if (isNaN(parsedDiscPct)) parsedDiscPct = 0;
+        let parsedDiscPct = Math.max(0, Math.min(100, toSafeNumber(rawDiscPct, 0)));
 
         const rawDiscAmt = item.discountAmount ?? extItem.discountAmount ?? item.discount_amount ?? extItem.discount_amount ?? item.discAmount ?? extItem.discAmount;
-        let parsedDiscAmt = rawDiscAmt !== undefined && rawDiscAmt !== null && rawDiscAmt !== '' ? Number(String(rawDiscAmt).replace(/[₹,]/g, '').trim()) : 0;
-        if (isNaN(parsedDiscAmt)) parsedDiscAmt = 0;
+        let parsedDiscAmt = Math.max(0, toSafeNumber(rawDiscAmt, 0));
 
-        const qty = item.quantity > 0 ? Number(item.quantity) : (extItem.quantity > 0 ? Number(extItem.quantity) : 1);
-        const rate = item.unitPrice !== undefined ? Number(item.unitPrice) : (extItem.unitPrice !== undefined ? Number(extItem.unitPrice) : 0);
-        const gross = qty * rate;
+        const gross = roundToTwo(qty * rate);
 
         if (parsedDiscPct === 0 && parsedDiscAmt > 0 && gross > 0) {
-          parsedDiscPct = Math.round(((parsedDiscAmt / gross) * 100) * 100) / 100;
-        }
-        if (parsedDiscPct > 0 && parsedDiscAmt === 0 && gross > 0) {
-          parsedDiscAmt = Math.round(((gross * parsedDiscPct) / 100) * 100) / 100;
+          parsedDiscPct = roundToTwo((parsedDiscAmt / gross) * 100);
+        } else if (parsedDiscPct > 0 && parsedDiscAmt === 0 && gross > 0) {
+          parsedDiscAmt = roundToTwo((gross * parsedDiscPct) / 100);
         }
 
+        // Taxable Value (defaults safely to gross - discount)
         const rawTaxable = item.taxableAmount ?? extItem.taxableAmount;
-        const taxable = rawTaxable !== undefined && rawTaxable !== null && !isNaN(Number(rawTaxable)) && Number(rawTaxable) > 0
-          ? Number(rawTaxable)
-          : Math.max(0, Math.round((gross - parsedDiscAmt) * 100) / 100);
+        const taxable = (rawTaxable !== undefined && rawTaxable !== null && toSafeNumber(rawTaxable, -1) >= 0)
+          ? roundToTwo(toSafeNumber(rawTaxable))
+          : roundToTwo(Math.max(0, gross - parsedDiscAmt));
 
-        const effectiveCost = item.effectiveUnitPrice !== undefined && item.effectiveUnitPrice !== null
-          ? Number(item.effectiveUnitPrice)
-          : (qty > 0 ? Math.round((taxable / qty) * 100) / 100 : (matchedProd.costPrice !== undefined ? Number(matchedProd.costPrice) : rate));
+        // Effective unit cost
+        const effectiveCost = (item.effectiveUnitPrice !== undefined && item.effectiveUnitPrice !== null)
+          ? roundToTwo(toSafeNumber(item.effectiveUnitPrice))
+          : (qty > 0 ? roundToTwo(taxable / qty) : rate);
+
+        // Taxes (cgst, sgst, igst default to 0)
+        const gstPercent = toSafeNumber(item.gstPercent ?? extItem.gstRate, 18);
+        const cgstAmount = toSafeNumber(item.cgstAmount ?? extItem.cgstAmount, 0);
+        const sgstAmount = toSafeNumber(item.sgstAmount ?? extItem.sgstAmount, 0);
+        const igstAmount = toSafeNumber(item.igstAmount ?? extItem.igstAmount, 0);
+        const lineTax = (cgstAmount + sgstAmount + igstAmount > 0)
+          ? roundToTwo(cgstAmount + sgstAmount + igstAmount)
+          : roundToTwo((taxable * gstPercent) / 100);
+
+        // Total (defaults safely to taxable + lineTax)
+        const rawTotal = item.lineTotal ?? extItem.lineTotal ?? item.total;
+        const total = (rawTotal !== undefined && rawTotal !== null && toSafeNumber(rawTotal, -1) > 0)
+          ? roundToTwo(toSafeNumber(rawTotal))
+          : roundToTwo(taxable + lineTax);
 
         return {
           id: Date.now() + idx,
@@ -277,7 +310,7 @@ const PurchaseUpload = () => {
             unit: item.unit || extItem.unit || 'Pcs',
             unitPrice: rate,
             costPrice: effectiveCost,
-            gstRate: item.gstPercent !== undefined ? item.gstPercent : (extItem.gstRate !== undefined ? extItem.gstRate : 18),
+            gstRate: gstPercent,
           } : null,
           productName: item.extractedItemName || extItem.itemName || matchedProd.name || '',
           quantity: qty,
@@ -287,18 +320,23 @@ const PurchaseUpload = () => {
           discountAmount: parsedDiscAmt,
           taxableAmount: taxable,
           effectiveUnitPrice: effectiveCost,
-          gstPercent: item.gstPercent !== undefined ? item.gstPercent : (extItem.gstRate !== undefined ? extItem.gstRate : 18),
-          taxAmount: item.taxAmount !== undefined && item.taxAmount !== null
-            ? Number(item.taxAmount)
-            : ((item.cgstAmount || extItem.cgstAmount || 0) + (item.sgstAmount || extItem.sgstAmount || 0) + (item.igstAmount || extItem.igstAmount || 0)),
-          cgstAmount: item.cgstAmount || extItem.cgstAmount || 0,
-          sgstAmount: item.sgstAmount || extItem.sgstAmount || 0,
-          igstAmount: item.igstAmount || extItem.igstAmount || 0,
-          total: item.lineTotal || extItem.lineTotal || 0,
+          gstPercent,
+          taxAmount: lineTax,
+          cgstAmount,
+          sgstAmount,
+          igstAmount,
+          total,
           extractedItemName: item.extractedItemName || extItem.itemName,
           matched: !isItemNew,
         };
       });
+
+      const rawRound = extracted.totals?.roundedOffAmount !== undefined && extracted.totals?.roundedOffAmount !== null
+        ? extracted.totals.roundedOffAmount
+        : extracted.totals?.roundOff;
+      const parsedRound = parseExplicitRoundOff(rawRound);
+      const roundedOffAmount = parsedRound ? parsedRound.amount : null;
+      const roundedOffType = parsedRound ? (extracted.totals?.roundedOffType || parsedRound.type) : null;
 
       const recordPurchaseState = {
         isAiExtracted: true,
@@ -312,28 +350,17 @@ const PurchaseUpload = () => {
           phone: matchedSupplier.phone || extracted.supplier?.supplierPhone || '',
         } : null,
         invoiceNumber: extracted.invoice?.invoiceNumber || '',
-        invoiceDate: extracted.invoice?.invoiceDate || new Date().toISOString().split('T')[0],
+        invoiceDate: extracted.invoice?.invoiceDate ? toApiDateFormat(extracted.invoice.invoiceDate) : new Date().toISOString().split('T')[0],
         notes: extracted.invoice?.notes || '',
-        totalDiscount: extracted.totals?.totalDiscount || 0,
-        cgst: extracted.totals?.totalCGST !== undefined ? extracted.totals.totalCGST : (extracted.totals?.cgst !== undefined ? extracted.totals.cgst : undefined),
-        sgst: extracted.totals?.totalSGST !== undefined ? extracted.totals.totalSGST : (extracted.totals?.sgst !== undefined ? extracted.totals.sgst : undefined),
-        igst: extracted.totals?.totalIGST !== undefined ? extracted.totals.totalIGST : (extracted.totals?.igst !== undefined ? extracted.totals.igst : undefined),
-        items: matchedItems.length > 0 ? matchedItems : [
-          {
-            id: Date.now(),
-            selected: false,
-            productId: '',
-            isNewProduct: true,
-            newProduct: { name: 'New Item', unit: 'Pcs', unitPrice: 0, costPrice: 0, gstRate: 18 },
-            productName: 'New Item',
-            quantity: 1,
-            unit: 'Pcs',
-            unitPrice: 0,
-            discountPercent: 0,
-            discountAmount: 0,
-            gstPercent: 18,
-          }
-        ],
+        totalDiscount: toSafeNumber(extracted.totals?.totalDiscount, 0),
+        cgst: extracted.totals?.totalCGST !== undefined ? toSafeNumber(extracted.totals.totalCGST) : (extracted.totals?.cgst !== undefined ? toSafeNumber(extracted.totals.cgst) : undefined),
+        sgst: extracted.totals?.totalSGST !== undefined ? toSafeNumber(extracted.totals.totalSGST) : (extracted.totals?.sgst !== undefined ? toSafeNumber(extracted.totals.sgst) : undefined),
+        igst: extracted.totals?.totalIGST !== undefined ? toSafeNumber(extracted.totals.totalIGST) : (extracted.totals?.igst !== undefined ? toSafeNumber(extracted.totals.igst) : undefined),
+        roundedOffAmount,
+        roundedOffType,
+        roundOff: roundedOffAmount,
+        extractedGrandTotal: extracted.totals?.grandTotal !== undefined && extracted.totals?.grandTotal !== null ? toSafeNumber(extracted.totals.grandTotal) : null,
+        items: matchedItems,
         warnings: validation.warnings || [],
       };
 
@@ -353,12 +380,13 @@ const PurchaseUpload = () => {
       console.error('Bill Extraction Failed Error:', err);
       const errorMsg = getErrorMessage(
         err,
-        'Unable to extract bill. Something went wrong while processing this bill. Please try again.'
+        'Bill extraction failed. Something went wrong while processing this bill. Please try again or enter details manually.'
       );
       setValidationError(errorMsg);
       toast.error(errorMsg);
     }
   };
+
 
   // Helper for Formatting File Size
   const formatFileSize = (bytes) => {

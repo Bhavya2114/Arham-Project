@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose';
+import { PROJECT_GST_RATE } from '../constants/projectGst.constants';
 
 export interface IMaterialConsumption extends Document {
   project: mongoose.Types.ObjectId;
@@ -11,6 +12,10 @@ export interface IMaterialConsumption extends Document {
   billingPrice: number;
   actualCostTotal: number;
   billingTotal: number;
+  gstRate?: number;
+  inputGst?: number;
+  issuedMaterialValueIncludingGST?: number;
+  supplierInvoiceTotal?: number;
   issueDate: Date;
   issuedBy: mongoose.Types.ObjectId;
   notes?: string;
@@ -72,6 +77,23 @@ const materialConsumptionSchema = new Schema<IMaterialConsumption>(
       type: Number,
       required: true,
       min: [0, 'Billing total cannot be negative'],
+    },
+    gstRate: {
+      type: Number,
+      default: PROJECT_GST_RATE,
+      min: [0.01, 'GST rate must be greater than 0'],
+    },
+    inputGst: {
+      type: Number,
+      min: [0, 'Input GST cannot be negative'],
+    },
+    issuedMaterialValueIncludingGST: {
+      type: Number,
+      min: [0, 'Issued material value cannot be negative'],
+    },
+    supplierInvoiceTotal: {
+      type: Number,
+      min: [0, 'Supplier invoice total cannot be negative'],
     },
     issueDate: {
       type: Date,

@@ -1,6 +1,7 @@
 import request from 'supertest';
 import app from '../../src/app';
 import { getAuthToken } from '../helpers/auth.helper';
+import { createTestCustomer } from '../helpers/customer.helper';
 import { Product } from '../../src/models/Product';
 
 describe('Project Expenses API integration tests (Phase 7.3)', () => {
@@ -22,25 +23,17 @@ describe('Project Expenses API integration tests (Phase 7.3)', () => {
     warehouseToken = await getAuthToken('WAREHOUSE');
     accountsToken = await getAuthToken('ACCOUNTS');
 
-    // 1. Create Customer
-    const custRes = await request(app)
-      .post('/api/customers')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        name: 'Shree Construction Co',
-        mobile: `9${Math.floor(100000000 + Math.random() * 900000000)}`,
-        email: `shree_${Date.now()}@const.com`,
-        businessName: 'Shree Const Pvt Ltd',
-        type: 'WHOLESALE',
-        status: 'LEAD',
-        address: 'Pune HQ',
-      });
-
-    if (custRes.status !== 201) {
-      console.error('Customer Creation Failed in projectExpense.test.ts:', custRes.body);
-    }
-    expect(custRes.status).toBe(201);
-    customerId = custRes.body.data.id;
+    // 1. Create Customer fixture
+    const customer = await createTestCustomer({
+      name: 'Shree Construction Co',
+      mobile: `9${Math.floor(100000000 + Math.random() * 900000000)}`,
+      email: `shree_${Date.now()}@const.com`,
+      businessName: 'Shree Const Pvt Ltd',
+      type: 'WHOLESALE',
+      status: 'LEAD',
+      address: 'Pune HQ',
+    });
+    customerId = customer._id.toString();
 
     // 2. Create Projects (Planning, Completed, Cancelled)
     const p1 = await request(app)

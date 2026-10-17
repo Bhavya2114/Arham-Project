@@ -3,18 +3,14 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import axiosInstance from '../utils/api';
 import { useToast } from '../context/ToastContext';
 import { getErrorMessage } from '../utils/apiError';
+import { formatDateToIndian, toApiDateFormat } from '../utils/dateUtils';
 import {
   FaFileInvoiceDollar,
   FaArrowLeft,
-  FaBuilding,
-  FaUserCheck,
-  FaCalendarAlt,
   FaExclamationTriangle,
   FaPrint,
-  FaRupeeSign,
   FaCheckCircle,
   FaMoneyCheckAlt,
-  FaPlus,
   FaTimes,
   FaSpinner,
   FaReceipt
@@ -37,7 +33,7 @@ const ProjectInvoiceDetails = () => {
 
   const [paymentForm, setPaymentForm] = useState({
     amount: '',
-    paymentDate: new Date().toISOString().split('T')[0],
+    paymentDate: toApiDateFormat(new Date()),
     paymentMode: 'BANK_TRANSFER',
     transactionReference: '',
     notes: '',
@@ -72,7 +68,7 @@ const ProjectInvoiceDetails = () => {
     setPaymentModalError(null);
     setPaymentForm({
       amount: invoice.balanceDue ? String(invoice.balanceDue) : '',
-      paymentDate: new Date().toISOString().split('T')[0],
+      paymentDate: toApiDateFormat(new Date()),
       paymentMode: 'BANK_TRANSFER',
       transactionReference: '',
       notes: '',
@@ -101,7 +97,7 @@ const ProjectInvoiceDetails = () => {
       await axiosInstance.post('/project-invoice-payments', {
         invoice: id,
         amount: amt,
-        paymentDate: paymentForm.paymentDate || undefined,
+        paymentDate: paymentForm.paymentDate ? toApiDateFormat(paymentForm.paymentDate) : undefined,
         paymentMode: paymentForm.paymentMode,
         transactionReference: paymentForm.transactionReference ? paymentForm.transactionReference.trim() : undefined,
         notes: paymentForm.notes ? paymentForm.notes.trim() : undefined,
@@ -148,12 +144,8 @@ const ProjectInvoiceDetails = () => {
     );
   }
 
-  const invDateStr = invoice.invoiceDate
-    ? new Date(invoice.invoiceDate).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })
-    : '-';
-  const dueDateStr = invoice.dueDate
-    ? new Date(invoice.dueDate).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })
-    : '-';
+  const invDateStr = formatDateToIndian(invoice.invoiceDate);
+  const dueDateStr = formatDateToIndian(invoice.dueDate);
 
   const isFullyPaid = invoice.status === 'PAID' || invoice.balanceDue <= 0.005;
   const isCancelled = invoice.status === 'CANCELLED';
@@ -291,9 +283,9 @@ const ProjectInvoiceDetails = () => {
                   <th className="p-3">Type</th>
                   <th className="p-3">Description</th>
                   <th className="p-3 text-center">Qty / Unit</th>
-                  <th className="p-3 text-right">Rate (₹)</th>
+                  <th className="p-3 text-right">Rate Incl. GST (₹)</th>
                   <th className="p-3 text-right">GST %</th>
-                  <th className="p-3 text-right">Amount (₹)</th>
+                  <th className="p-3 text-right">Amount Incl. GST (₹)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 font-medium">
@@ -311,9 +303,11 @@ const ProjectInvoiceDetails = () => {
                     <td className="p-3 text-right font-mono font-bold text-slate-900">
                       ₹{item.rate.toFixed(2)}
                     </td>
-                    <td className="p-3 text-right font-mono text-gray-500">{item.gstRate}%</td>
+                    <td className="p-3 text-right font-mono text-gray-500">
+                      {item.sourceType === 'MATERIAL_CONSUMPTION' ? 'Included' : `${item.gstRate}%`}
+                    </td>
                     <td className="p-3 text-right font-mono font-black text-slate-900">
-                      ₹{item.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      ₹{(item.lineTotal !== undefined && item.lineTotal !== null ? item.lineTotal : item.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                     </td>
                   </tr>
                 ))}
@@ -331,7 +325,7 @@ const ProjectInvoiceDetails = () => {
 
           <div className="w-full sm:w-72 space-y-2 text-xs">
             <div className="flex justify-between font-bold text-slate-600">
-              <span>Subtotal:</span>
+              <span>Subtotal — GST Included:</span>
               <span className="font-mono font-extrabold">₹{invoice.subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
             </div>
 
@@ -342,14 +336,14 @@ const ProjectInvoiceDetails = () => {
               </div>
             )}
 
-            <div className="flex justify-between font-extrabold text-slate-800 border-t border-gray-100 pt-2">
-              <span>Taxable Amount:</span>
-              <span className="font-mono">₹{invoice.taxableAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-            </div>
-
-            <div className="flex justify-between font-bold text-emerald-800">
-              <span>GST Total:</span>
-              <span className="font-mono font-extrabold">+ ₹{invoice.taxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+            <div className="flex justify-between font-bold text-emerald-800 border-t border-gray-100 pt-2">
+              <div>
+                <span>Additional GST:</span>
+                <div className="text-[10px] text-gray-400 font-normal">Included in material rates</div>
+              </div>
+              <span className="font-mono font-extrabold">
+                + ₹{Number(invoice.outputGst !== undefined ? invoice.outputGst : invoice.taxAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </span>
             </div>
 
             <div className="flex justify-between font-black text-slate-900 text-base border-t border-slate-300 pt-2">
@@ -398,9 +392,7 @@ const ProjectInvoiceDetails = () => {
                 </thead>
                 <tbody className="divide-y divide-gray-100 font-medium">
                   {payments.map((p) => {
-                    const pDateStr = p.paymentDate
-                      ? new Date(p.paymentDate).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' })
-                      : '-';
+                    const pDateStr = formatDateToIndian(p.paymentDate);
                     return (
                       <tr key={p.id} className="hover:bg-gray-50/50 transition-colors">
                         <td className="p-3 font-mono font-extrabold text-slate-900">{p.paymentNumber}</td>
@@ -495,7 +487,14 @@ const ProjectInvoiceDetails = () => {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">Payment Date</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-gray-700">Payment Date</label>
+                    {paymentForm.paymentDate && (
+                      <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                        {formatDateToIndian(paymentForm.paymentDate)}
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="date"
                     required
@@ -503,6 +502,14 @@ const ProjectInvoiceDetails = () => {
                     onChange={(e) => setPaymentForm({ ...paymentForm, paymentDate: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs font-medium focus:outline-none focus:border-emerald-500 bg-gray-50/50"
                   />
+                  <div className="mt-1 flex items-center justify-between text-[11px] text-gray-400">
+                    <span>Standard Indian format: <strong>DD/MM/YYYY</strong></span>
+                    {paymentForm.paymentDate && (
+                      <span className="text-slate-600 font-medium">
+                        Display: <strong className="text-emerald-700">{formatDateToIndian(paymentForm.paymentDate)}</strong>
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div>

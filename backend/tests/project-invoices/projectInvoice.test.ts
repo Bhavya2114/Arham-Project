@@ -4,6 +4,7 @@ import { getAuthToken } from '../helpers/auth.helper';
 import { Product } from '../../src/models/Product';
 import { Customer } from '../../src/models/Customer';
 import { ProjectExpense } from '../../src/models/ProjectExpense';
+import { createTestCustomer } from '../helpers/customer.helper';
 
 describe('Project Invoices API integration tests (Phase 7.4)', () => {
   let adminToken: string;
@@ -25,22 +26,18 @@ describe('Project Invoices API integration tests (Phase 7.4)', () => {
     warehouseToken = await getAuthToken('WAREHOUSE');
     accountsToken = await getAuthToken('ACCOUNTS');
 
-    // 1. Create Customer
-    const custRes = await request(app)
-      .post('/api/customers')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        name: 'Reliance Infra Tech',
-        mobile: `9${Math.floor(100000000 + Math.random() * 900000000)}`,
-        email: `rel_${Date.now()}@infra.com`,
-        businessName: 'Reliance Infra Pvt Ltd',
-        gstNumber: '27RELIA1234F1Z9',
-        type: 'WHOLESALE',
-        status: 'LEAD',
-        address: 'BKC, Mumbai',
-      });
-    expect(custRes.status).toBe(201);
-    customerId = custRes.body.data.id;
+    // 1. Create Customer fixture
+    const customer = await createTestCustomer({
+      name: 'Reliance Infra Tech',
+      mobile: `9${Math.floor(100000000 + Math.random() * 900000000)}`,
+      email: `rel_${Date.now()}@infra.com`,
+      businessName: 'Reliance Infra Pvt Ltd',
+      gstNumber: '27RELIA1234F1Z9',
+      type: 'WHOLESALE',
+      status: 'LEAD',
+      address: 'BKC, Mumbai',
+    });
+    customerId = customer._id.toString();
 
     // 2. Create Projects (Planning, Other Project, Cancelled)
     const p1 = await request(app)
@@ -174,21 +171,23 @@ describe('Project Invoices API integration tests (Phase 7.4)', () => {
       expect(res.body.data.projectSnapshot.name).toBe('IT Park Tower A');
 
       // Math verification:
-      // Line 1 (Material): 10 * 10,000 = 100,000 | GST 18% = 18,000
+      // Line 1 (Material): 10 * 9,440 = 94,400 | Fixed GST-inclusive billing rate (no extra output GST)
       // Line 2 (Expense): 1 * 18,000 = 18,000 | GST 18% = 3,240
       // Line 3 (Manual Service): 1 * 20,000 = 20,000 | GST 18% = 3,600
-      // Subtotal = 138,000
+      // Subtotal = 132,400
       // Discount = 5,000
-      // Taxable = 133,000
-      // Raw Tax = 24,840 | Tax Ratio = 133000 / 138000 = 0.963768...
-      // Tax Amount = 24840 * (133000 / 138000) = 23940
-      // Grand Total = 133,000 + 23,940 = 156,940
-      expect(res.body.data.subtotal).toBe(138000);
+      // Taxable = 127,400
+      // Raw Tax = 6,840 | Tax Ratio = 127000 / 132400
+      // Tax Amount = roundToTwo(6840 * (127400 / 132400)) = 6581.69
+      // Grand Total = 127,400 + 6,581.69 = 133,981.69
+      expect(res.body.data.subtotal).toBe(132400);
       expect(res.body.data.discount).toBe(5000);
-      expect(res.body.data.taxableAmount).toBe(133000);
-      expect(res.body.data.grandTotal).toBe(156940);
+      expect(res.body.data.taxableAmount).toBe(127400);
+      expect(res.body.data.taxAmount).toBe(6581.69);
+      expect(res.body.data.outputGst).toBe(6581.69);
+      expect(res.body.data.grandTotal).toBe(133981.69);
       expect(res.body.data.amountPaid).toBe(0);
-      expect(res.body.data.balanceDue).toBe(156940);
+      expect(res.body.data.balanceDue).toBe(133981.69);
 
       createdInvoiceId = res.body.data.id;
     });
@@ -261,7 +260,7 @@ describe('Project Invoices API integration tests (Phase 7.4)', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.customerSnapshot.name).toBe('Reliance Infra Tech'); // Preserved!
-      expect(res.body.data.items[0].rate).toBe(10000); // Preserved!
+      expect(res.body.data.items[0].rate).toBe(9440); // Preserved!
     });
 
     it('SOURCE CROSS-PROJECT PROTECTION: should reject billing material belonging to a different project', async () => {

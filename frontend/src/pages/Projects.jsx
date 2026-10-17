@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import axiosInstance from '../utils/api';
 import { useToast } from '../context/ToastContext';
 import { getErrorMessage } from '../utils/apiError';
+import { formatDateToIndian } from '../utils/dateUtils';
+import ProjectFormModal from '../components/ProjectFormModal';
 import {
   FaBuilding,
   FaPlus,
@@ -34,6 +36,7 @@ const Projects = () => {
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const fetchProjects = async () => {
     setLoading(true);
@@ -90,13 +93,14 @@ const Projects = () => {
           </p>
         </div>
 
-        <Link
-          to="/projects/new"
-          className="flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2.5 rounded-xl shadow-sm transition-all text-xs self-start sm:self-auto"
+        <button
+          type="button"
+          onClick={() => setIsModalOpen(true)}
+          className="flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2.5 rounded-xl shadow-sm transition-all text-xs self-start sm:self-auto cursor-pointer"
         >
           <FaPlus />
           <span>Add New Project</span>
-        </Link>
+        </button>
       </div>
 
       {/* Filters & Search Toolbar */}
@@ -157,13 +161,14 @@ const Projects = () => {
               <h3 className="text-base font-bold text-gray-800">No construction projects found</h3>
               <p className="text-xs text-gray-500">Create your first construction project to manage client site deployments.</p>
             </div>
-            <Link
-              to="/projects/new"
-              className="px-4 py-2 bg-emerald-600 text-white font-bold text-xs rounded-xl shadow-sm hover:bg-emerald-700 transition-all inline-flex items-center space-x-2"
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(true)}
+              className="px-4 py-2 bg-emerald-600 text-white font-bold text-xs rounded-xl shadow-sm hover:bg-emerald-700 transition-all inline-flex items-center space-x-2 cursor-pointer"
             >
               <FaPlus />
               <span>Create Project</span>
-            </Link>
+            </button>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -172,7 +177,6 @@ const Projects = () => {
                 <tr>
                   <th className="px-6 py-3.5">Code</th>
                   <th className="px-6 py-3.5">Project Name</th>
-                  <th className="px-6 py-3.5">Client / Customer</th>
                   <th className="px-6 py-3.5">Site Location</th>
                   <th className="px-6 py-3.5">Timeline</th>
                   <th className="px-6 py-3.5 text-center">Status</th>
@@ -182,8 +186,8 @@ const Projects = () => {
               </thead>
               <tbody className="divide-y divide-gray-100 font-medium">
                 {projects.map((p) => {
-                  const startDateStr = p.startDate ? new Date(p.startDate).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' }) : '-';
-                  const endDateStr = p.expectedEndDate ? new Date(p.expectedEndDate).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' }) : 'Ongoing';
+                  const startDateStr = formatDateToIndian(p.startDate);
+                  const endDateStr = formatDateToIndian(p.expectedEndDate, 'Ongoing');
                   const badgeStyle = STATUS_BADGES[p.status] || 'bg-gray-100 text-gray-800 border-gray-200';
 
                   return (
@@ -192,16 +196,6 @@ const Projects = () => {
                       <td className="px-6 py-4">
                         <span className="font-extrabold text-slate-900 block">{p.name}</span>
                         {p.notes && <span className="text-[11px] text-gray-400 truncate max-w-xs block">{p.notes}</span>}
-                      </td>
-                      <td className="px-6 py-4 text-xs font-bold text-slate-700">
-                        {p.customer?.name ? (
-                          <div>
-                            <div className="font-extrabold text-slate-900">{p.customer.name}</div>
-                            {p.customer.businessName && <div className="text-[10px] text-gray-400 font-normal">{p.customer.businessName}</div>}
-                          </div>
-                        ) : (
-                          <span className="italic text-gray-400">Unspecified</span>
-                        )}
                       </td>
                       <td className="px-6 py-4 text-xs text-gray-600">
                         <div className="flex items-center space-x-1.5">
@@ -265,6 +259,13 @@ const Projects = () => {
           </div>
         )}
       </div>
+
+      {/* Project Creation Modal */}
+      <ProjectFormModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSuccess={() => fetchProjects()}
+      />
     </div>
   );
 };

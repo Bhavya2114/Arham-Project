@@ -1,6 +1,7 @@
 import request from 'supertest';
 import app from '../../src/app';
 import { getAuthToken } from '../helpers/auth.helper';
+import { createTestCustomer } from '../helpers/customer.helper';
 import { Product } from '../../src/models/Product';
 
 describe('Material Consumption API integration tests (Phase 7.2)', () => {
@@ -21,25 +22,17 @@ describe('Material Consumption API integration tests (Phase 7.2)', () => {
     warehouseToken = await getAuthToken('WAREHOUSE');
     accountsToken = await getAuthToken('ACCOUNTS');
 
-    // 1. Create a customer
-    const custRes = await request(app)
-      .post('/api/customers')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        name: 'PMRDA Infrastructure',
-        mobile: `9${Math.floor(100000000 + Math.random() * 900000000)}`,
-        email: `pmrda_${Date.now()}@infra.com`,
-        businessName: 'PMRDA Govt Infra',
-        type: 'WHOLESALE',
-        status: 'LEAD',
-        address: 'Pune Infra HQ',
-      });
-
-    if (custRes.status !== 201) {
-      console.error('Customer Creation Failed in materialConsumption.test.ts:', custRes.body);
-    }
-    expect(custRes.status).toBe(201);
-    customerId = custRes.body.data.id;
+    // 1. Create a customer fixture
+    const customer = await createTestCustomer({
+      name: 'PMRDA Infrastructure',
+      mobile: `9${Math.floor(100000000 + Math.random() * 900000000)}`,
+      email: `pmrda_${Date.now()}@infra.com`,
+      businessName: 'PMRDA Govt Infra',
+      type: 'WHOLESALE',
+      status: 'LEAD',
+      address: 'Pune Infra HQ',
+    });
+    customerId = customer._id.toString();
 
     // 2. Create Projects (Planning, Completed, Cancelled)
     const p1 = await request(app)
@@ -120,9 +113,9 @@ describe('Material Consumption API integration tests (Phase 7.2)', () => {
       expect(res.body.data).toHaveProperty('id');
       expect(res.body.data.quantity).toBe(20);
       expect(res.body.data.actualCostPrice).toBe(350);
-      expect(res.body.data.billingPrice).toBe(400);
+      expect(res.body.data.billingPrice).toBe(413); // Fixed non-editable: 350 * 1.18 = 413
       expect(res.body.data.actualCostTotal).toBe(7000); // 20 * 350
-      expect(res.body.data.billingTotal).toBe(8000); // 20 * 400
+      expect(res.body.data.billingTotal).toBe(8260); // 20 * 413
       expect(res.body.data.unit).toBe('Bag');
 
       createdMaterialId = res.body.data.id;

@@ -3,6 +3,7 @@ import app from '../../src/app';
 import { getAuthToken } from '../helpers/auth.helper';
 import { Product } from '../../src/models/Product';
 import { ProjectInvoice } from '../../src/models/ProjectInvoice';
+import { createTestCustomer } from '../helpers/customer.helper';
 
 describe('Project Invoice Payments API integration tests (Phase 7.5)', () => {
   let adminToken: string;
@@ -22,22 +23,18 @@ describe('Project Invoice Payments API integration tests (Phase 7.5)', () => {
     warehouseToken = await getAuthToken('WAREHOUSE');
     accountsToken = await getAuthToken('ACCOUNTS');
 
-    // 1. Create Customer & Project
-    const custRes = await request(app)
-      .post('/api/customers')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        name: 'L&T Construction Ltd',
-        mobile: `9${Math.floor(100000000 + Math.random() * 900000000)}`,
-        email: `lt_${Date.now()}@const.com`,
-        businessName: 'L&T Infrastructure',
-        gstNumber: '27LTINF1234F1Z3',
-        type: 'WHOLESALE',
-        status: 'LEAD',
-        address: 'Powai, Mumbai',
-      });
-    expect(custRes.status).toBe(201);
-    customerId = custRes.body.data.id;
+    // 1. Create Customer fixture & Project
+    const customer = await createTestCustomer({
+      name: 'L&T Construction Ltd',
+      mobile: `9${Math.floor(100000000 + Math.random() * 900000000)}`,
+      email: `lt_${Date.now()}@const.com`,
+      businessName: 'L&T Infrastructure',
+      gstNumber: '27LTINF1234F1Z3',
+      type: 'WHOLESALE',
+      status: 'LEAD',
+      address: 'Powai, Mumbai',
+    });
+    customerId = customer._id.toString();
 
     const projRes = await request(app)
       .post('/api/projects')

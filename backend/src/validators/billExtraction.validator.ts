@@ -90,6 +90,60 @@ export const extractedItemSchema = z.object({
   };
 });
 
+/**
+ * Safely parses an explicit rounded-off value and its sign.
+ * Handles numbers and strings such as:
+ * - 0.37, +0.37, -0.50
+ * - "Add : Rounded Off (+) 0.37"
+ * - "Less: Rounded Off (-) 0.50"
+ * - "Round Off 0.37"
+ * Returns null if absent, 0, "0.00", or if text exists without a numeric value.
+ */
+export const parseExplicitRoundOff = (val: any): { amount: number; type: 'add' | 'less' } | null => {
+  if (val === undefined || val === null) return null;
+
+  if (typeof val === 'number') {
+    if (isNaN(val) || Math.abs(val) < 0.0001) return null;
+    const rounded = Math.round((val + Number.EPSILON) * 100) / 100;
+    return {
+      amount: rounded,
+      type: rounded < 0 ? 'less' : 'add',
+    };
+  }
+
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (!trimmed) return null;
+
+    // Check if label explicitly specifies deduction / subtraction
+    const isNegative = /less|deduct|minus|\(-|\(\s*-\s*\)/i.test(trimmed) || trimmed.startsWith('-');
+
+    // Match numeric digits (e.g. 0.37 or 12.00)
+    const match = trimmed.match(/[-+]?\s*\d+(?:\.\d+)?/);
+    if (!match) {
+      // Label present with no numeric value (e.g. "Rounded Off") -> return null
+      return null;
+    }
+
+    let num = parseFloat(match[0].replace(/\s+/g, ''));
+    if (isNaN(num) || Math.abs(num) < 0.0001) {
+      return null;
+    }
+
+    if (isNegative && num > 0) {
+      num = -num;
+    }
+
+    const rounded = Math.round((num + Number.EPSILON) * 100) / 100;
+    return {
+      amount: rounded,
+      type: rounded < 0 ? 'less' : 'add',
+    };
+  }
+
+  return null;
+};
+
 export const extractedTotalsSchema = z.object({
   taxableAmount: z.preprocess((v) => cleanNumber(v, 0), z.number().optional().default(0)),
   subtotal: z.preprocess((v) => cleanNumber(v, 0), z.number().optional()),
@@ -102,9 +156,50 @@ export const extractedTotalsSchema = z.object({
   sgst: z.preprocess((v) => cleanNumber(v, 0), z.number().optional()),
   igst: z.preprocess((v) => cleanNumber(v, 0), z.number().optional()),
   totalTax: z.preprocess((v) => cleanNumber(v, 0), z.number().optional()),
-  roundOff: z.preprocess((v) => cleanNumber(v, 0), z.number().optional().default(0)),
+  roundOff: z.any().optional(),
+  roundedOffAmount: z.any().optional(),
+  roundedOffType: z.enum(['add', 'less']).nullable().optional(),
   grandTotal: z.preprocess((v) => cleanNumber(v, 0), z.number().optional().default(0)),
+  round_off: z.any().optional(),
+  rounding: z.any().optional(),
+}).transform((totals) => {
+  // Primary field priority: roundedOffAmount takes precedence over legacy roundOff / round_off / rounding
+  const rawRound = totals.roundedOffAmount !== undefined && totals.roundedOffAmount !== null
+    ? totals.roundedOffAmount
+    : (totals.roundOff ?? totals.round_off ?? totals.rounding);
+
+  const parsed = parseExplicitRoundOff(rawRound);
+  const finalAmount = parsed ? parsed.amount : null;
+  const finalType = parsed ? (totals.roundedOffType || parsed.type) : null;
+
+  return {
+    ...totals,
+    roundedOffAmount: finalAmount,
+    roundedOffType: finalType,
+    // Keep roundOff as legacy mirror of roundedOffAmount
+    roundOff: finalAmount,
+  };
 });
+
+export type ExtractedTotals = {
+  taxableAmount: number;
+  subtotal?: number;
+  totalDiscount: number;
+  totalCGST: number;
+  totalSGST: number;
+  totalIGST: number;
+  totalGST: number;
+  cgst?: number;
+  sgst?: number;
+  igst?: number;
+  totalTax?: number;
+  roundedOffAmount?: number | null;
+  roundedOffType?: 'add' | 'less' | null;
+  roundOff?: number | null;
+  grandTotal: number;
+  round_off?: any;
+  rounding?: any;
+};
 
 export const extractedBillSchema = z.object({
   supplier: extractedSupplierSchema,
@@ -113,5 +208,10 @@ export const extractedBillSchema = z.object({
   totals: extractedTotalsSchema,
 });
 
-export type ExtractedBillData = z.infer<typeof extractedBillSchema>;
+export type ExtractedBillData = {
+  supplier: z.infer<typeof extractedSupplierSchema>;
+  invoice: z.infer<typeof extractedInvoiceSchema>;
+  items: Array<z.infer<typeof extractedItemSchema>>;
+  totals: ExtractedTotals;
+};
 

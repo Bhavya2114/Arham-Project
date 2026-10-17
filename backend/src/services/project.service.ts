@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { Project, ProjectStatus } from '../models/Project';
 import { Customer } from '../models/Customer';
 import { User } from '../models/User';
+import { Labour } from '../models/Labour';
 import { CreateProjectInput, UpdateProjectInput } from '../validators/project.validator';
 
 const mapProjectResponse = (project: any) => ({
@@ -119,18 +120,21 @@ export const createProject = async (
     throw error;
   }
 
-  // 2. Validate Customer Reference
-  if (!mongoose.Types.ObjectId.isValid(input.customer)) {
-    const error = new Error('Invalid customer ID format');
-    (error as any).statusCode = 400;
-    throw error;
-  }
+  // 2. Validate Customer Reference if provided (optional)
+  let customerObj: any = null;
+  if (input.customer && input.customer.trim() !== '') {
+    if (!mongoose.Types.ObjectId.isValid(input.customer)) {
+      const error = new Error('Invalid customer ID format');
+      (error as any).statusCode = 400;
+      throw error;
+    }
 
-  const customerObj = await Customer.findById(input.customer);
-  if (!customerObj) {
-    const error = new Error('Customer not found');
-    (error as any).statusCode = 404;
-    throw error;
+    customerObj = await Customer.findById(input.customer);
+    if (!customerObj) {
+      const error = new Error('Customer not found');
+      (error as any).statusCode = 404;
+      throw error;
+    }
   }
 
   // 3. Unique Project Code Check
@@ -149,7 +153,7 @@ export const createProject = async (
   const newProject = await Project.create({
     projectCode: codeClean,
     name: input.name.trim(),
-    customer: customerObj._id,
+    customer: customerObj ? customerObj._id : undefined,
     siteAddress: input.siteAddress.trim(),
     startDate,
     expectedEndDate,
@@ -180,7 +184,7 @@ export const updateProject = async (
   }
 
   // Validate Customer if updating customer
-  if (input.customer && input.customer !== project.customer.toString()) {
+  if (input.customer && input.customer !== project.customer?.toString()) {
     if (!mongoose.Types.ObjectId.isValid(input.customer)) {
       const error = new Error('Invalid customer ID format');
       (error as any).statusCode = 400;
@@ -218,11 +222,56 @@ export const updateProject = async (
   if (input.expectedEndDate !== undefined) {
     project.expectedEndDate = input.expectedEndDate ? new Date(input.expectedEndDate) : undefined;
   }
+  const previousStatus = project.status;
   if (input.status) project.status = input.status as ProjectStatus;
   if (input.budget !== undefined) project.budget = input.budget !== undefined ? Number(input.budget) : undefined;
   if (input.notes !== undefined) project.notes = input.notes ? input.notes.trim() : undefined;
 
   await project.save();
+
+  // Lifecycle Rule: When project status transitions to COMPLETED,
+  // all active Labour assigned to that project must transition to INACTIVE
+  // and freeze wage calculation up to completion date.
+  if (input.status === 'COMPLETED' && previousStatus !== 'COMPLETED') {
+    const now = new Date();
+    let completionDate = now;
+    if (project.expectedEndDate) {
+      const expDate = new Date(project.expectedEndDate);
+      if (!isNaN(expDate.getTime()) && expDate < now) {
+        completionDate = expDate;
+      }
+    }
+    const activeLabours = await Labour.find({
+      projectId: project._id,
+      status: 'ACTIVE',
+    });
+    for (const l of activeLabours) {
+      l.status = 'INACTIVE';
+      l.stoppedAt = completionDate;
+      if (l.projectAssignments && l.projectAssignments.length > 0) {
+        const activeAssignment = l.projectAssignments
+          .slice()
+          .reverse()
+          .find((pa: any) => pa.status === 'ACTIVE');
+        if (activeAssignment) {
+          activeAssignment.status = 'STOPPED';
+          activeAssignment.stoppedAt = completionDate;
+        }
+      } else {
+        l.projectAssignments = [
+          {
+            projectId: project._id as any,
+            startDate: l.assignmentStartDate || l.startDate || completionDate,
+            stoppedAt: completionDate,
+            status: 'STOPPED',
+          },
+        ];
+      }
+      l.projectId = null;
+      await l.save();
+    }
+  }
+
   return getProjectById(id);
 };
 
@@ -238,6 +287,26 @@ export const deleteProject = async (id: string): Promise<boolean> => {
     const error = new Error('Project not found');
     (error as any).statusCode = 404;
     throw error;
+  }
+
+  // Deactivate any labours currently assigned to this deleted project
+  const now = new Date();
+  const labours = await Labour.find({ projectId: id });
+  for (const l of labours) {
+    l.status = 'INACTIVE';
+    l.stoppedAt = l.stoppedAt || now;
+    l.projectId = null;
+    if (l.projectAssignments && l.projectAssignments.length > 0) {
+      const activeAssignment = l.projectAssignments
+        .slice()
+        .reverse()
+        .find((pa: any) => pa.status === 'ACTIVE');
+      if (activeAssignment) {
+        activeAssignment.status = 'STOPPED';
+        activeAssignment.stoppedAt = l.stoppedAt;
+      }
+    }
+    await l.save();
   }
 
   return true;

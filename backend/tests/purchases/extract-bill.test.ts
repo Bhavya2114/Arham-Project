@@ -8,14 +8,14 @@ import { Supplier } from '../../src/models/Supplier';
 
 describe('POST /api/purchases/extract-bill API tests (Phase 7.4.4 Backend Gemini Extraction)', () => {
   let adminToken: string;
-  const originalApiKey = process.env.GEMINI_API_KEY;
+  const originalEnv = { ...process.env };
 
   beforeAll(async () => {
     adminToken = await getAuthToken('ADMIN');
   });
 
   afterEach(() => {
-    process.env.GEMINI_API_KEY = originalApiKey;
+    process.env = { ...originalEnv };
     jest.restoreAllMocks();
   });
 
@@ -56,7 +56,11 @@ describe('POST /api/purchases/extract-bill API tests (Phase 7.4.4 Backend Gemini
   });
 
   it('Test 7 — Missing GEMINI_API_KEY environment variable returns 500 error', async () => {
-    delete process.env.GEMINI_API_KEY;
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('GEMINI_API_KEY')) {
+        delete process.env[key];
+      }
+    }
 
     const res = await request(app)
       .post('/api/purchases/extract-bill')
@@ -306,5 +310,184 @@ describe('POST /api/purchases/extract-bill API tests (Phase 7.4.4 Backend Gemini
     expect(res.body.data.matching.supplier.isNew).toBe(true);
     expect(res.body.data.matching.supplier.name).toBe('Brand New Unique Supplier 999');
     expect(res.body.data.matching.supplier.gstNumber).toBe('29BRAND9999K1Z9');
+  });
+
+  it('Test 12 — API extraction failure with HTTP 502 Bad Gateway when Gemini service fails', async () => {
+    process.env.GEMINI_API_KEY = 'test_key';
+    const error502: any = new Error('Gemini AI service error (HTTP 502): Bad Gateway');
+    error502.statusCode = 502;
+    jest.spyOn(geminiService, 'extractInvoiceFromBuffer').mockRejectedValue(error502);
+
+    const res = await request(app)
+      .post('/api/purchases/extract-bill')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .attach('bill', Buffer.from('mock pdf bill'), {
+        filename: 'bill.pdf',
+        contentType: 'application/pdf',
+      });
+
+    expect(res.status).toBe(502);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toContain('Gemini AI service error');
+  });
+
+  it('Test 13 — Gemini quota failure with HTTP 429 Quota Exceeded when rate limit is hit', async () => {
+    process.env.GEMINI_API_KEY = 'test_key';
+    const error429: any = new Error('Gemini AI quota exceeded (HTTP 429): Rate limit reached. Please try again later or enter details manually.');
+    error429.statusCode = 429;
+    jest.spyOn(geminiService, 'extractInvoiceFromBuffer').mockRejectedValue(error429);
+
+    const res = await request(app)
+      .post('/api/purchases/extract-bill')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .attach('bill', Buffer.from('mock pdf bill'), {
+        filename: 'bill.pdf',
+        contentType: 'application/pdf',
+      });
+
+    expect(res.status).toBe(429);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toContain('Gemini AI quota exceeded');
+  });
+
+  it('Test 14 — Missing numeric fields in extracted item defaults safely without NaN or undefined', async () => {
+    process.env.GEMINI_API_KEY = 'test_key';
+    const mockIncompleteData: any = {
+      extracted: {
+        supplier: { supplierName: 'Test Supplier' },
+        invoice: { invoiceNumber: 'INV-INCOMPLETE' },
+        items: [
+          {
+            itemName: 'Incomplete Item',
+            // quantity, unitPrice, discountPercent, taxAmount, cgstAmount, sgstAmount are undefined
+          },
+        ],
+        totals: {},
+      },
+      metadata: { fileName: 'incomplete.pdf' },
+      validation: { warnings: [] },
+    };
+
+    jest.spyOn(geminiService, 'extractInvoiceFromBuffer').mockResolvedValue(mockIncompleteData);
+
+    const res = await request(app)
+      .post('/api/purchases/extract-bill')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .attach('bill', Buffer.from('mock pdf bill'), {
+        filename: 'bill.pdf',
+        contentType: 'application/pdf',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    const item = res.body.data.matching.items[0];
+    expect(item.quantity).toBe(1);
+    expect(item.unitPrice).toBe(0);
+    expect(item.discountPercent).toBe(0);
+    expect(item.discountAmount).toBe(0);
+    expect(item.taxableAmount).toBe(0);
+    expect(item.cgstAmount).toBe(0);
+    expect(item.sgstAmount).toBe(0);
+    expect(item.igstAmount).toBe(0);
+    expect(Number.isFinite(item.lineTotal)).toBe(true);
+  });
+
+  it('Test 15 — Undefined discount fields default safely to 0 without corrupting totals', async () => {
+    process.env.GEMINI_API_KEY = 'test_key';
+    const mockDataNoDiscount: any = {
+      extracted: {
+        supplier: { supplierName: 'Standard Supplier' },
+        invoice: { invoiceNumber: 'INV-STD-001' },
+        items: [
+          {
+            itemName: 'Standard Item',
+            quantity: 10,
+            unitPrice: 100,
+            gstRate: 18,
+            // discountPercent and discountAmount are undefined
+          },
+        ],
+        totals: { grandTotal: 1180 },
+      },
+      metadata: { fileName: 'standard.pdf' },
+      validation: { warnings: [] },
+    };
+
+    jest.spyOn(geminiService, 'extractInvoiceFromBuffer').mockResolvedValue(mockDataNoDiscount);
+
+    const res = await request(app)
+      .post('/api/purchases/extract-bill')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .attach('bill', Buffer.from('mock pdf bill'), {
+        filename: 'bill.pdf',
+        contentType: 'application/pdf',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    const item = res.body.data.matching.items[0];
+    expect(item.discountPercent).toBe(0);
+    expect(item.discountAmount).toBe(0);
+    expect(item.taxableAmount).toBe(1000);
+    expect(item.lineTotal).toBe(1180);
+  });
+
+  it('Test 16 — Valid complete invoice data extracts 62% discount accurately', async () => {
+    process.env.GEMINI_API_KEY = 'test_key';
+    const mockRajLaxmiInvoice: any = {
+      extracted: {
+        supplier: {
+          supplierName: 'RAJ LAXMI ENTERPRISES',
+          supplierGSTIN: '08ABCDE1234F1Z5',
+        },
+        invoice: {
+          invoiceNumber: '560',
+          invoiceDate: '2026-09-04',
+        },
+        items: [
+          {
+            itemName: 'PVC Brass Elbow 20mm',
+            quantity: 160,
+            unitPrice: 180,
+            discountPercent: 62,
+            gstRate: 18,
+            hsnSac: '3917',
+          },
+        ],
+        totals: {
+          taxableAmount: 10944,
+          totalDiscount: 17856,
+          totalCGST: 984.96,
+          totalSGST: 984.96,
+          totalIGST: 0,
+          grandTotal: 12913.92,
+        },
+      },
+      metadata: { fileName: 'raj_laxmi_560.pdf' },
+      validation: { warnings: [] },
+    };
+
+    jest.spyOn(geminiService, 'extractInvoiceFromBuffer').mockResolvedValue(mockRajLaxmiInvoice);
+
+    const res = await request(app)
+      .post('/api/purchases/extract-bill')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .attach('bill', Buffer.from('mock pdf bill'), {
+        filename: 'raj_laxmi_560.pdf',
+        contentType: 'application/pdf',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    const item = res.body.data.matching.items[0];
+    expect(item.quantity).toBe(160);
+    expect(item.unitPrice).toBe(180);
+    expect(item.discountPercent).toBe(62);
+    expect(item.discountAmount).toBe(17856);
+    expect(item.taxableAmount).toBe(10944);
+    expect(item.effectiveUnitPrice).toBe(68.4);
+    expect(item.cgstAmount).toBe(984.96);
+    expect(item.sgstAmount).toBe(984.96);
+    expect(item.lineTotal).toBe(12913.92);
   });
 });

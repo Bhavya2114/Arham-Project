@@ -4,6 +4,16 @@ import axiosInstance from '../utils/api';
 import { useToast } from '../context/ToastContext';
 import { getErrorMessage } from '../utils/apiError';
 import {
+  formatDateToIndian,
+  toApiDateFormat,
+  formatDateIndian,
+  formatDateForApi,
+  isValidIndianDate,
+  isValidIsoDate,
+} from '../utils/dateUtils';
+import IndianDateInput from '../components/IndianDateInput';
+import { PROJECT_GST_RATE, PROJECT_GST_MULTIPLIER, roundToTwo, getFixedBillingRate } from '../utils/projectGst.constants';
+import {
   FaFileInvoiceDollar,
   FaArrowLeft,
   FaBuilding,
@@ -38,9 +48,9 @@ const CreateProjectInvoice = () => {
   const [manualItems, setManualItems] = useState([]);
 
   // Invoice Settings
-  const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
+  const [invoiceDate, setInvoiceDate] = useState(toApiDateFormat(new Date()));
   const [dueDate, setDueDate] = useState(
-    new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    toApiDateFormat(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000))
   );
   const [discount, setDiscount] = useState('0');
   const [notes, setNotes] = useState('');
@@ -146,11 +156,12 @@ const CreateProjectInvoice = () => {
   const buildLineItems = () => {
     const items = [];
 
-    // Selected Materials
+    // Selected Materials (Fixed Non-Editable Billing Rate: Dealer Cost + 18% GST)
     materials.forEach((m) => {
       if (selectedMaterials[m.id]) {
         const unbilledQty = m.unbilledQuantity !== undefined ? m.unbilledQuantity : m.quantity;
-        const rateVal = Number(materialRates[m.id] || 0);
+        const actualCostPrice = Number(m.actualCostPrice || 0);
+        const fixedBillingRate = getFixedBillingRate(actualCostPrice);
         items.push({
           type: 'MATERIAL',
           sourceType: 'MATERIAL_CONSUMPTION',
@@ -159,8 +170,8 @@ const CreateProjectInvoice = () => {
           product: m.productId || m.product?.id,
           quantity: unbilledQty,
           unit: m.unit,
-          rate: rateVal,
-          gstRate: 18,
+          rate: fixedBillingRate,
+          gstRate: 0,
         });
       }
     });
@@ -201,36 +212,50 @@ const CreateProjectInvoice = () => {
 
   const lineItems = buildLineItems();
 
-  // Financial Math Preview
-  const subtotal = lineItems.reduce((sum, item) => sum + item.quantity * item.rate, 0);
-  const discountVal = Number(discount) || 0;
-  const taxableAmount = Math.max(0, subtotal - discountVal);
-  const rawGst = lineItems.reduce(
-    (sum, item) => sum + item.quantity * item.rate * (item.gstRate / 100),
-    0
-  );
-  const gstAmount = subtotal > 0 ? rawGst * (taxableAmount / subtotal) : 0;
-  const grandTotal = taxableAmount + gstAmount;
+  // Financial Math Preview (Material billing rate is already GST-inclusive)
+  const materialSubtotal = lineItems.reduce((sum, item) => {
+    if (item.sourceType === 'MATERIAL_CONSUMPTION') {
+      const mat = materials.find((m) => m.id === item.sourceId);
+      if (mat) {
+        if (mat.issuedMaterialValueIncludingGST !== undefined && mat.issuedMaterialValueIncludingGST !== null && item.quantity === mat.quantity) {
+          return sum + Number(mat.issuedMaterialValueIncludingGST);
+        } else if (mat.actualCostTotal !== undefined && mat.actualCostTotal !== null && item.quantity === mat.quantity) {
+          const cost = Number(mat.actualCostTotal);
+          return sum + roundToTwo(cost + roundToTwo(cost * (PROJECT_GST_RATE / 100)));
+        }
+      }
+      return sum + roundToTwo(item.quantity * item.rate);
+    }
+    return sum;
+  }, 0);
+
+  const nonMaterialSubtotal = lineItems.reduce((sum, item) => {
+    if (item.sourceType !== 'MATERIAL_CONSUMPTION') {
+      return sum + roundToTwo(item.quantity * item.rate);
+    }
+    return sum;
+  }, 0);
+
+  const subtotal = roundToTwo(materialSubtotal + nonMaterialSubtotal);
+  const discountVal = roundToTwo(Number(discount) || 0);
+  const taxableAmount = Math.max(0, roundToTwo(subtotal - discountVal));
+
+  // Additional Output GST is ONLY for non-material lines; materials are already GST-inclusive
+  const rawGst = lineItems.reduce((sum, item) => {
+    if (item.sourceType === 'MATERIAL_CONSUMPTION') {
+      return sum;
+    }
+    return sum + roundToTwo(item.quantity * item.rate * ((item.gstRate || 0) / 100));
+  }, 0);
+
+  const gstAmount = subtotal > 0 ? roundToTwo(rawGst * (taxableAmount / subtotal)) : 0;
+  const grandTotal = roundToTwo(taxableAmount + gstAmount);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
 
-    // Validate selected materials have an explicitly entered, non-negative billing rate
-    for (const m of materials) {
-      if (selectedMaterials[m.id]) {
-        const rateStr = materialRates[m.id];
-        if (rateStr === undefined || rateStr === null || String(rateStr).trim() === '') {
-          setError(`Please enter a Customer Billing Rate for material: ${m.productName}.`);
-          return;
-        }
-        const parsedRate = Number(rateStr);
-        if (isNaN(parsedRate) || parsedRate < 0) {
-          setError(`Invalid Customer Billing Rate for material: ${m.productName}. Must be a valid number >= 0.`);
-          return;
-        }
-      }
-    }
+    // Materials billing rate is fixed and non-editable (dealer cost + 18% GST).
 
     // Validate selected expenses have an explicitly entered, non-negative billing rate
     for (const exp of expenses) {
@@ -258,14 +283,32 @@ const CreateProjectInvoice = () => {
       return;
     }
 
+    // Date Validations
+    if (!invoiceDate || !isValidIsoDate(invoiceDate)) {
+      setError('Please enter a valid Invoice Date in DD/MM/YYYY format.');
+      return;
+    }
+
+    if (!dueDate || !isValidIsoDate(dueDate)) {
+      setError('Please enter a valid Payment Due Date in DD/MM/YYYY format.');
+      return;
+    }
+
+    if (dueDate < invoiceDate) {
+      setError(
+        `Payment Due Date (${formatDateIndian(dueDate)}) cannot be earlier than Invoice Date (${formatDateIndian(invoiceDate)}).`
+      );
+      return;
+    }
+
     setSubmitting(true);
 
     const payload = {
       project: projectId,
       items: lineItems,
       discount: discountVal,
-      invoiceDate: invoiceDate || undefined,
-      dueDate: dueDate || undefined,
+      invoiceDate: formatDateForApi(invoiceDate),
+      dueDate: formatDateForApi(dueDate),
       notes: notes ? notes.trim() : undefined,
     };
 
@@ -360,15 +403,22 @@ const CreateProjectInvoice = () => {
           <div className="font-mono text-[11px] text-emerald-700 font-bold">Code: {project.projectCode}</div>
         </div>
 
-        <div className="space-y-1">
-          <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">CUSTOMER / CLIENT</span>
-          <div className="font-extrabold text-slate-900 text-sm flex items-center space-x-2">
-            <FaUserCheck className="text-emerald-600" />
-            <span>{project.customer?.name}</span>
+        {project.customer ? (
+          <div className="space-y-1">
+            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">CUSTOMER / CLIENT</span>
+            <div className="font-extrabold text-slate-900 text-sm flex items-center space-x-2">
+              <FaUserCheck className="text-emerald-600" />
+              <span>{project.customer.name}</span>
+            </div>
+            {project.customer.businessName && <div className="text-gray-600 font-semibold">{project.customer.businessName}</div>}
+            <div className="text-gray-500">GSTIN: {project.customer.gstNumber || 'N/A'} | Phone: {project.customer.mobile || 'N/A'}</div>
           </div>
-          {project.customer?.businessName && <div className="text-gray-600 font-semibold">{project.customer.businessName}</div>}
-          <div className="text-gray-500">GSTIN: {project.customer?.gstNumber || 'N/A'} | Phone: {project.customer?.mobile}</div>
-        </div>
+        ) : (
+          <div className="space-y-1">
+            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">BILLING CLIENT</span>
+            <div className="text-xs text-gray-500 font-medium">Standard Project Billing</div>
+          </div>
+        )}
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -399,16 +449,27 @@ const CreateProjectInvoice = () => {
                     <th className="p-3 w-10 text-center">Select</th>
                     <th className="p-3">Material / Product</th>
                     <th className="p-3 text-center">Unbilled Qty</th>
-                    <th className="p-3 text-right">Customer Billing Rate (₹)</th>
-                    <th className="p-3 text-right">Total Billing Value (₹)</th>
+                    <th className="p-3 text-right">
+                      <div>Fixed Billing Rate — Incl. GST (₹)</div>
+                      <div className="text-[9px] font-medium text-gray-400 normal-case tracking-normal">Dealer Cost + Fixed 18% GST</div>
+                    </th>
+                    <th className="p-3 text-right">Line Total — Incl. GST (₹)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 font-medium">
                   {materials.map((m) => {
                     const unbilledQty = m.unbilledQuantity !== undefined ? m.unbilledQuantity : m.quantity;
-                    const enteredRate = materialRates[m.id];
-                    const numRate = enteredRate !== undefined && enteredRate !== '' && !isNaN(Number(enteredRate)) ? Number(enteredRate) : 0;
-                    const totVal = unbilledQty * numRate;
+                    const actualCostPrice = Number(m.actualCostPrice || 0);
+                    const fixedBillingRate = getFixedBillingRate(actualCostPrice);
+                    let totVal;
+                    if (m.issuedMaterialValueIncludingGST !== undefined && m.issuedMaterialValueIncludingGST !== null && unbilledQty === m.quantity) {
+                      totVal = Number(m.issuedMaterialValueIncludingGST);
+                    } else if (m.actualCostTotal !== undefined && m.actualCostTotal !== null && unbilledQty === m.quantity) {
+                      const cost = Number(m.actualCostTotal);
+                      totVal = roundToTwo(cost + roundToTwo(cost * (PROJECT_GST_RATE / 100)));
+                    } else {
+                      totVal = roundToTwo(unbilledQty * fixedBillingRate);
+                    }
                     const isChecked = !!selectedMaterials[m.id];
                     return (
                       <tr key={m.id} className={`hover:bg-gray-50/60 transition-colors ${isChecked ? 'bg-emerald-50/30' : ''}`}>
@@ -423,23 +484,18 @@ const CreateProjectInvoice = () => {
                         <td className="p-3">
                           <span className="font-extrabold text-slate-900 block">{m.productName}</span>
                           <span className="text-[10px] text-gray-400 font-mono">SKU: {m.sku}</span>
+                          {m.issueDate && (
+                            <span className="text-[10px] text-gray-400 block">Issued: {formatDateIndian(m.issueDate)}</span>
+                          )}
                         </td>
                         <td className="p-3 text-center font-bold text-slate-900">
                           {unbilledQty} {m.unit}
                         </td>
-                        <td className="p-3 text-right">
-                          <input
-                            type="number"
-                            min="0"
-                            step="any"
-                            placeholder="Enter rate"
-                            value={materialRates[m.id] !== undefined ? materialRates[m.id] : ''}
-                            onChange={(ev) => handleMaterialRateChange(m.id, ev.target.value)}
-                            disabled={!isChecked}
-                            className="w-36 px-2.5 py-1 border border-gray-300 rounded-lg text-xs font-black text-right focus:outline-none focus:border-emerald-500 disabled:bg-gray-100 disabled:opacity-50"
-                          />
+                        <td className="p-3 text-right font-mono font-bold text-slate-900">
+                          <div>₹{fixedBillingRate.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                          <div className="text-[9px] text-gray-400 font-normal">Dealer Cost ₹{actualCostPrice.toFixed(2)} + 18% GST</div>
                         </td>
-                        <td className="p-3 text-right font-black text-slate-900">
+                        <td className="p-3 text-right font-black text-slate-900 font-mono">
                           ₹{totVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                         </td>
                       </tr>
@@ -497,6 +553,9 @@ const CreateProjectInvoice = () => {
                         <td className="p-3">
                           <span className="font-extrabold text-slate-900 block">{e.description}</span>
                           <span className="text-[10px] text-gray-400 uppercase font-bold">{e.category.replace('_', ' ')}</span>
+                          {e.expenseDate && (
+                            <span className="text-[10px] text-gray-400 block font-normal">Date: {formatDateIndian(e.expenseDate)}</span>
+                          )}
                         </td>
                         <td className="p-3 text-right font-bold text-gray-600">
                           ₹{Number(e.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
@@ -537,13 +596,13 @@ const CreateProjectInvoice = () => {
               className="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 font-extrabold text-xs rounded-xl transition-all flex items-center space-x-1.5"
             >
               <FaPlus className="text-[10px]" />
-              <span>+ Add Line Item</span>
+              <span>Add Line Item</span>
             </button>
           </div>
 
           {manualItems.length === 0 ? (
             <div className="p-4 text-center border border-dashed border-gray-200 rounded-xl bg-gray-50/50 text-xs text-gray-400">
-              No custom line items added yet. Click "+ Add Line Item" if required.
+              No custom line items added yet. Click &quot;Add Line Item&quot; if required.
             </div>
           ) : (
             <div className="space-y-3">
@@ -627,23 +686,56 @@ const CreateProjectInvoice = () => {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Invoice Date</label>
-                <input
-                  type="date"
+                <div className="flex items-center justify-between mb-1">
+                  <label htmlFor="invoiceDate" className="block text-xs font-bold text-gray-700">Invoice Date</label>
+                  {invoiceDate && isValidIsoDate(invoiceDate) && (
+                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                      {formatDateIndian(invoiceDate)}
+                    </span>
+                  )}
+                </div>
+                <IndianDateInput
+                  id="invoiceDate"
+                  label="Invoice Date"
                   value={invoiceDate}
-                  onChange={(e) => setInvoiceDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs font-medium focus:outline-none focus:border-emerald-500 bg-gray-50/50"
+                  onChange={(val) => setInvoiceDate(val)}
+                  placeholder="DD/MM/YYYY"
                 />
+                <div className="mt-1 flex items-center justify-between text-[11px] text-gray-400">
+                  <span>Standard Indian format: <strong>DD/MM/YYYY</strong></span>
+                  {invoiceDate && isValidIsoDate(invoiceDate) && (
+                    <span className="text-slate-600 font-medium">
+                      Display: <strong className="text-emerald-700">{formatDateIndian(invoiceDate)}</strong>
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Payment Due Date</label>
-                <input
-                  type="date"
+                <div className="flex items-center justify-between mb-1">
+                  <label htmlFor="dueDate" className="block text-xs font-bold text-gray-700">Payment Due Date</label>
+                  {dueDate && isValidIsoDate(dueDate) && (
+                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                      {formatDateIndian(dueDate)}
+                    </span>
+                  )}
+                </div>
+                <IndianDateInput
+                  id="dueDate"
+                  label="Payment Due Date"
                   value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs font-medium focus:outline-none focus:border-emerald-500 bg-gray-50/50"
+                  min={isValidIsoDate(invoiceDate) ? invoiceDate : undefined}
+                  onChange={(val) => setDueDate(val)}
+                  placeholder="DD/MM/YYYY"
                 />
+                <div className="mt-1 flex items-center justify-between text-[11px] text-gray-400">
+                  <span>Standard Indian format: <strong>DD/MM/YYYY</strong></span>
+                  {dueDate && isValidIsoDate(dueDate) && (
+                    <span className="text-slate-600 font-medium">
+                      Display: <strong className="text-emerald-700">{formatDateIndian(dueDate)}</strong>
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -683,27 +775,34 @@ const CreateProjectInvoice = () => {
               </div>
 
               <div className="flex justify-between font-bold text-slate-700">
-                <span>Gross Subtotal:</span>
-                <span className="font-mono font-extrabold">₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                <span>Material Billing Subtotal — GST Included:</span>
+                <span className="font-mono font-extrabold">₹{materialSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
               </div>
 
-              <div className="flex justify-between font-bold text-rose-600">
-                <span>Discount:</span>
-                <span className="font-mono font-extrabold">- ₹{discountVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-              </div>
+              {nonMaterialSubtotal > 0 && (
+                <div className="flex justify-between font-bold text-slate-700">
+                  <span>Other Charges / Expenses:</span>
+                  <span className="font-mono font-extrabold">₹{nonMaterialSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+              )}
 
-              <div className="flex justify-between font-extrabold text-slate-900 border-t border-slate-200 pt-2">
-                <span>Taxable Value (Excl. GST):</span>
-                <span className="font-mono">₹{taxableAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-              </div>
+              {discountVal > 0 && (
+                <div className="flex justify-between font-bold text-rose-600">
+                  <span>Discount:</span>
+                  <span className="font-mono font-extrabold">- ₹{discountVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+              )}
 
-              <div className="flex justify-between font-bold text-emerald-800">
-                <span>Output GST (Customer Tax):</span>
-                <span className="font-mono font-extrabold">+ ₹{gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+              <div className="flex justify-between font-bold text-emerald-800 border-t border-slate-200 pt-2">
+                <div>
+                  <span>Additional Output GST:</span>
+                  <div className="text-[10px] text-gray-400 font-normal">GST included in material billing rates</div>
+                </div>
+                <span className="font-mono font-extrabold">₹{gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
               </div>
 
               <div className="flex justify-between font-black text-slate-900 text-base border-t border-slate-300 pt-2">
-                <span>Invoice Grand Total (Incl. GST):</span>
+                <span>Invoice Grand Total — GST Included:</span>
                 <span className="font-mono text-emerald-700">
                   ₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                 </span>
@@ -711,7 +810,7 @@ const CreateProjectInvoice = () => {
             </div>
 
             <p className="text-[10px] text-gray-400 italic">
-              * Customer invoice GST is Output Tax collected from client and does not affect operational project profit.
+              * Project material billing rates are GST-inclusive (Dealer Cost + Fixed 18% GST). No second GST is added.
             </p>
 
             <button

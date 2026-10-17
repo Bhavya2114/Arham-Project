@@ -2,6 +2,7 @@ import { Product } from '../models/Product';
 import { Project } from '../models/Project';
 import { Purchase } from '../models/Purchase';
 import { ProjectInvoice } from '../models/ProjectInvoice';
+import { getLabourDashboardMetrics } from './labour.service';
 
 
 const buildPurchaseDateFilter = (query: { range?: string; startDate?: string; endDate?: string }) => {
@@ -54,6 +55,7 @@ export const getDashboardSummary = async (): Promise<any> => {
     outOfStockCount,
     recentInvoices,
     recentPurchases,
+    labourMetrics,
   ] = await Promise.all([
     Product.aggregate([
       {
@@ -114,6 +116,7 @@ export const getDashboardSummary = async (): Promise<any> => {
       .sort({ purchaseDate: -1 })
       .limit(5)
       .lean(),
+    getLabourDashboardMetrics(),
   ]);
 
   const pStats = productStats[0] || { totalProducts: 0, totalStock: 0, inventoryValue: 0 };
@@ -139,6 +142,15 @@ export const getDashboardSummary = async (): Promise<any> => {
       date: p.purchaseDate || p.createdAt,
       amount: Number(p.totalAmount || 0),
       netAmount: Number(p.subtotal || 0),
+    })),
+    ...(labourMetrics?.recentPayments || []).map((p: any) => ({
+      id: p.id,
+      type: 'LABOUR_PAY',
+      reference: `PAY-${p.id.slice(-6).toUpperCase()}`,
+      partyName: `${p.labourName} (${p.paymentMethod})`,
+      date: p.paymentDate,
+      amount: Number(p.amount || 0),
+      netAmount: Number(p.amount || 0),
     })),
   ]
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -175,6 +187,8 @@ export const getDashboardSummary = async (): Promise<any> => {
       count: purchStats.totalPurchases,
       totalSpent: Number((purchStats.totalSpent || 0).toFixed(2)),
     },
+
+    labour: labourMetrics,
 
     recentActivity,
   };

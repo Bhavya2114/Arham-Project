@@ -1,6 +1,7 @@
 import request from 'supertest';
 import app from '../../src/app';
 import { getAuthToken } from '../helpers/auth.helper';
+import { createTestCustomer } from '../helpers/customer.helper';
 
 describe('Phase 4 — GST Visibility & Financial UI Clarity Verification Tests', () => {
   let adminToken: string;
@@ -25,19 +26,15 @@ describe('Phase 4 — GST Visibility & Financial UI Clarity Verification Tests',
 
   const createCustomer = async (name: string) => {
     const timestamp = Date.now();
-    const res = await request(app)
-      .post('/api/customers')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        name,
-        businessName: `${name} Ltd`,
-        mobile: `97${timestamp.toString().slice(-8)}`,
-        type: 'WHOLESALE',
-        address: '100 Business Park, Mumbai',
-        status: 'ACTIVE',
-      });
-    expect(res.status).toBe(201);
-    return res.body.data.id;
+    const customer = await createTestCustomer({
+      name,
+      businessName: `${name} Ltd`,
+      mobile: `97${timestamp.toString().slice(-8)}`,
+      type: 'WHOLESALE',
+      address: '100 Business Park, Mumbai',
+      status: 'ACTIVE',
+    });
+    return customer._id.toString();
   };
 
   const createProduct = async (name: string, initialCost: number = 0) => {

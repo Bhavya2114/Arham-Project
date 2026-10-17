@@ -14,7 +14,7 @@ export const projectInvoiceItemSchema = z.object({
   product: optionalString,
   quantity: z.coerce.number().positive('Quantity must be greater than 0').optional().default(1),
   unit: optionalString,
-  rate: z.coerce.number().nonnegative('Rate cannot be negative'),
+  rate: z.coerce.number().nonnegative('Rate cannot be negative').optional().default(0),
   gstRate: z.coerce.number().nonnegative('GST rate cannot be negative').optional().default(0),
 });
 

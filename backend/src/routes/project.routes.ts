@@ -10,10 +10,12 @@ import { handleGetMaterialConsumptionsByProject } from '../controllers/materialC
 import { handleGetProjectExpensesByProject } from '../controllers/projectExpense.controller';
 import { handleGetProjectInvoicesByProject } from '../controllers/projectInvoice.controller';
 import { handleGetProjectProfitability } from '../controllers/projectProfitability.controller';
+import { handleGetLaboursByProject, handleAssignLabourToProject } from '../controllers/labour.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { authorize } from '../middleware/role.middleware';
 import { validate } from '../middleware/validate.middleware';
 import { createProjectSchema, updateProjectSchema } from '../validators/project.validator';
+import { assignLabourToProjectSchema } from '../validators/labour.validator';
 
 const router = Router();
 
@@ -28,6 +30,17 @@ router.get('/:projectId/material-consumptions', authorize('ADMIN', 'SALES', 'WAR
 
 // GET /api/projects/:projectId/expenses - View expenses for a project (ADMIN, SALES, WAREHOUSE, ACCOUNTS)
 router.get('/:projectId/expenses', authorize('ADMIN', 'SALES', 'WAREHOUSE', 'ACCOUNTS'), handleGetProjectExpensesByProject);
+
+// GET /api/projects/:projectId/labours - View labour workers for a project (ADMIN, SALES, WAREHOUSE, ACCOUNTS)
+router.get('/:projectId/labours', authorize('ADMIN', 'SALES', 'WAREHOUSE', 'ACCOUNTS'), handleGetLaboursByProject);
+
+// POST /api/projects/:projectId/labours - Assign existing labour to project (ADMIN, SALES)
+router.post(
+  '/:projectId/labours',
+  authorize('ADMIN', 'SALES'),
+  validate(assignLabourToProjectSchema),
+  handleAssignLabourToProject
+);
 
 // GET /api/projects/:projectId/invoices - View invoices for a project (ADMIN, SALES, WAREHOUSE, ACCOUNTS)
 router.get('/:projectId/invoices', authorize('ADMIN', 'SALES', 'WAREHOUSE', 'ACCOUNTS'), handleGetProjectInvoicesByProject);

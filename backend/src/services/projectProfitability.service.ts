@@ -4,6 +4,7 @@ import { MaterialConsumption } from '../models/MaterialConsumption';
 import { ProjectExpense } from '../models/ProjectExpense';
 import { ProjectInvoice } from '../models/ProjectInvoice';
 import { ProjectInvoicePayment } from '../models/ProjectInvoicePayment';
+import { PROJECT_GST_MULTIPLIER, roundToTwo } from '../constants/projectGst.constants';
 
 export interface ICategoryCost {
   category: string;
@@ -17,15 +18,26 @@ export interface IProjectProfitability {
   status: string;
   customerName?: string;
   siteAddress?: string;
+  startDate?: Date;
+  expectedEndDate?: Date;
 
-  // Authoritative Budget vs Actual Cost Profitability
+  // Authoritative Budget vs Actual Cost Profitability (GST-Exclusive)
   projectBudget: number;
   totalMaterialCost: number;
   totalProjectExpenses: number;
   totalLabourCost: number;
   actualProjectCost: number;
-  projectProfit: number;
+  remainingBudget: number;
+  projectProfit: number; // Backward-compatibility alias to remainingBudget
   projectMargin: number;
+
+  // Separate GST Tracking (Isolated from project budget and expenditure)
+  inputGstPurchasedMaterials: number | null; // Purchase reference only (not project claimable)
+  inputGstIssuedMaterials: number; // Proportional GST on issued materials
+  totalInputGstClaimable: number; // Equal to inputGstIssuedMaterials
+  issuedMaterialValueIncludingGST: number; // actualCostTotal + inputGst
+  totalSupplierInvoiceValue: number; // Alias to issuedMaterialValueIncludingGST
+  missingGstCount: number; // Count of historical records missing GST data
 
   // Expense Breakdown
   expenseCategoryBreakdown: Record<string, number>;
@@ -38,8 +50,10 @@ export interface IProjectProfitability {
   // Backward-compatibility aliases
   revenue: number; // Aliased to projectBudget for profitability context
   totalProjectCost: number; // Aliased to actualProjectCost
-  grossProfit: number; // Aliased to projectProfit
+  grossProfit: number; // Aliased to remainingBudget
   grossMargin: number; // Aliased to projectMargin
+  totalProjectCostExcludingGST: number; // Aliased to actualProjectCost
+  materialCostExcludingGST: number; // Aliased to totalMaterialCost
 }
 
 export const getProjectProfitability = async (projectId: string): Promise<IProjectProfitability> => {
@@ -61,12 +75,31 @@ export const getProjectProfitability = async (projectId: string): Promise<IProje
   // 1. Project Budget (Authoritative revenue/budget baseline)
   const projectBudget = Math.round(Number(project.budget || 0) * 100) / 100;
 
-  // 2. Material Actual Cost (using actualCostTotal from MaterialConsumption)
-  const matAgg = await MaterialConsumption.aggregate([
-    { $match: { project: projIdObj } },
-    { $group: { _id: null, totalMaterialCost: { $sum: '$actualCostTotal' } } },
-  ]);
-  const totalMaterialCost = matAgg.length > 0 ? Math.round(Number(matAgg[0].totalMaterialCost) * 100) / 100 : 0;
+  // 2. Material Actual Cost & Input GST (@ Fixed 18% Business Rule)
+  const consumptions = await MaterialConsumption.find({ project: projIdObj }).lean();
+
+  let totalMaterialCost = 0;
+  let inputGstIssuedMaterials = 0;
+  let issuedMaterialValueIncludingGST = 0;
+
+  for (const mc of consumptions) {
+    const actTotal = roundToTwo(Number(mc.actualCostTotal || 0));
+    totalMaterialCost += actTotal;
+
+    // Fixed 18% GST business rule
+    const lineInputGst = roundToTwo(actTotal * PROJECT_GST_MULTIPLIER);
+    inputGstIssuedMaterials += lineInputGst;
+
+    const lineIssuedValue = roundToTwo(actTotal + lineInputGst);
+    issuedMaterialValueIncludingGST += lineIssuedValue;
+  }
+
+  totalMaterialCost = roundToTwo(totalMaterialCost);
+  inputGstIssuedMaterials = roundToTwo(inputGstIssuedMaterials);
+  issuedMaterialValueIncludingGST = roundToTwo(issuedMaterialValueIncludingGST);
+  const totalInputGstClaimable = inputGstIssuedMaterials;
+  const inputGstPurchasedMaterials = null;
+  const missingGstCount = 0;
 
   // 3. Project Expenses & Category Breakdown (using amount from ProjectExpense)
   const expAgg = await ProjectExpense.aggregate([
@@ -97,23 +130,25 @@ export const getProjectProfitability = async (projectId: string): Promise<IProje
   });
   totalProjectExpenses = Math.round(totalProjectExpenses * 100) / 100;
 
-  // 4. Labour Cost (Dedicated Labour system placeholder; if separate model is built later, connect here)
+  // 5. Labour Cost (Direct labour placeholder)
   const totalLabourCost = 0;
 
-  // 5. Actual Project Cost = Material Cost + Project Expenses + Labour Cost
+  // 6. Actual Project Cost = Material Cost (Excl. GST) + Project Expenses + Labour Cost
+  // Invariant: GST is NEVER included in project expenditure
   const actualProjectCost = Math.round((totalMaterialCost + totalProjectExpenses + totalLabourCost) * 100) / 100;
 
-  // 6. Project Profit = Project Budget - Actual Project Cost (Negative values valid and preserved)
-  const projectProfit = Math.round((projectBudget - actualProjectCost) * 100) / 100;
+  // 7. Remaining Budget = Project Budget - Actual Project Cost
+  const remainingBudget = Math.round((projectBudget - actualProjectCost) * 100) / 100;
+  const projectProfit = remainingBudget; // Aliased for backward compatibility with existing tests
 
-  // 7. Project Margin = (Project Profit / Project Budget) * 100 (Safe 0 on zero/invalid budget)
+  // 8. Project Margin = (Remaining Budget / Project Budget) * 100 (Safe 0 on zero/invalid budget)
   let projectMargin = 0;
   if (projectBudget > 0) {
-    const rawMargin = (projectProfit / projectBudget) * 100;
+    const rawMargin = (remainingBudget / projectBudget) * 100;
     projectMargin = Math.round(rawMargin * 100) / 100;
   }
 
-  // 8. Invoicing & Collections (Independent tracking, does not alter operational profitability)
+  // 9. Invoicing & Collections (Independent tracking, does not alter operational cost or budget)
   const invAgg = await ProjectInvoice.aggregate([
     { $match: { project: projIdObj, status: { $ne: 'CANCELLED' } } },
     { $group: { _id: null, totalInvoiced: { $sum: '$grandTotal' } } },
@@ -135,15 +170,26 @@ export const getProjectProfitability = async (projectId: string): Promise<IProje
     status: project.status,
     customerName: (project.customer as any)?.name || 'N/A',
     siteAddress: project.siteAddress,
+    startDate: project.startDate,
+    expectedEndDate: project.expectedEndDate,
 
-    // Authoritative Budget vs Actual Cost fields
+    // Authoritative Budget vs Actual Cost fields (GST-Exclusive)
     projectBudget,
     totalMaterialCost,
     totalProjectExpenses,
     totalLabourCost,
     actualProjectCost,
+    remainingBudget,
     projectProfit,
     projectMargin,
+
+    // Separate GST Tracking
+    inputGstPurchasedMaterials,
+    inputGstIssuedMaterials,
+    totalInputGstClaimable,
+    issuedMaterialValueIncludingGST,
+    totalSupplierInvoiceValue: issuedMaterialValueIncludingGST,
+    missingGstCount,
 
     expenseCategoryBreakdown,
 
@@ -157,6 +203,8 @@ export const getProjectProfitability = async (projectId: string): Promise<IProje
     totalProjectCost: actualProjectCost,
     grossProfit: projectProfit,
     grossMargin: projectMargin,
+    totalProjectCostExcludingGST: actualProjectCost,
+    materialCostExcludingGST: totalMaterialCost,
   };
 };
 
@@ -165,8 +213,12 @@ export const getAllProjectsProfitabilityReport = async (): Promise<IProjectProfi
   const results: IProjectProfitability[] = [];
 
   for (const p of projects) {
-    const prof = await getProjectProfitability(p._id.toString());
-    results.push(prof);
+    try {
+      const prof = await getProjectProfitability(p._id.toString());
+      results.push(prof);
+    } catch (_err) {
+      continue;
+    }
   }
 
   return results;

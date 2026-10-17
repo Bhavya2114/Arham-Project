@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import axiosInstance from '../utils/api';
 import { FaPlus, FaSearch, FaTruck, FaInfoCircle, FaTimes, FaExclamationTriangle } from 'react-icons/fa';
+import { formatDateToIndian, formatDateShortMonth, formatDateFull } from '../utils/dateUtils';
 
 const Purchases = () => {
   const [purchases, setPurchases] = useState([]);
@@ -141,7 +142,9 @@ const Purchases = () => {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredPurchases.map((p) => {
-                  const pDate = p.purchaseDate ? new Date(p.purchaseDate).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' }) : '-';
+                  const rawDate = p.purchaseDate || p.invoiceDate;
+                  const pDate = rawDate ? formatDateToIndian(rawDate) : '-';
+                  const pDateMonth = rawDate ? formatDateShortMonth(rawDate) : '';
                   const itemCount = p.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0;
                   const grandTotalVal = p.totalAmount !== undefined && p.totalAmount !== null ? p.totalAmount : (p.grandTotal || 0);
 
@@ -151,7 +154,10 @@ const Purchases = () => {
                       <td className="px-6 py-4 text-xs font-bold text-gray-700">
                         {p.supplier?.name || <span className="italic text-gray-400">Unknown Supplier</span>}
                       </td>
-                      <td className="px-6 py-4 text-xs text-gray-500">{pDate}</td>
+                      <td className="px-6 py-4">
+                        <div className="text-xs font-bold text-gray-800">{pDate}</div>
+                        {pDateMonth && <div className="text-[11px] text-gray-400 font-medium">{pDateMonth}</div>}
+                      </td>
                       <td className="px-6 py-4 text-center font-bold text-slate-800">{itemCount} units</td>
                       <td className="px-6 py-4 text-right font-black text-emerald-700">
                         ₹{grandTotalVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
@@ -184,8 +190,9 @@ const Purchases = () => {
                   <FaTruck className="text-emerald-600" />
                   <span>Purchase Order #{activePurchase.purchaseNumber}</span>
                 </h3>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  Purchased on {new Date(activePurchase.purchaseDate).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })}
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Purchased on <strong className="text-slate-800">{formatDateToIndian(activePurchase.purchaseDate)}</strong>
+                  {activePurchase.purchaseDate && ` (${formatDateFull(activePurchase.purchaseDate)})`}
                 </p>
               </div>
               <button onClick={() => setIsDetailOpen(false)} className="text-gray-400 hover:text-gray-600">
@@ -201,6 +208,16 @@ const Purchases = () => {
               )}
               {activePurchase.supplier?.gstNumber && (
                 <div className="text-gray-500 font-mono text-[11px]">GSTIN: {activePurchase.supplier.gstNumber}</div>
+              )}
+              {activePurchase.invoiceNumber && (
+                <div className="text-gray-600 text-[11px]">
+                  Invoice / Bill No: <span className="font-mono font-bold text-slate-800">{activePurchase.invoiceNumber}</span>
+                  {activePurchase.purchaseDate && (
+                    <span className="text-emerald-700 font-semibold ml-2">
+                      ({formatDateToIndian(activePurchase.purchaseDate)})
+                    </span>
+                  )}
+                </div>
               )}
               {activePurchase.notes && <div className="text-gray-500 italic">Notes: {activePurchase.notes}</div>}
             </div>
@@ -298,6 +315,19 @@ const Purchases = () => {
                   )}
                   {activePurchase.igst !== undefined && activePurchase.igst !== null && Number(activePurchase.igst) > 0 && (
                     <span className="text-slate-400 font-mono text-[11px]">(IGST: ₹{Number(activePurchase.igst).toFixed(2)})</span>
+                  )}
+                  {activePurchase.roundedOffAmount !== undefined && activePurchase.roundedOffAmount !== null && Number(activePurchase.roundedOffAmount) !== 0 && (
+                    <>
+                      <span>|</span>
+                      <span>
+                        Rounded Off ({Number(activePurchase.roundedOffAmount) < 0 ? '−' : '+'}):{' '}
+                        <strong className={Number(activePurchase.roundedOffAmount) < 0 ? 'text-amber-300' : 'text-white'}>
+                          {Number(activePurchase.roundedOffAmount) < 0
+                            ? `−₹${Math.abs(Number(activePurchase.roundedOffAmount)).toFixed(2)}`
+                            : `₹${Number(activePurchase.roundedOffAmount).toFixed(2)}`}
+                        </strong>
+                      </span>
+                    </>
                   )}
                 </div>
                 <div className="text-emerald-400 text-sm font-black whitespace-nowrap">

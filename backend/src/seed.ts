@@ -3,10 +3,8 @@ import { connectDB, disconnectDB } from './config/database';
 import { User } from './models/User';
 import { Category } from './models/Category';
 import { Supplier } from './models/Supplier';
-import { Customer } from './models/Customer';
 import { Product } from './models/Product';
 import { ROLES } from './constants/roles';
-import { CUSTOMER_TYPES, CUSTOMER_STATUSES } from './constants/statuses';
 
 async function seed() {
   console.log('🌱 Connecting to MongoDB for seeding...');
@@ -16,13 +14,12 @@ async function seed() {
   await User.deleteMany({});
   await Category.deleteMany({});
   await Supplier.deleteMany({});
-  await Customer.deleteMany({});
   await Product.deleteMany({});
 
   const hashedPassword = await bcrypt.hash('Password@123', 10);
 
   // 1. Users
-  const adminUser = await User.create({
+  await User.create({
     name: 'Admin User',
     email: 'admin@erp.com',
     password: hashedPassword,
@@ -91,30 +88,7 @@ async function seed() {
 
   console.log('✅ Suppliers created');
 
-  // 4. Customers
-  await Customer.create({
-    name: 'Rahul Sharma',
-    email: 'rahul@example.com',
-    mobile: '9123456789',
-    type: CUSTOMER_TYPES.RETAIL,
-    status: CUSTOMER_STATUSES.ACTIVE,
-    createdBy: adminUser._id,
-  });
-
-  await Customer.create({
-    name: 'Priya Patel',
-    email: 'priya@acme.com',
-    mobile: '9123456790',
-    type: CUSTOMER_TYPES.WHOLESALE,
-    status: CUSTOMER_STATUSES.ACTIVE,
-    businessName: 'Acme Traders',
-    gstNumber: '27LMNOP9012Q1Z8',
-    createdBy: adminUser._id,
-  });
-
-  console.log('✅ Customers created');
-
-  // 5. Products
+  // 4. Products
   const productsData = [
     {
       name: 'Wireless Ergonomic Mouse',

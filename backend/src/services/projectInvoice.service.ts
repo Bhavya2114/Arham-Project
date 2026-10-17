@@ -5,6 +5,7 @@ import { MaterialConsumption } from '../models/MaterialConsumption';
 import { ProjectExpense } from '../models/ProjectExpense';
 import { User } from '../models/User';
 import { CreateProjectInvoiceInput } from '../validators/projectInvoice.validator';
+import { roundToTwo, getFixedBillingRate } from '../constants/projectGst.constants';
 
 const generateInvoiceNumber = async (): Promise<string> => {
   const currentYear = new Date().getFullYear();
@@ -95,6 +96,7 @@ const mapProjectInvoiceResponse = (inv: any) => ({
   discount: Number(inv.discount || 0),
   taxableAmount: Number(inv.taxableAmount),
   taxAmount: Number(inv.taxAmount),
+  outputGst: Number(inv.outputGst !== undefined ? inv.outputGst : inv.taxAmount),
   grandTotal: Number(inv.grandTotal),
   notes: inv.notes,
   status: inv.status,
@@ -223,20 +225,17 @@ export const createProjectInvoice = async (
     throw error;
   }
 
-  if (!projectObj.customer) {
-    const error = new Error('Project does not have an assigned customer');
-    (error as any).statusCode = 400;
-    throw error;
-  }
-
-  const customerObj = projectObj.customer as any;
+  const customerObj = (projectObj.customer as any) || {
+    name: 'Client',
+    mobile: 'N/A',
+  };
 
   // 3. Create Snapshots
   const customerSnapshot = {
-    name: customerObj.name,
+    name: customerObj.name || 'Client',
     businessName: customerObj.businessName || undefined,
     gstNumber: customerObj.gstNumber || undefined,
-    mobile: customerObj.mobile,
+    mobile: customerObj.mobile || 'N/A',
     email: customerObj.email || undefined,
     address: customerObj.address || undefined,
   };
@@ -298,6 +297,45 @@ export const createProjectInvoice = async (
         (error as any).statusCode = 400;
         throw error;
       }
+
+      // Business Rule: Fixed 18% GST and Non-Editable Billing Rate
+      // The project billing rate already includes fixed 18% GST (dealer cost + 18% GST).
+      // Avoid losing precision by using the complete GST-inclusive material total.
+      const actualUnitCostExcludingGST = roundToTwo(Number(mc.actualCostPrice || 0));
+      const fixedBillingRateIncludingGST = getFixedBillingRate(actualUnitCostExcludingGST);
+
+      let lineTotal: number;
+      if (mc.issuedMaterialValueIncludingGST !== undefined && mc.issuedMaterialValueIncludingGST !== null && qty === Number(mc.quantity)) {
+        lineTotal = roundToTwo(Number(mc.issuedMaterialValueIncludingGST));
+      } else if (mc.billingTotal !== undefined && mc.billingTotal !== null && qty === Number(mc.quantity)) {
+        lineTotal = roundToTwo(Number(mc.billingTotal));
+      } else {
+        lineTotal = roundToTwo(qty * fixedBillingRateIncludingGST);
+      }
+
+      // Material line amounts are GST-inclusive; additional output GST is 0.
+      const amount = lineTotal;
+      const gstAmount = 0;
+      const gstRate = 0;
+
+      subtotal += amount;
+      rawTaxAmount += gstAmount;
+
+      processedItems.push({
+        type: 'MATERIAL',
+        sourceType: 'MATERIAL_CONSUMPTION',
+        sourceId: item.sourceId,
+        description: item.description ? item.description.trim() : `${mc.productName} (Covers ${qty} ${mc.unit})`,
+        product: mc.product,
+        quantity: qty,
+        unit: mc.unit ? mc.unit.trim() : undefined,
+        rate: fixedBillingRateIncludingGST,
+        amount,
+        gstRate,
+        gstAmount,
+        lineTotal,
+      });
+      continue;
     } else if (item.sourceType === 'PROJECT_EXPENSE' && item.sourceId) {
       if (!mongoose.Types.ObjectId.isValid(item.sourceId)) {
         const error = new Error('Invalid project expense source ID');
@@ -329,10 +367,10 @@ export const createProjectInvoice = async (
       }
     }
 
-    const amount = qty * rate;
+    const amount = roundToTwo(qty * rate);
     const gstRate = Number(item.gstRate || 0);
-    const gstAmount = amount * (gstRate / 100);
-    const lineTotal = amount + gstAmount;
+    const gstAmount = roundToTwo(amount * (gstRate / 100));
+    const lineTotal = roundToTwo(amount + gstAmount);
 
     subtotal += amount;
     rawTaxAmount += gstAmount;
@@ -354,7 +392,8 @@ export const createProjectInvoice = async (
   }
 
   // 5. Calculate Financial Totals
-  const discount = Number(input.discount || 0);
+  subtotal = roundToTwo(subtotal);
+  const discount = roundToTwo(Number(input.discount || 0));
   if (discount < 0) {
     const error = new Error('Discount cannot be negative');
     (error as any).statusCode = 400;
@@ -367,10 +406,11 @@ export const createProjectInvoice = async (
     throw error;
   }
 
-  const taxableAmount = subtotal - discount;
+  const taxableAmount = roundToTwo(subtotal - discount);
   const taxRatio = subtotal > 0 ? taxableAmount / subtotal : 1;
-  const taxAmount = rawTaxAmount * taxRatio;
-  const grandTotal = taxableAmount + taxAmount;
+  const taxAmount = roundToTwo(rawTaxAmount * taxRatio);
+  const outputGst = taxAmount;
+  const grandTotal = roundToTwo(taxableAmount + taxAmount);
   const amountPaid = 0;
   const balanceDue = grandTotal;
 
@@ -392,7 +432,7 @@ export const createProjectInvoice = async (
   const invoiceDoc = await ProjectInvoice.create({
     invoiceNumber,
     project: projectObj._id,
-    customer: customerObj._id,
+    customer: customerObj?._id || undefined,
     customerSnapshot,
     projectSnapshot,
     invoiceDate,
@@ -402,6 +442,7 @@ export const createProjectInvoice = async (
     discount,
     taxableAmount,
     taxAmount,
+    outputGst,
     grandTotal,
     notes: input.notes ? input.notes.trim() : undefined,
     status: 'UNPAID',

@@ -1,6 +1,7 @@
 import request from 'supertest';
 import app from '../../src/app';
 import { getAuthToken } from '../helpers/auth.helper';
+import { createTestCustomer } from '../helpers/customer.helper';
 
 describe('Projects API integration tests (Phase 7.1)', () => {
   let adminToken: string;
@@ -16,26 +17,18 @@ describe('Projects API integration tests (Phase 7.1)', () => {
     warehouseToken = await getAuthToken('WAREHOUSE');
     accountsToken = await getAuthToken('ACCOUNTS');
 
-    // Create a customer for testing projects
-    const customerRes = await request(app)
-      .post('/api/customers')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        name: 'ABC Developers',
-        mobile: `9${Math.floor(100000000 + Math.random() * 900000000)}`,
-        email: `abc_${Date.now()}@abcdev.com`,
-        businessName: 'ABC Developers Pvt Ltd',
-        gstNumber: '27ABCDE1234F1Z5',
-        type: 'WHOLESALE',
-        status: 'ACTIVE',
-        address: 'MG Road, Pune',
-      });
-
-    if (customerRes.status !== 201) {
-      console.error('Customer Creation Failed:', customerRes.body);
-    }
-    expect(customerRes.status).toBe(201);
-    customerId = customerRes.body.data.id;
+    // Create a customer fixture for testing projects
+    const customer = await createTestCustomer({
+      name: 'ABC Developers',
+      mobile: `9${Math.floor(100000000 + Math.random() * 900000000)}`,
+      email: `abc_${Date.now()}@abcdev.com`,
+      businessName: 'ABC Developers Pvt Ltd',
+      gstNumber: '27ABCDE1234F1Z5',
+      type: 'WHOLESALE',
+      status: 'ACTIVE',
+      address: 'MG Road, Pune',
+    });
+    customerId = customer._id.toString();
   });
 
   describe('POST /api/projects - Create Project', () => {
@@ -77,6 +70,23 @@ describe('Projects API integration tests (Phase 7.1)', () => {
           siteAddress: 'Hinjewadi, Pune',
           startDate: '2026-07-01',
           status: 'IN_PROGRESS',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.projectCode).toBe(code);
+    });
+
+    it('should create a valid project without customer', async () => {
+      const code = `PRJ-NOCUST-${Date.now()}`;
+      const res = await request(app)
+        .post('/api/projects')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          projectCode: code,
+          name: 'Direct Contractor Site',
+          siteAddress: 'Baner, Pune',
+          startDate: '2026-08-01',
+          budget: 2500000,
         });
 
       expect(res.status).toBe(201);

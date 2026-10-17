@@ -34,6 +34,8 @@ export interface IPurchase extends Document {
   cgst?: number;
   sgst?: number;
   igst?: number;
+  roundedOffAmount?: number | null;
+  roundedOffType?: 'add' | 'less' | null;
   totalAmount: number;
   notes?: string;
   createdBy: mongoose.Types.ObjectId;
@@ -79,6 +81,8 @@ const purchaseSchema = new Schema<IPurchase>(
     cgst: { type: Number, min: 0 },
     sgst: { type: Number, min: 0 },
     igst: { type: Number, min: 0 },
+    roundedOffAmount: { type: Number, default: null },
+    roundedOffType: { type: String, enum: ['add', 'less', null], default: null },
     totalAmount: { type: Number, required: true, min: 0 },
     notes: { type: String, trim: true },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },

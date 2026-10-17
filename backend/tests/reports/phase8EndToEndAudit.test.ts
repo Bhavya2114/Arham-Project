@@ -2,6 +2,7 @@ import request from 'supertest';
 import mongoose from 'mongoose';
 import app from '../../src/app';
 import { getAuthToken } from '../helpers/auth.helper';
+import { createTestCustomer } from '../helpers/customer.helper';
 import { Product } from '../../src/models/Product';
 import { ProjectInvoice } from '../../src/models/ProjectInvoice';
 
@@ -30,22 +31,18 @@ describe('Phase 8: Comprehensive End-to-End GST & Profitability Integration Syst
     expect(supRes.status).toBe(201);
     supplierId = supRes.body.data.id;
 
-    // Customer
-    const custRes = await request(app)
-      .post('/api/customers')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        name: 'Phase 8 Audit Client',
-        mobile: `9${Math.floor(100000000 + Math.random() * 900000000)}`,
-        email: `p8_client_${Date.now()}@client.com`,
-        businessName: 'Phase 8 Infra Corp',
-        gstNumber: '27P8CLIENT5678Z2',
-        type: 'WHOLESALE',
-        status: 'ACTIVE',
-        address: 'BKC, Mumbai',
-      });
-    expect(custRes.status).toBe(201);
-    customerId = custRes.body.data.id;
+    // Customer fixture
+    const customer = await createTestCustomer({
+      name: 'Phase 8 Audit Client',
+      mobile: `9${Math.floor(100000000 + Math.random() * 900000000)}`,
+      email: `p8_client_${Date.now()}@client.com`,
+      businessName: 'Phase 8 Infra Corp',
+      gstNumber: '27P8CLIENT5678Z2',
+      type: 'WHOLESALE',
+      status: 'ACTIVE',
+      address: 'BKC, Mumbai',
+    });
+    customerId = customer._id.toString();
   });
 
   // Helpers

@@ -79,8 +79,41 @@ export const createPurchaseSchema = z
     cgst: z.coerce.number().nonnegative('CGST must be non-negative').optional(),
     sgst: z.coerce.number().nonnegative('SGST must be non-negative').optional(),
     igst: z.coerce.number().nonnegative('IGST must be non-negative').optional(),
+    roundOff: z.preprocess((v) => {
+      if (v === undefined || v === null || v === '') return null;
+      const num = Number(v);
+      return isNaN(num) ? null : num;
+    }, z.number().nullable().optional()),
+    roundedOffAmount: z.preprocess((v) => {
+      if (v === undefined || v === null || v === '') return null;
+      const num = Number(v);
+      return isNaN(num) ? null : num;
+    }, z.number().nullable().optional().default(null)),
+    roundedOffType: z.preprocess((v) => {
+      if (v === 'add' || v === 'less') return v;
+      return null;
+    }, z.enum(['add', 'less']).nullable().optional().default(null)),
     items: z.array(purchaseItemSchema).min(1, 'At least one item is required'),
     notes: optionalString,
+  })
+  .transform((data) => {
+    // Primary field priority: roundedOffAmount takes priority over legacy roundOff
+    let amount = data.roundedOffAmount !== null && data.roundedOffAmount !== undefined
+      ? data.roundedOffAmount
+      : (data.roundOff !== null && data.roundOff !== undefined ? data.roundOff : null);
+
+    let type = data.roundedOffType;
+    if (amount !== null && !type) {
+      type = amount < 0 ? 'less' : 'add';
+    } else if (amount === null) {
+      type = null;
+    }
+
+    return {
+      ...data,
+      roundedOffAmount: amount,
+      roundedOffType: type,
+    };
   })
   .refine(
     (data) => Boolean((data.supplierId && data.supplierId.trim().length > 0) || (data.newSupplier && data.newSupplier.name && data.newSupplier.name.trim().length > 0)),

@@ -2,6 +2,7 @@ import request from 'supertest';
 import mongoose from 'mongoose';
 import app from '../../src/app';
 import { getAuthToken } from '../helpers/auth.helper';
+import { createTestCustomer } from '../helpers/customer.helper';
 import { Purchase } from '../../src/models/Purchase';
 import { ProjectInvoice } from '../../src/models/ProjectInvoice';
 
@@ -31,22 +32,18 @@ describe('Phase 5: GST / ITC Reporting & Profitability Isolation Integration Tes
     expect(supRes.status).toBe(201);
     supplierId = supRes.body.data.id;
 
-    // 2. Create Customer
-    const custRes = await request(app)
-      .post('/api/customers')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        name: 'Phase 5 Infrastructure Client',
-        mobile: `9${Math.floor(100000000 + Math.random() * 900000000)}`,
-        email: `client_phase5_${Date.now()}@infra.com`,
-        businessName: 'Phase 5 Infra Ltd',
-        gstNumber: '27AAAAA0000A1Z5',
-        type: 'WHOLESALE',
-        status: 'ACTIVE',
-        address: 'Bandra Kurla Complex, Mumbai',
-      });
-    expect(custRes.status).toBe(201);
-    customerId = custRes.body.data.id;
+    // 2. Create Customer fixture
+    const customer = await createTestCustomer({
+      name: 'Phase 5 Infrastructure Client',
+      mobile: `9${Math.floor(100000000 + Math.random() * 900000000)}`,
+      email: `client_phase5_${Date.now()}@infra.com`,
+      businessName: 'Phase 5 Infra Ltd',
+      gstNumber: '27AAAAA0000A1Z5',
+      type: 'WHOLESALE',
+      status: 'ACTIVE',
+      address: 'Bandra Kurla Complex, Mumbai',
+    });
+    customerId = customer._id.toString();
 
     // 3. Create Project with Budget = ₹2,000 (Excl. GST)
     const projRes = await request(app)

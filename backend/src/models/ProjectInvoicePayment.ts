@@ -42,7 +42,7 @@ const projectInvoicePaymentSchema = new Schema<IProjectInvoicePayment>(
     customer: {
       type: Schema.Types.ObjectId,
       ref: 'Customer',
-      required: true,
+      required: false,
       index: true,
     },
     amount: {

@@ -1,7 +1,6 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import authRoutes from './routes/auth.routes';
-import customerRoutes from './routes/customer.routes';
 import productRoutes from './routes/product.routes';
 import categoryRoutes from './routes/category.routes';
 import supplierRoutes from './routes/supplier.routes';
@@ -12,6 +11,8 @@ import materialConsumptionRoutes from './routes/materialConsumption.routes';
 import projectExpenseRoutes from './routes/projectExpense.routes';
 import projectInvoiceRoutes from './routes/projectInvoice.routes';
 import projectInvoicePaymentRoutes from './routes/projectInvoicePayment.routes';
+import labourRoutes from './routes/labour.routes';
+import labourPaymentRoutes from './routes/labourPayment.routes';
 import { notFoundHandler } from './middleware/notFound.middleware';
 import { errorHandler } from './middleware/error.middleware';
 import { successResponse } from './utils/apiResponse';
@@ -81,7 +82,6 @@ app.get('/api/health', (_req: Request, res: Response) => {
 });
 
 app.use('/api/auth', authRoutes);
-app.use('/api/customers', customerRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/suppliers', supplierRoutes);
@@ -91,6 +91,8 @@ app.use('/api/material-consumptions', materialConsumptionRoutes);
 app.use('/api/project-expenses', projectExpenseRoutes);
 app.use('/api/project-invoices', projectInvoiceRoutes);
 app.use('/api/project-invoice-payments', projectInvoicePaymentRoutes);
+app.use('/api/labours', labourRoutes);
+app.use('/api/labour-payments', labourPaymentRoutes);
 app.use('/api/reports', reportsRoutes);
 
 app.get('/', (_req: Request, res: Response) => {

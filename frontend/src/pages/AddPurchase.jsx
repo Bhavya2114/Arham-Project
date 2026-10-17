@@ -14,6 +14,7 @@ import {
   FaInfoCircle
 } from 'react-icons/fa';
 import { calculateLineItem } from '../utils/purchaseCalculations';
+import { formatDateToIndian, formatDateShortMonth, toApiDateFormat } from '../utils/dateUtils';
 
 const AddPurchase = () => {
   const navigate = useNavigate();
@@ -44,9 +45,19 @@ const AddPurchase = () => {
   // Header 4 fields
   const [invoiceNumber, setInvoiceNumber] = useState(incomingState.invoiceNumber || '');
   const [invoiceDate, setInvoiceDate] = useState(
-    incomingState.invoiceDate || new Date().toISOString().split('T')[0]
+    incomingState.invoiceDate ? toApiDateFormat(incomingState.invoiceDate) : new Date().toISOString().split('T')[0]
   );
   const [notes, setNotes] = useState(incomingState.notes || '');
+
+  // Rounded-off amount & type preserved from scanned bill
+  const [roundedOffAmount] = useState(
+    incomingState.roundedOffAmount !== undefined && incomingState.roundedOffAmount !== null
+      ? incomingState.roundedOffAmount
+      : (incomingState.roundOff !== undefined && incomingState.roundOff !== null ? incomingState.roundOff : null)
+  );
+  const [roundedOffType] = useState(
+    incomingState.roundedOffType || (incomingState.roundedOffAmount !== undefined && incomingState.roundedOffAmount !== null ? (incomingState.roundedOffAmount < 0 ? 'less' : 'add') : null)
+  );
 
   const createEmptyItemRow = () => ({
     id: Date.now() + Math.random(),
@@ -351,12 +362,17 @@ const AddPurchase = () => {
         email: newSupplier?.email || undefined,
       } : null,
       invoiceNumber: invoiceNumber.trim(),
-      invoiceDate,
+      invoiceDate: toApiDateFormat(invoiceDate),
       notes: notes ? notes.trim() : '',
       totalDiscount: calculatedItems.reduce((acc, i) => acc + (i.discountAmount || 0), 0),
       cgst: incomingState.cgst !== undefined ? incomingState.cgst : undefined,
       sgst: incomingState.sgst !== undefined ? incomingState.sgst : undefined,
       igst: incomingState.igst !== undefined ? incomingState.igst : undefined,
+      roundedOffAmount: roundedOffAmount !== null && roundedOffAmount !== undefined ? Number(roundedOffAmount) : null,
+      roundedOffType: roundedOffType || (roundedOffAmount !== null && roundedOffAmount !== undefined ? (Number(roundedOffAmount) < 0 ? 'less' : 'add') : null),
+      roundOff: roundedOffAmount !== null && roundedOffAmount !== undefined ? Number(roundedOffAmount) : null,
+      extractedGrandTotal: incomingState.extractedGrandTotal ?? null,
+      warnings: incomingState.warnings || [],
       items: calculatedItems.map((i) => ({
         id: i.id,
         productId: i.isNewProduct ? '' : i.productId,
@@ -552,16 +568,31 @@ const AddPurchase = () => {
 
               {/* Field 3: Invoice Date */}
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">
-                  Invoice Date <span className="text-red-500">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-gray-700">
+                    Invoice Date <span className="text-red-500">*</span>
+                  </label>
+                  {invoiceDate && (
+                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                      {formatDateToIndian(invoiceDate)} ({formatDateShortMonth(invoiceDate)})
+                    </span>
+                  )}
+                </div>
                 <input
                   type="date"
                   required
                   value={invoiceDate}
                   onChange={(e) => setInvoiceDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs font-medium text-gray-900 bg-gray-50/50 focus:bg-white focus:outline-none focus:border-emerald-500"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs font-medium text-gray-900 bg-gray-50/50 focus:bg-white focus:outline-none focus:border-emerald-500 shadow-sm"
                 />
+                <div className="mt-1 flex items-center justify-between text-[11px] text-gray-400">
+                  <span>Standard Indian format: <strong>DD/MM/YYYY</strong></span>
+                  {invoiceDate && (
+                    <span className="text-slate-600 font-medium">
+                      Display: <strong className="text-emerald-700">{formatDateToIndian(invoiceDate)}</strong>
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Field 4: Notes (Optional) */}

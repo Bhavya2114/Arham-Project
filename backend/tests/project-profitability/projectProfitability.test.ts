@@ -1,6 +1,7 @@
 import request from 'supertest';
 import app from '../../src/app';
 import { getAuthToken } from '../helpers/auth.helper';
+import { createTestCustomer } from '../helpers/customer.helper';
 
 describe('Project Profitability Engine: Budget vs Actual Cost (Phase 4)', () => {
   let adminToken: string;
@@ -11,22 +12,18 @@ describe('Project Profitability Engine: Budget vs Actual Cost (Phase 4)', () => 
     adminToken = await getAuthToken('ADMIN');
     accountsToken = await getAuthToken('ACCOUNTS');
 
-    // Create Customer
-    const custRes = await request(app)
-      .post('/api/customers')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        name: 'Godrej Properties Ltd',
-        mobile: `9${Math.floor(100000000 + Math.random() * 900000000)}`,
-        email: `godrej_${Date.now()}@realestate.com`,
-        businessName: 'Godrej Real Estate',
-        gstNumber: '27GODREJ1234F1Z1',
-        type: 'WHOLESALE',
-        status: 'ACTIVE',
-        address: 'Vikhroli, Mumbai',
-      });
-    expect(custRes.status).toBe(201);
-    customerId = custRes.body.data.id;
+    // Create Customer fixture
+    const customer = await createTestCustomer({
+      name: 'Godrej Properties Ltd',
+      mobile: `9${Math.floor(100000000 + Math.random() * 900000000)}`,
+      email: `godrej_${Date.now()}@realestate.com`,
+      businessName: 'Godrej Real Estate',
+      gstNumber: '27GODREJ1234F1Z1',
+      type: 'WHOLESALE',
+      status: 'ACTIVE',
+      address: 'Vikhroli, Mumbai',
+    });
+    customerId = customer._id.toString();
   });
 
   // Helper to create product

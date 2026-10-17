@@ -47,6 +47,7 @@ export interface IProjectInvoice extends Document {
   discount: number;
   taxableAmount: number;
   taxAmount: number;
+  outputGst?: number;
   grandTotal: number;
   notes?: string;
   status: ProjectInvoiceStatus;
@@ -123,7 +124,7 @@ const projectInvoiceSchema = new Schema<IProjectInvoice>(
     customer: {
       type: Schema.Types.ObjectId,
       ref: 'Customer',
-      required: true,
+      required: false,
       index: true,
     },
     customerSnapshot: {
@@ -164,6 +165,12 @@ const projectInvoiceSchema = new Schema<IProjectInvoice>(
       min: 0,
     },
     taxAmount: {
+      type: Number,
+      required: true,
+      default: 0,
+      min: 0,
+    },
+    outputGst: {
       type: Number,
       required: true,
       default: 0,
