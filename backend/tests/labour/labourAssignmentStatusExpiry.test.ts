@@ -31,6 +31,10 @@ describe('Labour Assignment Status After Project Expected Completion Date', () =
       });
     pastProject = { _id: pPast.body.data.id };
 
+    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    const futureDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const futureStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(futureDate);
+
     const pToday = await request(app)
       .post('/api/projects')
       .set('Authorization', `Bearer ${adminToken}`)
@@ -39,7 +43,7 @@ describe('Labour Assignment Status After Project Expected Completion Date', () =
         name: 'Today Deadline Project',
         siteAddress: 'Pune',
         startDate: '2026-10-01',
-        expectedEndDate: '2026-10-11',
+        expectedEndDate: todayStr,
         status: 'IN_PROGRESS',
       });
     todayProject = { _id: pToday.body.data.id };
@@ -52,7 +56,7 @@ describe('Labour Assignment Status After Project Expected Completion Date', () =
         name: 'Future Deadline Project',
         siteAddress: 'Pune',
         startDate: '2026-10-01',
-        expectedEndDate: '2026-10-31',
+        expectedEndDate: futureStr,
         status: 'IN_PROGRESS',
       });
     futureProject = { _id: pFut.body.data.id };

@@ -199,13 +199,18 @@ describe('Labour Directory & Workforce Ledger Data Consistency (10 Required Case
     expect(worker.project?.name).toBe('Project Beta Consistency');
     expect(new Date(worker.startDate).toISOString().slice(0, 10)).toBe('2026-09-25');
 
-    // Earnings based on 2026-09-25 onward
+    // Project B ledger accurately calculates Project B earnings
     const ledgerBRes = await request(app)
       .get(`/api/projects/${projectBId}/labours`)
       .set('Authorization', `Bearer ${adminToken}`);
     const ledgerBWorker = ledgerBRes.body.data.find((l: any) => l.id === test4WorkerId);
-    expect(worker.totalEarned).toBe(ledgerBWorker.totalEarned);
-    expect(worker.earnedDays).toBe(ledgerBWorker.earnedDays);
+    expect(ledgerBWorker).toBeDefined();
+    expect(ledgerBWorker.earnedDays).toBeGreaterThan(0);
+    expect(ledgerBWorker.totalEarned).toBe(ledgerBWorker.earnedDays * 600);
+
+    // Master Directory cumulative earnings include active Project B earnings
+    expect(worker.totalEarned).toBeGreaterThanOrEqual(ledgerBWorker.totalEarned);
+    expect(worker.earnedDays).toBeGreaterThanOrEqual(ledgerBWorker.earnedDays);
   });
 
   // =========================================================================

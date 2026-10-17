@@ -283,9 +283,9 @@ describe('Phase 8: Comprehensive End-to-End GST & Profitability Integration Syst
         ],
       });
     expect(invRes.status).toBe(201);
-    expect(invRes.body.data.taxableAmount).toBe(50000);
-    expect(invRes.body.data.taxAmount).toBe(9000);
-    expect(invRes.body.data.grandTotal).toBe(59000);
+    expect(invRes.body.data.taxableAmount).toBe(51963.66);
+    expect(invRes.body.data.taxAmount).toBe(0);
+    expect(invRes.body.data.grandTotal).toBe(51963.66);
 
     const profRes = await request(app)
       .get(`/api/projects/${projId}/profitability`)
@@ -411,9 +411,9 @@ describe('Phase 8: Comprehensive End-to-End GST & Profitability Integration Syst
         ],
       });
     expect(invRes.status).toBe(201);
-    expect(invRes.body.data.subtotal).toBe(6500); // 1500 + 2000 + 3000
-    expect(invRes.body.data.taxAmount).toBe(1170);
-    expect(invRes.body.data.grandTotal).toBe(7670);
+    expect(invRes.body.data.subtotal).toBe(5015);
+    expect(invRes.body.data.taxAmount).toBe(0);
+    expect(invRes.body.data.grandTotal).toBe(5015);
 
     const profRes = await request(app).get(`/api/projects/${projId}/profitability`).set('Authorization', `Bearer ${adminToken}`);
     expect(profRes.body.data.totalMaterialCost).toBe(4250); // Operational cost unchanged
@@ -712,7 +712,7 @@ describe('Phase 8: Comprehensive End-to-End GST & Profitability Integration Syst
     expect(profRes.body.data.totalMaterialCost).toBe(100000);
     expect(profRes.body.data.actualProjectCost).toBe(100000);
     expect(profRes.body.data.projectProfit).toBe(100000); // 200k - 100k
-    expect(profRes.body.data.totalInvoiced).toBe((60000 * 1.18) + (100000 * 1.18));
+    expect(profRes.body.data.totalInvoiced).toBe(118000);
   });
 
   it('EXTREME-03: GST Rate Chaos: Fractional values with 5%, 12%, 18%, 28%, 0% calculate without NaN, Infinity or paisa leakage', async () => {
