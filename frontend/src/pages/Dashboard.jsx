@@ -37,29 +37,31 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Three requests at once: totals, project list (for overdue + names), workers (for balances)
+  // Three requests at once: totals, project list (for overdue + names), workers (for balances).
+  // Each one fills its own part, so one slow or failed call doesn't blank the whole page.
+  const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
     const load = async () => {
       setLoading(true);
-      try {
-        const [sumRes, projRes, labourList] = await Promise.all([
-          axiosInstance.get('/reports/dashboard'),
-          axiosInstance.get('/projects'),
-          getLabours(),
-        ]);
-        setSummary(sumRes.data.data);
-        setProjects(projRes.data.data || []);
-        setLabours(labourList || []);
+      const [sumRes, projRes, labourRes] = await Promise.allSettled([
+        axiosInstance.get('/reports/dashboard'),
+        axiosInstance.get('/projects'),
+        getLabours(),
+      ]);
+      if (sumRes.status === 'fulfilled') setSummary(sumRes.value.data.data);
+      if (projRes.status === 'fulfilled') setProjects(projRes.value.data.data || []);
+      if (labourRes.status === 'fulfilled') setLabours(labourRes.value || []);
+      const failed = [sumRes, projRes, labourRes].filter((r) => r.status === 'rejected');
+      if (failed.length) {
+        failed.forEach((r) => console.error('Error fetching dashboard:', r.reason));
+        setError('Could not load the dashboard.');
+      } else {
         setError(null);
-      } catch (err) {
-        console.error('Error fetching dashboard:', err);
-        setError('Could not load the dashboard. Please refresh.');
-      } finally {
-        setLoading(false);
       }
+      setLoading(false);
     };
     load();
-  }, []);
+  }, [reloadKey]);
 
   // The page itself never scrolls: the bottom row gets the height that is left and its boxes scroll inside
   const bottomRef = useRef(null);
@@ -184,7 +186,17 @@ const Dashboard = () => {
       </div>
 
       {error && (
-        <div className="px-4 py-3 bg-red-500/10 border border-red-400/30 text-red-300 rounded-xl text-sm">{error}</div>
+        <div className="flex items-center justify-between gap-3 px-4 py-3 bg-red-500/10 border border-red-400/30 text-red-300 rounded-xl text-sm">
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => setReloadKey((k) => k + 1)}
+            disabled={loading}
+            className="px-3 py-1 rounded-md border border-red-400/40 text-red-200 hover:bg-red-500/10 disabled:opacity-50"
+          >
+            {loading ? 'Loading...' : 'Try again'}
+          </button>
+        </div>
       )}
 
       {/* Three cards */}

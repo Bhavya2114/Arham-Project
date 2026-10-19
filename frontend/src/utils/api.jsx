@@ -24,10 +24,27 @@ axiosInstance.interceptors.request.use(
   }
 );
 
-// Response interceptor to handle 401 unauthorized errors
+// The Render backend sleeps when idle and answers 502/503/504 (or nothing) while it wakes up.
+// Read requests are retried a few times so a cold start doesn't show as an error.
+const RETRY_DELAYS_MS = [2000, 5000, 10000];
+const isWakingUp = (error) =>
+  !error.response || [502, 503, 504].includes(error.response.status);
+
+// Response interceptor to retry reads during a cold start and handle 401 unauthorized errors
 axiosInstance.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    const config = error.config;
+    if (config && (config.method || "get").toLowerCase() === "get" && !axios.isCancel(error) && isWakingUp(error)) {
+      config.__retryCount = config.__retryCount || 0;
+      if (config.__retryCount < RETRY_DELAYS_MS.length) {
+        const delay = RETRY_DELAYS_MS[config.__retryCount];
+        config.__retryCount += 1;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        return axiosInstance(config);
+      }
+    }
+
     if (error.response && error.response.status === 401) {
       localStorage.removeItem("ims_token");
       localStorage.removeItem("ims_user");
