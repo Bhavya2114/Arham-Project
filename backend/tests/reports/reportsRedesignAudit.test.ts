@@ -82,7 +82,7 @@ describe('Reports & Analytics Redesign Audit Suite (Section 28)', () => {
 
     it('UI contains Projects Profitability as the ONLY report tab and no Purchase or GST tabs', () => {
       expect(reportsJsxContent).toContain('>Reports</h1>');
-      expect(reportsJsxContent).toContain('Projects Profitability');
+      expect(reportsJsxContent).toContain("axiosInstance.get('/reports/projects-profitability')");
       expect(reportsJsxContent).not.toMatch(/GST & Tax Summary/i);
       expect(reportsJsxContent).not.toContain("setActiveTab('gst')");
       expect(reportsJsxContent).not.toMatch(/<button[^>]*>\s*Purchase Report\s*<\/button>/i);
@@ -93,12 +93,12 @@ describe('Reports & Analytics Redesign Audit Suite (Section 28)', () => {
   describe('2. KPI cards display', () => {
     it('Frontend contains Total projects KPI card', () => {
       expect(reportsJsxContent).toContain('Total projects');
-      expect(reportsJsxContent).toContain('totalProjectsCount');
+      expect(reportsJsxContent).toContain('value: allCount');
     });
 
     it('Frontend contains Total profit KPI card', () => {
       expect(reportsJsxContent).toContain('Total profit');
-      expect(reportsJsxContent).toContain('totalProfitSum');
+      expect(reportsJsxContent).toContain('formatRupees(totals.profit)');
     });
 
     it('Received and pending collection KPI cards were removed in the redesign', () => {
@@ -119,9 +119,9 @@ describe('Reports & Analytics Redesign Audit Suite (Section 28)', () => {
 
   describe('4. Project status displays in cards', () => {
     it('Displays status pill on each project card', () => {
-      expect(reportsJsxContent).toContain('getCardStatusBadge(p.status)');
-      expect(reportsJsxContent).toContain('statusBadge.label');
-      expect(reportsJsxContent).toContain('statusBadge.className');
+      expect(reportsJsxContent).toContain('<StatusBadge status={p.status} />');
+      expect(reportsJsxContent).toContain('{badge.label}');
+      expect(reportsJsxContent).toContain('badge.cls');
     });
 
     it('getCardStatusBadge correctly maps COMPLETED and IN_PROGRESS/ACTIVE', () => {
@@ -133,7 +133,7 @@ describe('Reports & Analytics Redesign Audit Suite (Section 28)', () => {
   describe('5. Project profit displays', () => {
     it('Project profit heading and formatted currency are rendered', () => {
       expect(reportsJsxContent).toContain('Project profit');
-      expect(reportsJsxContent).toContain('formatIndianCurrency(profit)');
+      expect(reportsJsxContent).toContain('formatRupees(profit)');
     });
   });
 
@@ -147,9 +147,9 @@ describe('Reports & Analytics Redesign Audit Suite (Section 28)', () => {
   describe('7. Budget progress displays', () => {
     it('Shows Budget used label, percentage and progress bar', () => {
       expect(reportsJsxContent).toContain('Budget used');
-      expect(reportsJsxContent).toContain('{budgetUsedPercent}%');
-      expect(reportsJsxContent).toContain('budgetUsedPercent > 80 ?');
-      expect(reportsJsxContent).toContain('style={{ width: `${Math.min(100, Math.max(0, budgetUsedPercent))}%` }}');
+      expect(reportsJsxContent).toContain('{budgetUsed}%');
+      expect(reportsJsxContent).toContain('if (used > 80)');
+      expect(reportsJsxContent).toContain('style={{ width: `${Math.min(100, Math.max(0, budgetUsed))}%` }}');
     });
   });
 
@@ -184,11 +184,11 @@ describe('Reports & Analytics Redesign Audit Suite (Section 28)', () => {
     });
 
     it('Drawer displays selected project details and financial breakdown', () => {
-      expect(reportsJsxContent).toContain('{selectedProject.projectName}');
-      expect(reportsJsxContent).toContain('{selectedProject.projectCode}');
-      expect(reportsJsxContent).toContain('{selectedProject.customerName');
-      expect(reportsJsxContent).toContain('Project details');
-      expect(reportsJsxContent).toContain('Costs');
+      expect(reportsJsxContent).toContain('const p = selectedProject;');
+      expect(reportsJsxContent).toContain('{capitalise(p.projectName)}');
+      expect(reportsJsxContent).toContain('text: p.projectCode');
+      expect(reportsJsxContent).toContain("text: p.customerName || 'No client'");
+      expect(reportsJsxContent).toContain('Where the money went');
     });
 
     it('Close button resets selectedProject', () => {
@@ -198,8 +198,8 @@ describe('Reports & Analytics Redesign Audit Suite (Section 28)', () => {
 
   describe('13. Open Project navigates to existing Project Details', () => {
     it('Open Project button calls navigate with /projects/:id', () => {
-      expect(reportsJsxContent).toContain('navigate(`/projects/${selectedProject.projectId}`)');
-      expect(reportsJsxContent).toContain('Open Project');
+      expect(reportsJsxContent).toContain('navigate(`/projects/${p.projectId}`)');
+      expect(reportsJsxContent).toContain('Open project');
     });
   });
 

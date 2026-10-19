@@ -18,8 +18,9 @@ describe('Reports & Analytics Tab Cleanup & Inventory Preservation Suite', () =>
 
   describe('Frontend Reports & Analytics UI Navigation Verification', () => {
     it('1. Reports page contains Projects Profitability tab', () => {
-      expect(reportsJsxContent).toMatch(/Projects Profitability/i);
-      expect(reportsJsxContent).toContain("setActiveTab('projects')");
+      // The page now shows only the projects profitability report, with no tabs
+      expect(reportsJsxContent).toContain("axiosInstance.get('/reports/projects-profitability')");
+      expect(reportsJsxContent).not.toContain('setActiveTab(');
     });
 
     it('2. Reports page does NOT contain Purchase Report tab and cannot select it', () => {

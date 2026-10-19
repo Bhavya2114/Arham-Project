@@ -38,8 +38,9 @@ describe('Project Profitability Report Count & Status Audit Suite', () => {
 
   describe('Frontend Reports.jsx UI Verification', () => {
     it('1. Report count badge displays "X Projects", NOT "X Active Projects"', () => {
-      // Must contain {projectsProfitability.length} Projects
-      expect(reportsJsxContent).toMatch(/\{projectsProfitability\.length\}\s+Projects/);
+      // The count is shown as the "Total projects" card
+      expect(reportsJsxContent).toContain('const allCount = projectsProfitability.length;');
+      expect(reportsJsxContent).toContain("{ label: 'Total projects', value: allCount");
       // Must NOT contain Active Projects in the Projects Profitability section
       expect(reportsJsxContent).not.toMatch(/\{projectsProfitability\.length\}\s+Active\s+Projects/i);
     });
@@ -55,8 +56,8 @@ describe('Project Profitability Report Count & Status Audit Suite', () => {
       expect(headerBudgetIndex).toBeGreaterThan(headerStatusIndex);
 
       // Check table body row contains status cell
-      expect(reportsJsxContent).toContain('STATUS_BADGES[p.status]');
-      expect(reportsJsxContent).toContain("p.status.replace('_', ' ')");
+      expect(reportsJsxContent).toContain('STATUS_BADGES[status]');
+      expect(reportsJsxContent).toContain("replace('_', ' ')");
     });
   });
 
