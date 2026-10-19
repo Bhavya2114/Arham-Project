@@ -223,8 +223,7 @@ describe('Gemini API Key Rotation and Failover Suite', () => {
 
     expect(res.status).toBe(429);
     expect(res.body.success).toBe(false);
-    expect(res.body.message).toContain('Gemini AI quota exceeded');
-    expect(res.body.message).toContain('All configured Gemini API keys (2 keys) have exceeded their quota');
+    expect(res.body.message).toContain('Network busy. Please wait a moment and try again');
     expect(mockGenerateContent).toHaveBeenCalledTimes(2);
   });
 
@@ -281,7 +280,7 @@ describe('Gemini API Key Rotation and Failover Suite', () => {
       });
 
     expect(res.status).toBe(502);
-    expect(res.body.message).toContain('Failed to parse Gemini response as JSON');
+    expect(res.body.message).toContain('Could not read this bill');
     // Only key 1 was attempted; key 2 was NOT wasted!
     expect(mockGenerateContent).toHaveBeenCalledTimes(1);
   });

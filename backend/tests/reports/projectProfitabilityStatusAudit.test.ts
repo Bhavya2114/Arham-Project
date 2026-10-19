@@ -48,7 +48,7 @@ describe('Project Profitability Report Count & Status Audit Suite', () => {
       // Check the table header order: Code followed by Status
       const headerCodeIndex = reportsJsxContent.indexOf('<th className="px-4 py-3">Code</th>');
       const headerStatusIndex = reportsJsxContent.indexOf('<th className="px-4 py-3 text-center">Status</th>');
-      const headerBudgetIndex = reportsJsxContent.indexOf('<th className="px-4 py-3 text-right">Project Budget (Excl. GST) (₹)</th>');
+      const headerBudgetIndex = reportsJsxContent.indexOf('<th className="px-4 py-3 text-right">Budget</th>');
 
       expect(headerCodeIndex).toBeGreaterThan(-1);
       expect(headerStatusIndex).toBeGreaterThan(headerCodeIndex);

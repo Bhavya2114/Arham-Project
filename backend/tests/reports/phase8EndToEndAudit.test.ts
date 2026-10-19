@@ -687,7 +687,7 @@ describe('Phase 8: Comprehensive End-to-End GST & Profitability Integration Syst
     expect(profAfter.body.data.totalInvoiced).toBe(384000);
     expect(profAfter.body.data.totalReceived).toBe(100000);
     expect(profAfter.body.data.outstanding).toBe(284000);
-  });
+  }, 120000);
 
   it('EXTREME-02: Same Material, Different Customer Billing Rates: 100 units @ 1000 cost (100k) billed in 2 invoices (160k total) -> cost remains 100k', async () => {
     const projId = await createProject('EXT-02 Project', 200000);

@@ -81,7 +81,7 @@ describe('Reports & Analytics Redesign Audit Suite (Section 28)', () => {
     });
 
     it('UI contains Projects Profitability as the ONLY report tab and no Purchase or GST tabs', () => {
-      expect(reportsJsxContent).toContain('Reports & Business Analytics');
+      expect(reportsJsxContent).toContain('>Reports</h1>');
       expect(reportsJsxContent).toContain('Projects Profitability');
       expect(reportsJsxContent).not.toMatch(/GST & Tax Summary/i);
       expect(reportsJsxContent).not.toContain("setActiveTab('gst')");
@@ -90,25 +90,20 @@ describe('Reports & Analytics Redesign Audit Suite (Section 28)', () => {
     });
   });
 
-  describe('2. Four KPI cards display', () => {
-    it('Frontend contains TOTAL PROJECTS KPI card', () => {
-      expect(reportsJsxContent).toContain('TOTAL PROJECTS');
+  describe('2. KPI cards display', () => {
+    it('Frontend contains Total projects KPI card', () => {
+      expect(reportsJsxContent).toContain('Total projects');
       expect(reportsJsxContent).toContain('totalProjectsCount');
     });
 
-    it('Frontend contains TOTAL PROFIT KPI card', () => {
-      expect(reportsJsxContent).toContain('TOTAL PROFIT');
+    it('Frontend contains Total profit KPI card', () => {
+      expect(reportsJsxContent).toContain('Total profit');
       expect(reportsJsxContent).toContain('totalProfitSum');
     });
 
-    it('Frontend contains TOTAL RECEIVED KPI card', () => {
-      expect(reportsJsxContent).toContain('TOTAL RECEIVED');
-      expect(reportsJsxContent).toContain('totalReceivedSum');
-    });
-
-    it('Frontend contains PENDING COLLECTION KPI card', () => {
-      expect(reportsJsxContent).toContain('PENDING COLLECTION');
-      expect(reportsJsxContent).toContain('pendingCollectionSum');
+    it('Received and pending collection KPI cards were removed in the redesign', () => {
+      expect(reportsJsxContent).not.toContain('TOTAL RECEIVED');
+      expect(reportsJsxContent).not.toContain('PENDING COLLECTION');
     });
   });
 
@@ -136,8 +131,8 @@ describe('Reports & Analytics Redesign Audit Suite (Section 28)', () => {
   });
 
   describe('5. Project profit displays', () => {
-    it('PROJECT PROFIT heading and formatted currency are rendered', () => {
-      expect(reportsJsxContent).toContain('PROJECT PROFIT');
+    it('Project profit heading and formatted currency are rendered', () => {
+      expect(reportsJsxContent).toContain('Project profit');
       expect(reportsJsxContent).toContain('formatIndianCurrency(profit)');
     });
   });
@@ -192,9 +187,8 @@ describe('Reports & Analytics Redesign Audit Suite (Section 28)', () => {
       expect(reportsJsxContent).toContain('{selectedProject.projectName}');
       expect(reportsJsxContent).toContain('{selectedProject.projectCode}');
       expect(reportsJsxContent).toContain('{selectedProject.customerName');
-      expect(reportsJsxContent).toContain('PROJECT DETAILS');
-      expect(reportsJsxContent).toContain('COSTS');
-      expect(reportsJsxContent).toContain('COLLECTIONS');
+      expect(reportsJsxContent).toContain('Project details');
+      expect(reportsJsxContent).toContain('Costs');
     });
 
     it('Close button resets selectedProject', () => {
@@ -218,7 +212,8 @@ describe('Reports & Analytics Redesign Audit Suite (Section 28)', () => {
     it('Detailed table headers and columns are preserved', () => {
       expect(reportsJsxContent).toContain('<th className="px-4 py-3">Code</th>');
       expect(reportsJsxContent).toContain('<th className="px-4 py-3 text-center">Status</th>');
-      expect(reportsJsxContent).toContain('<th className="px-4 py-3 text-right">Project Budget (Excl. GST) (₹)</th>');
+      expect(reportsJsxContent).toContain('<th className="px-4 py-3 text-right">Budget</th>');
+      expect(reportsJsxContent).toContain('<th className="px-4 py-3 text-right">Labour</th>');
     });
   });
 
