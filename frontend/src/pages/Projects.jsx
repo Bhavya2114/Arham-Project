@@ -1,31 +1,46 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import axiosInstance from '../utils/api';
 import { useToast } from '../context/ToastContext';
 import { getErrorMessage } from '../utils/apiError';
-import { formatDateToIndian } from '../utils/dateUtils';
+import { formatDateRange, toApiDateFormat } from '../utils/dateUtils';
 import ProjectFormModal from '../components/ProjectFormModal';
+import ConfirmationModal from '../components/ConfirmationModal';
+import { getLabours } from '../utils/labourService';
 import {
   FaBuilding,
+  FaHardHat,
+  FaCheckCircle,
   FaPlus,
   FaSearch,
-  FaFilter,
-  FaEye,
   FaEdit,
   FaTrash,
-  FaCalendarAlt,
   FaMapMarkerAlt,
   FaExclamationTriangle,
-  FaRupeeSign
+  FaArrowDown,
+  FaArrowUp
 } from 'react-icons/fa';
 
+// Rectangular outlined badges, same style as the worker profile
 const STATUS_BADGES = {
-  PLANNING: 'bg-blue-100 text-blue-800 border-blue-200',
-  IN_PROGRESS: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-  ON_HOLD: 'bg-amber-100 text-amber-800 border-amber-200',
-  COMPLETED: 'bg-purple-100 text-purple-800 border-purple-200',
-  CANCELLED: 'bg-rose-100 text-rose-800 border-rose-200',
+  PLANNING: { label: 'Planning', cls: 'bg-[#60A5FA]/10 text-[#93C5FD] border-[#60A5FA]/40' },
+  IN_PROGRESS: { label: 'In progress', cls: 'bg-[#22C55E]/10 text-[#4ADE80] border-[#22C55E]/40' },
+  ON_HOLD: { label: 'On hold', cls: 'bg-[#FFB82E]/10 text-[#FFC14D] border-[#FFB82E]/40' },
+  COMPLETED: { label: 'Completed', cls: 'bg-[#A78BFA]/10 text-[#C4B5FD] border-[#A78BFA]/40' },
+  CANCELLED: { label: 'Cancelled', cls: 'bg-[#F87171]/10 text-[#FCA5A5] border-[#F87171]/40' },
 };
+
+const getBudget = (p) => (p.budget !== undefined && p.budget !== null ? Number(p.budget) : null);
+const getEndDateKey = (p) => toApiDateFormat(p.expectedEndDate);
+
+// Today as YYYY-MM-DD in local time, to compare with project end dates
+const todayKey = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+// "pune" and "Pune" show the same way
+const capitalise = (text) => (text ? text.trim().charAt(0).toUpperCase() + text.trim().slice(1) : '');
 
 const Projects = () => {
   const navigate = useNavigate();
@@ -37,6 +52,15 @@ const Projects = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  // Project being edited in the popup (null = creating a new one)
+  const [editingProject, setEditingProject] = useState(null);
+  const [sortBy, setSortBy] = useState('newest');
+  const [sortDir, setSortDir] = useState('desc');
+  // Active workers per project id, for the "N workers on site" line
+  const [workerCounts, setWorkerCounts] = useState({});
+  // Project waiting for delete confirmation, and whether the delete is running
+  const [projectToDelete, setProjectToDelete] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const fetchProjects = async () => {
     setLoading(true);
@@ -44,7 +68,6 @@ const Projects = () => {
     try {
       const params = {};
       if (searchTerm.trim()) params.search = searchTerm.trim();
-      if (statusFilter) params.status = statusFilter;
 
       const res = await axiosInstance.get('/projects', { params });
       setProjects(res.data.data || []);
@@ -56,86 +79,233 @@ const Projects = () => {
     }
   };
 
+  // Status is filtered on this page (not by the API) so the summary cards keep all counts
   useEffect(() => {
     fetchProjects();
-  }, [statusFilter]);
+  }, []);
+
+  // One request for all active workers, counted per project here
+  useEffect(() => {
+    getLabours({ status: 'ACTIVE' })
+      .then((list) => {
+        const counts = {};
+        (list || []).forEach((l) => {
+          const pid = l.project?.id || l.projectId;
+          if (pid) counts[pid] = (counts[pid] || 0) + 1;
+        });
+        setWorkerCounts(counts);
+      })
+      .catch(() => setWorkerCounts({}));
+  }, []);
+
+  // Clicking the active sort field flips its direction; a new field starts newest/highest first
+  const handleSort = (field) => {
+    if (sortBy === field) {
+      setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+    } else {
+      setSortBy(field);
+      setSortDir('desc');
+    }
+  };
+
+  const isOverdue = (p) => p.status === 'IN_PROGRESS' && getEndDateKey(p) && getEndDateKey(p) < todayKey();
+
+  const metrics = useMemo(() => {
+    const inProgress = projects.filter((p) => p.status === 'IN_PROGRESS');
+    return {
+      total: projects.length,
+      inProgress: inProgress.length,
+      completed: projects.filter((p) => p.status === 'COMPLETED').length,
+      overdue: inProgress.filter(isOverdue).length,
+      ongoingBudget: inProgress.reduce((acc, p) => acc + (getBudget(p) || 0), 0),
+      ongoingWorkers: inProgress.reduce((acc, p) => acc + (workerCounts[p.id] || 0), 0),
+    };
+  }, [projects, workerCounts]);
+
+  const visibleProjects = useMemo(() => {
+    if (statusFilter === 'OVERDUE') return projects.filter(isOverdue);
+    if (statusFilter) return projects.filter((p) => p.status === statusFilter);
+    return projects;
+  }, [projects, statusFilter]);
+
+  // Clicking a summary card filters by it; clicking the selected card again clears it
+  const toggleStatusFilter = (value) => setStatusFilter((cur) => (cur === value ? '' : value));
+  const cardRing = (selected) =>
+    selected ? 'ring-2 ring-[#FFB82E]/60 border-transparent' : 'hover:border-[#FFB82E]/40';
+
+  const sortedProjects = useMemo(() => {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...visibleProjects].sort((a, b) => {
+      if (sortBy === 'budget' || sortBy === 'endDate') {
+        // Projects with no budget / no end date always sit at the bottom
+        const av = sortBy === 'budget' ? getBudget(a) : getEndDateKey(a) || null;
+        const bv = sortBy === 'budget' ? getBudget(b) : getEndDateKey(b) || null;
+        if (av === null && bv === null) return 0;
+        if (av === null) return 1;
+        if (bv === null) return -1;
+        const cmp = sortBy === 'budget' ? av - bv : av.localeCompare(bv);
+        return cmp * dir;
+      }
+      return String(a.createdAt || '').localeCompare(String(b.createdAt || '')) * dir;
+    });
+  }, [visibleProjects, sortBy, sortDir]);
+
+  const SortIcon = sortDir === 'desc' ? FaArrowDown : FaArrowUp;
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
     fetchProjects();
   };
 
-  const handleDelete = async (id, name) => {
-    if (!window.confirm(`Are you sure you want to delete project "${name}"?`)) return;
-
+  const handleConfirmDelete = async () => {
+    if (!projectToDelete) return;
+    const { id, name } = projectToDelete;
+    setIsDeleting(true);
     try {
       await axiosInstance.delete(`/projects/${id}`);
       toast.success(`Project "${name}" deleted successfully.`);
+      setProjectToDelete(null);
       fetchProjects();
     } catch (err) {
       toast.error(getErrorMessage(err, 'Failed to delete project.'));
+    } finally {
+      setIsDeleting(false);
     }
   };
 
   return (
     <div className="space-y-6 animate-fadeIn pb-12">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      {/* Page Header: title + money on ongoing work, like the Labour header */}
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
         <div>
-          <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center text-base shadow-sm">
-              <FaBuilding />
-            </div>
-            <h2 className="text-2xl font-bold text-slate-900">Construction Projects</h2>
-          </div>
-          <p className="text-gray-500 text-xs mt-0.5">
-            Manage construction project sites, client allocations, and timelines.
+          <h2 className="text-2xl font-bold text-slate-900">Projects</h2>
+          <p className="text-gray-500 text-sm mt-1">
+            {metrics.ongoingBudget > 0 ? (
+              <>
+                <span className="text-[#FFC14D]">₹{metrics.ongoingBudget.toLocaleString('en-IN')}</span>
+                {' budget on ongoing projects'}
+              </>
+            ) : (
+              'No ongoing projects'
+            )}
           </p>
         </div>
+          <button
+            type="button"
+            onClick={() => setIsModalOpen(true)}
+            className="self-start sm:self-auto flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2.5 rounded-xl shadow-sm transition-all text-sm whitespace-nowrap cursor-pointer"
+          >
+            <FaPlus className="text-xs" />
+            <span>New project</span>
+          </button>
+      </div>
 
+      {/* Summary cards (click to filter) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
         <button
           type="button"
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2.5 rounded-xl shadow-sm transition-all text-xs self-start sm:self-auto cursor-pointer"
+          onClick={() => setStatusFilter('')}
+          className={`text-left bg-white border border-gray-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all cursor-pointer ${cardRing(statusFilter === '')}`}
         >
-          <FaPlus />
-          <span>Add New Project</span>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Total projects</p>
+              <h3 className="text-2xl font-black text-slate-900 mt-1">{metrics.total}</h3>
+              <p className="text-xs font-semibold text-slate-500 mt-1">{metrics.inProgress} in progress • {metrics.completed} completed</p>
+            </div>
+            <div className="w-11 h-11 rounded-2xl bg-slate-100 text-slate-700 flex items-center justify-center text-lg shadow-inner">
+              <FaBuilding />
+            </div>
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleStatusFilter('IN_PROGRESS')}
+          className={`text-left bg-white border border-gray-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all cursor-pointer ${cardRing(statusFilter === 'IN_PROGRESS')}`}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-700">In progress</p>
+              <h3 className="text-2xl font-black text-emerald-700 mt-1">{metrics.inProgress}</h3>
+              <p className="text-xs font-semibold text-emerald-700/80 mt-1">{metrics.ongoingWorkers} {metrics.ongoingWorkers === 1 ? 'worker' : 'workers'} on site</p>
+            </div>
+            <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-lg shadow-inner">
+              <FaHardHat />
+            </div>
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleStatusFilter('COMPLETED')}
+          className={`text-left bg-white border border-gray-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all cursor-pointer ${cardRing(statusFilter === 'COMPLETED')}`}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-extrabold uppercase tracking-wider text-[#C4B5FD]">Completed</p>
+              <h3 className="text-2xl font-black text-[#C4B5FD] mt-1">{metrics.completed}</h3>
+              <p className="text-xs font-semibold text-slate-500 mt-1">Finished work</p>
+            </div>
+            <div className="w-11 h-11 rounded-2xl bg-[#A78BFA]/10 text-[#C4B5FD] flex items-center justify-center text-lg shadow-inner">
+              <FaCheckCircle />
+            </div>
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleStatusFilter('OVERDUE')}
+          className={`text-left bg-white border border-gray-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all cursor-pointer ${cardRing(statusFilter === 'OVERDUE')}`}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-extrabold uppercase tracking-wider text-[#FCA5A5]">Overdue</p>
+              <h3 className="text-2xl font-black text-[#FCA5A5] mt-1">{metrics.overdue}</h3>
+              <p className="text-xs font-semibold text-slate-500 mt-1">{metrics.overdue ? 'Past end date, still in progress' : 'All on schedule'}</p>
+            </div>
+            <div className="w-11 h-11 rounded-2xl bg-[#F87171]/10 text-[#FCA5A5] flex items-center justify-center text-lg shadow-inner">
+              <FaExclamationTriangle />
+            </div>
+          </div>
         </button>
       </div>
 
-      {/* Filters & Search Toolbar */}
-      <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
-        <form onSubmit={handleSearchSubmit} className="relative w-full md:w-80">
-          <FaSearch className="absolute left-3.5 top-3 text-gray-400 text-xs" />
-          <input
-            type="text"
-            placeholder="Search by code, project name, site..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-emerald-500 bg-gray-50/50 focus:bg-white"
-          />
-        </form>
-
-        <div className="flex items-center space-x-3 w-full md:w-auto justify-end">
-          <div className="flex items-center space-x-2 text-xs font-semibold text-gray-500">
-            <FaFilter className="text-gray-400" />
-            <span>Status:</span>
-          </div>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="py-2 px-3 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-emerald-500 bg-gray-50/50 text-slate-800 font-bold"
-          >
-            <option value="">All Statuses</option>
-            <option value="PLANNING">Planning</option>
-            <option value="IN_PROGRESS">In Progress</option>
-            <option value="ON_HOLD">On Hold</option>
-            <option value="COMPLETED">Completed</option>
-            <option value="CANCELLED">Cancelled</option>
-          </select>
-
-          <span className="text-xs font-bold text-gray-400 bg-gray-50 px-3 py-2 rounded-xl border border-gray-200">
-            {projects.length} Projects Total
+      {/* Search, sort and count on one row */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-3.5 flex flex-col lg:flex-row lg:items-center gap-3">
+          <form onSubmit={handleSearchSubmit} className="relative w-full sm:max-w-sm">
+            <FaSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs" />
+            <input
+              type="text"
+              placeholder="Search code, name or site"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-emerald-500 bg-gray-50/50"
+            />
+          </form>
+        <div className="flex items-center gap-3 lg:ml-auto flex-wrap">
+        <div className="flex items-center gap-1.5 text-xs">
+          <span className="text-gray-400 mr-1">Sort by</span>
+          {[
+            { field: 'newest', label: 'Newest' },
+            { field: 'budget', label: 'Budget' },
+            { field: 'endDate', label: 'End date' },
+          ].map(({ field, label }) => (
+            <button
+              key={field}
+              type="button"
+              onClick={() => handleSort(field)}
+              className={`px-3 py-1.5 rounded-full border transition-colors inline-flex items-center gap-1.5 ${
+                sortBy === field
+                  ? 'bg-[#FFB82E]/10 border-[#FFB82E]/40 text-[#FFC14D]'
+                  : 'bg-white border-gray-200 text-gray-500 hover:text-gray-800'
+              }`}
+              title={sortBy === field ? 'Click to reverse order' : `Sort by ${label.toLowerCase()}`}
+            >
+              <span>{label}</span>
+              {sortBy === field && <SortIcon className="text-[10px]" />}
+            </button>
+          ))}
+        </div>
+          <span className="px-3 py-1.5 rounded-xl border border-gray-200 text-xs text-gray-500 whitespace-nowrap">
+            <span className="text-slate-900 font-semibold">{sortedProjects.length}</span> {sortedProjects.length === 1 ? 'project' : 'projects'}
           </span>
         </div>
       </div>
@@ -172,82 +342,91 @@ const Projects = () => {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-gray-600 min-w-[900px]">
+            <table className="w-full text-left text-sm text-gray-600">
               <thead className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase tracking-wider">
                 <tr>
-                  <th className="px-6 py-3.5">Code</th>
-                  <th className="px-6 py-3.5">Project Name</th>
+                  <th className="px-6 py-3.5">Project</th>
                   <th className="px-6 py-3.5">Site Location</th>
                   <th className="px-6 py-3.5">Timeline</th>
                   <th className="px-6 py-3.5 text-center">Status</th>
                   <th className="px-6 py-3.5 text-right">Budget</th>
-                  <th className="px-6 py-3.5 text-right">Actions</th>
+                  <th className="px-6 py-3.5 text-center w-28">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 font-medium">
-                {projects.map((p) => {
-                  const startDateStr = formatDateToIndian(p.startDate);
-                  const endDateStr = formatDateToIndian(p.expectedEndDate, 'Ongoing');
-                  const badgeStyle = STATUS_BADGES[p.status] || 'bg-gray-100 text-gray-800 border-gray-200';
+                {sortedProjects.map((p) => {
+                  const timelineStr = formatDateRange(p.startDate, p.expectedEndDate, 'Ongoing');
+                  const budget = getBudget(p);
+                  const badge = STATUS_BADGES[p.status] || { label: p.status, cls: 'bg-[#908C84]/10 text-[#B8B4AC] border-[#908C84]/40' };
+                  const isOngoing = p.status === 'IN_PROGRESS';
+                  const endKey = getEndDateKey(p);
+                  const isOverdue = isOngoing && endKey && endKey < todayKey();
+                  const workers = workerCounts[p.id] || 0;
 
                   return (
-                    <tr key={p.id} className="hover:bg-gray-50/50 transition-colors">
-                      <td className="px-6 py-4 font-mono font-bold text-emerald-700">{p.projectCode}</td>
-                      <td className="px-6 py-4">
-                        <span className="font-extrabold text-slate-900 block">{p.name}</span>
-                        {p.notes && <span className="text-[11px] text-gray-400 truncate max-w-xs block">{p.notes}</span>}
+                    <tr key={p.id} className="hover:bg-[#FFB82E]/[0.05] transition-colors duration-150">
+                      <td className="px-6 py-4 min-w-[180px]">
+                        <Link to={`/projects/${p.id}`} className="font-semibold text-slate-900 hover:text-[#FFC14D] transition-colors">
+                          {p.name}
+                        </Link>
+                        <span className="block text-[11px] text-gray-400 mt-0.5">
+                          {p.projectCode}
+                          {isOngoing && (
+                            <span className={workers ? 'text-[#4ADE80]' : ''}>
+                              {' · '}
+                              {workers ? `${workers} ${workers === 1 ? 'worker' : 'workers'} on site` : 'No workers'}
+                            </span>
+                          )}
+                        </span>
                       </td>
                       <td className="px-6 py-4 text-xs text-gray-600">
                         <div className="flex items-center space-x-1.5">
                           <FaMapMarkerAlt className="text-gray-400 flex-shrink-0 text-xs" />
-                          <span className="truncate max-w-[180px]">{p.siteAddress}</span>
+                          <span className="truncate max-w-[180px]">{capitalise(p.siteAddress)}</span>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-xs text-gray-500">
-                        <div className="flex items-center space-x-1">
-                          <FaCalendarAlt className="text-gray-400 text-[10px]" />
-                          <span>{startDateStr}</span>
-                          <span>-</span>
-                          <span>{endDateStr}</span>
+                      <td className="px-6 py-4 text-xs">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`whitespace-nowrap ${isOverdue ? 'text-[#FCA5A5]' : 'text-gray-500'}`}>{timelineStr}</span>
+                          {isOverdue && (
+                            <span className="px-1.5 py-0.5 rounded-md border text-[10px] bg-[#F87171]/10 text-[#FCA5A5] border-[#F87171]/40">
+                              Overdue
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-4 text-center">
-                        <span className={`px-2.5 py-1 text-[11px] font-extrabold rounded-lg border ${badgeStyle}`}>
-                          {p.status.replace('_', ' ')}
+                        <span className={`inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[11px] font-medium rounded-md border ${badge.cls}`}>
+                          <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                          {badge.label}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-right font-black text-slate-900">
-                        {p.budget !== undefined && p.budget !== null ? (
-                          <span className="inline-flex items-center">
-                            <FaRupeeSign className="text-xs text-gray-400 mr-0.5" />
-                            {Number(p.budget).toLocaleString('en-IN')}
-                          </span>
+                      <td className="px-6 py-4 text-right font-semibold text-slate-900 whitespace-nowrap">
+                        {budget !== null ? (
+                          `₹${budget.toLocaleString('en-IN')}`
                         ) : (
                           <span className="text-gray-300 font-normal">N/A</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end space-x-2">
+                      <td className="px-6 py-4">
+                        {/* Name opens the project; plain icons get a box only on hover */}
+                        <div className="flex items-center justify-center gap-1">
                           <button
-                            onClick={() => navigate(`/projects/${p.id}`)}
-                            title="View Details"
-                            className="p-2 bg-gray-100 hover:bg-emerald-50 hover:text-emerald-700 text-gray-600 rounded-lg transition-colors"
+                            onClick={() => {
+                              setEditingProject(p);
+                              setIsModalOpen(true);
+                            }}
+                            title="Edit project"
+                            className="p-2 rounded-lg text-[#75716A] hover:text-[#F4F1EA] hover:bg-[#2A2B30] transition-colors cursor-pointer"
                           >
-                            <FaEye className="text-xs" />
+                            <FaEdit className="text-sm" />
                           </button>
                           <button
-                            onClick={() => navigate(`/projects/${p.id}/edit`)}
-                            title="Edit Project"
-                            className="p-2 bg-gray-100 hover:bg-blue-50 hover:text-blue-700 text-gray-600 rounded-lg transition-colors"
+                            onClick={() => setProjectToDelete(p)}
+                            title="Delete project"
+                            className="p-2 rounded-lg text-[#75716A] hover:text-[#FCA5A5] hover:bg-[#F87171]/10 transition-colors cursor-pointer"
                           >
-                            <FaEdit className="text-xs" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(p.id, p.name)}
-                            title="Delete Project"
-                            className="p-2 bg-gray-100 hover:bg-rose-50 hover:text-rose-700 text-gray-600 rounded-lg transition-colors"
-                          >
-                            <FaTrash className="text-xs" />
+                            <FaTrash className="text-sm" />
                           </button>
                         </div>
                       </td>
@@ -260,10 +439,38 @@ const Projects = () => {
         )}
       </div>
 
+      {/* Delete Project Confirmation */}
+      <ConfirmationModal
+        isOpen={Boolean(projectToDelete)}
+        onClose={() => !isDeleting && setProjectToDelete(null)}
+        onConfirm={handleConfirmDelete}
+        title="Delete project"
+        confirmText="Delete project"
+        cancelText="Cancel"
+        isDanger={true}
+        isLoading={isDeleting}
+        message={
+          <div className="space-y-3">
+            <p className="text-gray-800 text-sm">
+              Delete <span className="font-semibold text-gray-900">{projectToDelete?.name}</span>?
+            </p>
+            <div className="bg-white p-2.5 rounded-lg border border-gray-200 flex items-center justify-between text-xs">
+              <span className="text-gray-500">{projectToDelete?.projectCode}</span>
+              <span className="text-gray-800">{capitalise(projectToDelete?.siteAddress)}</span>
+            </div>
+            <p className="text-xs text-gray-500">This can't be undone.</p>
+          </div>
+        }
+      />
+
       {/* Project Creation Modal */}
       <ProjectFormModal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        project={editingProject}
+        onClose={() => {
+          setIsModalOpen(false);
+          setEditingProject(null);
+        }}
         onSuccess={() => fetchProjects()}
       />
     </div>

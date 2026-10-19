@@ -43,6 +43,7 @@ const mapPurchaseResponse = (purchase: any) => {
       productId,
       productName,
       sku,
+      unit: item.unit || (prodObj ? prodObj.unit : undefined) || undefined,
       product: prodObj ? {
         id: prodObj._id ? prodObj._id.toString() : prodObj.id,
         name: prodObj.name,
@@ -127,7 +128,7 @@ const mapPurchaseResponse = (purchase: any) => {
 export const getPurchases = async (): Promise<any[]> => {
   const purchases = await Purchase.find()
     .populate('supplier', 'name companyName contactPerson mobile email gstNumber')
-    .populate('items.product', 'name sku category')
+    .populate('items.product', 'name sku category unit')
     .populate('createdBy', 'name email role')
     .sort({ purchaseDate: -1, createdAt: -1 })
     .lean();
@@ -138,7 +139,7 @@ export const getPurchases = async (): Promise<any[]> => {
 export const getPurchaseById = async (id: string): Promise<any> => {
   const purchase = await Purchase.findById(id)
     .populate('supplier', 'name companyName contactPerson mobile email gstNumber')
-    .populate('items.product', 'name sku category')
+    .populate('items.product', 'name sku category unit')
     .populate('createdBy', 'name email role')
     .lean();
   if (!purchase) return null;
@@ -337,6 +338,18 @@ export const createPurchase = async (
     subtotal = Math.round(subtotal * 100) / 100;
     totalDiscount = Math.round(totalDiscount * 100) / 100;
     taxAmount = Math.round(taxAmount * 100) / 100;
+
+    // Use the GST printed on the bill (CGST+SGST or IGST) when it is within ₹1.50 of the item-by-item sum,
+    // so the saved total matches the bill and the Review purchase page (same rule as calculatePurchaseTotals)
+    const billIgst = Number(input.igst);
+    const billCgst = Number(input.cgst);
+    const billSgst = Number(input.sgst);
+    const billTax = !isNaN(billIgst) && billIgst > 0
+      ? billIgst
+      : (!isNaN(billCgst) && !isNaN(billSgst) && (billCgst > 0 || billSgst > 0) ? billCgst + billSgst : null);
+    if (billTax !== null && Math.abs(billTax - taxAmount) <= 1.5) {
+      taxAmount = Math.round(billTax * 100) / 100;
+    }
 
     const roundedOffAmount = input.roundedOffAmount !== undefined && input.roundedOffAmount !== null && !isNaN(Number(input.roundedOffAmount))
       ? Number(input.roundedOffAmount)

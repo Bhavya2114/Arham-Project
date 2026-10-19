@@ -4,6 +4,8 @@ import { MaterialConsumption } from '../models/MaterialConsumption';
 import { ProjectExpense } from '../models/ProjectExpense';
 import { ProjectInvoice } from '../models/ProjectInvoice';
 import { ProjectInvoicePayment } from '../models/ProjectInvoicePayment';
+import { Labour } from '../models/Labour';
+import { mapLabourResponse } from './labour.service';
 import { PROJECT_GST_MULTIPLIER, roundToTwo } from '../constants/projectGst.constants';
 
 export interface ICategoryCost {
@@ -130,8 +132,25 @@ export const getProjectProfitability = async (projectId: string): Promise<IProje
   });
   totalProjectExpenses = Math.round(totalProjectExpenses * 100) / 100;
 
-  // 5. Labour Cost (Direct labour placeholder)
-  const totalLabourCost = 0;
+  // 5. Labour Cost = wages earned so far on this site (days worked x daily wage, up to today
+  // or the stop date). Same calculation as the project's Labour tab, so the numbers match.
+  const projectLabours = await Labour.find({
+    $or: [
+      { projectId: projIdObj },
+      { assignedProjects: projIdObj },
+      { 'projectAssignments.projectId': projIdObj },
+    ],
+  })
+    .populate('projectId', 'name projectCode siteAddress status expectedEndDate')
+    .populate('projectAssignments.projectId', 'name projectCode siteAddress status expectedEndDate')
+    .lean();
+
+  let totalLabourCost = 0;
+  for (const l of projectLabours) {
+    const mapped = mapLabourResponse(l, 0, { projectId, expectedEndDate: project.expectedEndDate });
+    totalLabourCost += Number(mapped.totalEarned) || 0;
+  }
+  totalLabourCost = roundToTwo(totalLabourCost);
 
   // 6. Actual Project Cost = Material Cost (Excl. GST) + Project Expenses + Labour Cost
   // Invariant: GST is NEVER included in project expenditure
@@ -210,16 +229,12 @@ export const getProjectProfitability = async (projectId: string): Promise<IProje
 
 export const getAllProjectsProfitabilityReport = async (): Promise<IProjectProfitability[]> => {
   const projects = await Project.find().select('_id').lean();
-  const results: IProjectProfitability[] = [];
+  // Compute all projects concurrently rather than one after another; failed projects are skipped
+  const settled = await Promise.allSettled(
+    projects.map((p) => getProjectProfitability(p._id.toString()))
+  );
 
-  for (const p of projects) {
-    try {
-      const prof = await getProjectProfitability(p._id.toString());
-      results.push(prof);
-    } catch (_err) {
-      continue;
-    }
-  }
-
-  return results;
+  return settled
+    .filter((r): r is PromiseFulfilledResult<IProjectProfitability> => r.status === 'fulfilled')
+    .map((r) => r.value);
 };

@@ -114,7 +114,10 @@ const LabourPaymentHistoryModal = ({
   };
 
   // Derive dynamic total paid from current fetched payments
-  const totalPaidCurrent = payments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+  // Deleted payments stay in the list for history but don't count towards totals
+  const totalPaidCurrent = payments
+    .filter((p) => !p.isDeleted)
+    .reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
   const totalEarnedCurrent = Number(labour.totalEarned || 0);
   const balanceCurrent = totalEarnedCurrent - totalPaidCurrent;
 
@@ -235,14 +238,14 @@ const LabourPaymentHistoryModal = ({
                 </thead>
                 <tbody className="divide-y divide-gray-100 font-medium">
                   {payments.map((p, idx) => (
-                    <tr key={p.id} className="hover:bg-slate-50/60 transition-colors">
+                    <tr key={p.id} className={`transition-colors ${p.isDeleted ? 'opacity-50' : 'hover:bg-slate-50/60'}`}>
                       <td className="px-3 py-2.5 text-center font-mono text-gray-400 font-semibold">
                         {idx + 1}
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap text-slate-700 font-semibold">
                         {formatDateShortMonth(p.paymentDate, '-')}
                       </td>
-                      <td className="px-3 py-2.5 text-right font-black font-mono text-slate-900 whitespace-nowrap">
+                      <td className={`px-3 py-2.5 text-right font-black font-mono text-slate-900 whitespace-nowrap ${p.isDeleted ? 'line-through' : ''}`}>
                         ₹{Number(p.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
                       <td className="px-3 py-2.5 text-center whitespace-nowrap">
@@ -257,6 +260,14 @@ const LabourPaymentHistoryModal = ({
                         {p.createdBy?.name || 'Admin'}
                       </td>
                       <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                        {p.isDeleted ? (
+                          <span
+                            className="inline-flex px-2 py-0.5 rounded-full text-[10px] bg-rose-50 text-rose-600"
+                            title={`Deleted${p.deletedAt ? ` on ${formatDateShortMonth(p.deletedAt)}` : ''}${p.deletedBy?.name ? ` by ${p.deletedBy.name}` : ''}`}
+                          >
+                            Deleted
+                          </span>
+                        ) : (
                         <div className="inline-flex items-center space-x-1">
                           <button
                             type="button"
@@ -275,6 +286,7 @@ const LabourPaymentHistoryModal = ({
                             <FaTrashAlt className="text-[11px]" />
                           </button>
                         </div>
+                        )}
                       </td>
                     </tr>
                   ))}

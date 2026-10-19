@@ -180,7 +180,7 @@ const AddProject = () => {
   if (loadingPrereqs) {
     return (
       <div className="flex flex-col items-center justify-center py-24 space-y-3">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#007a4d]"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#FFB82E]"></div>
         <p className="text-xs text-slate-400 font-medium">Loading form prerequisites...</p>
       </div>
     );
@@ -191,7 +191,7 @@ const AddProject = () => {
       {/* Page Header - Clean, modern ERP style without any back button */}
       <div className="mb-3.5">
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-          {isEditMode ? 'Edit Construction Project' : 'Create New Construction Project'}
+          {isEditMode ? 'Edit project' : 'New project'}
         </h1>
       </div>
 
@@ -232,7 +232,7 @@ const AddProject = () => {
                   </span>
                 </div>
                 <div className="relative flex items-center">
-                  <div className="absolute left-3.5 text-[#007a4d] pointer-events-none flex items-center">
+                  <div className="absolute left-3.5 text-[#FFC14D] pointer-events-none flex items-center">
                     <FaLock className="text-xs" />
                   </div>
                   <input
@@ -242,7 +242,7 @@ const AddProject = () => {
                     value={formData.projectCode}
                     onChange={handleChange}
                     readOnly
-                    className="w-full pl-9 pr-3.5 py-2 bg-[#f4f6f8] border border-slate-200 rounded-lg text-sm font-semibold text-slate-800 cursor-default select-all focus:outline-none"
+                    className="w-full pl-9 pr-3.5 py-2 bg-[#25262A] border border-slate-200 rounded-lg text-sm font-semibold text-slate-800 cursor-default select-all focus:outline-none"
                     required
                   />
                 </div>
@@ -411,7 +411,7 @@ const AddProject = () => {
             <button
               type="submit"
               disabled={submitting}
-              className="px-6 py-2 bg-[#007a4d] hover:bg-[#006841] active:bg-[#005a38] text-white font-semibold text-sm rounded-lg shadow-xs transition-colors flex items-center justify-center gap-2 disabled:opacity-50 min-w-[130px]"
+              className="px-6 py-2 bg-[#FFB82E] hover:bg-[#F2A516] active:bg-[#E09410] text-white font-semibold text-sm rounded-lg shadow-xs transition-colors flex items-center justify-center gap-2 disabled:opacity-50 min-w-[130px]"
             >
               {submitting ? (
                 <>

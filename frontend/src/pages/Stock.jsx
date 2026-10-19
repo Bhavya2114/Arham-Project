@@ -245,7 +245,7 @@ const Stock = () => {
       {/* 1. Page Header & Top-Right Export Action */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-          Inventory Overview
+          Inventory
         </h1>
 
         {/* Compact Export Button & Dropdown */}
@@ -299,7 +299,7 @@ const Stock = () => {
           <div className="flex items-center">
             <span className="w-2 h-2 rounded-full bg-blue-600 inline-block mr-2 flex-shrink-0"></span>
             <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-              TOTAL PRODUCTS
+              Total products
             </span>
           </div>
           <div className="text-3xl font-extrabold text-slate-900 mt-1 leading-tight">
@@ -321,7 +321,7 @@ const Stock = () => {
           <div className="flex items-center">
             <span className="w-2 h-2 rounded-full bg-emerald-600 inline-block mr-2 flex-shrink-0"></span>
             <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-              IN STOCK
+              In stock
             </span>
           </div>
           <div className="text-3xl font-extrabold text-emerald-600 mt-1 leading-tight">
@@ -343,7 +343,7 @@ const Stock = () => {
           <div className="flex items-center">
             <span className="w-2 h-2 rounded-full bg-rose-600 inline-block mr-2 flex-shrink-0"></span>
             <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-              OUT OF STOCK
+              Out of stock
             </span>
           </div>
           <div className="text-3xl font-extrabold text-rose-600 mt-1 leading-tight">
@@ -352,14 +352,14 @@ const Stock = () => {
         </button>
 
         {/* CARD 4 — INVENTORY VALUE (Light Mint Green Background Matching Reference) */}
-        <div className="bg-[#ecfdf5] border border-[#a7f3d0] rounded-2xl px-5 py-4 text-left shadow-sm">
+        <div className="bg-emerald-50 border border-[#3A3B41] rounded-2xl px-5 py-4 text-left shadow-sm">
           <div className="flex items-center">
             <span className="w-2 h-2 rounded-full bg-emerald-600 inline-block mr-2 flex-shrink-0"></span>
             <span className="text-[11px] font-bold text-emerald-800/70 uppercase tracking-wider">
-              INVENTORY VALUE
+              Inventory value
             </span>
           </div>
-          <div className="text-3xl font-extrabold text-[#059669] mt-1 leading-tight">
+          <div className="text-3xl font-extrabold text-[#FFC14D] mt-1 leading-tight">
             ₹{Math.round(inventoryCostValue).toLocaleString('en-IN')}
           </div>
         </div>
@@ -461,7 +461,7 @@ const Stock = () => {
                       key={p.id || idx}
                       className={`transition-colors border-b border-gray-100/80 ${
                         isOut
-                          ? 'bg-[#fffbfb] hover:bg-rose-50/40'
+                          ? 'bg-[#25262A] hover:bg-rose-50/40'
                           : 'bg-white hover:bg-slate-50/70'
                       }`}
                     >
@@ -498,12 +498,12 @@ const Stock = () => {
                       {/* STATUS */}
                       <td className="px-5 py-4 text-center whitespace-nowrap">
                         {isOut ? (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-[#fee2e2]/70 text-rose-700 border border-rose-200/60">
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-rose-100/70 text-rose-700 border border-rose-200/60">
                             <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
                             <span>Out of Stock</span>
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-[#dcfce7] text-emerald-700 border border-emerald-200/60">
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 border border-emerald-200/60">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                             <span>In Stock</span>
                           </span>

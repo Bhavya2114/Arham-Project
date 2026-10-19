@@ -6,6 +6,7 @@ import { getErrorMessage } from '../utils/apiError';
 import { formatIndianNumber } from '../utils/numberToWords';
 import { toApiDateFormat } from '../utils/dateUtils';
 import IndianDateInput from './IndianDateInput';
+import FilterSelect from './FilterSelect';
 import {
   FaTimes,
   FaLock,
@@ -16,7 +17,7 @@ import {
 /**
  * ProjectFormModal component
  *
- * Renders a centered modal popup for creating a new Construction Project.
+ * Renders a centered modal popup for creating a new project, or editing one when `project` is passed.
  * Matches the reference design with exactly 7 fields:
  * - Row 1: Project Code (read-only), Project Name *
  * - Row 2: Site Location Address *, Target Budget (₹)
@@ -24,14 +25,27 @@ import {
  *
  * Customer and Notes fields are completely removed from the UI.
  */
-const ProjectFormModal = ({ isOpen, onClose, onSuccess }) => {
+const ProjectFormModal = ({ isOpen, onClose, onSuccess, project = null }) => {
+  const isEdit = Boolean(project);
   const toast = useToast();
 
   const generateProjectCode = () => {
     return `PRJ-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`;
   };
 
-  const getInitialState = () => ({
+  const getInitialState = () =>
+    isEdit
+      ? {
+          projectCode: project.projectCode || '',
+          name: project.name || '',
+          siteAddress: project.siteAddress || '',
+          targetBudget:
+            project.budget !== undefined && project.budget !== null ? formatIndianNumber(String(project.budget)) : '',
+          startDate: project.startDate ? toApiDateFormat(project.startDate) : '',
+          expectedEndDate: project.expectedEndDate ? toApiDateFormat(project.expectedEndDate) : '',
+          status: project.status || 'PLANNING',
+        }
+      : {
     projectCode: generateProjectCode(),
     name: '',
     siteAddress: '',
@@ -39,20 +53,20 @@ const ProjectFormModal = ({ isOpen, onClose, onSuccess }) => {
     startDate: toApiDateFormat(new Date()),
     expectedEndDate: '',
     status: 'PLANNING',
-  });
+        };
 
   const [formData, setFormData] = useState(getInitialState);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState(null);
 
-  // Reset form with a fresh project code every time modal opens
+  // Reset the form every time the modal opens (fresh code when creating, the project's values when editing)
   useEffect(() => {
     if (isOpen) {
       setFormData(getInitialState());
       setFormError(null);
       setSubmitting(false);
     }
-  }, [isOpen]);
+  }, [isOpen, project]);
 
   if (!isOpen) return null;
 
@@ -114,11 +128,15 @@ const ProjectFormModal = ({ isOpen, onClose, onSuccess }) => {
       expectedEndDate: formData.expectedEndDate ? toApiDateFormat(formData.expectedEndDate) : undefined,
       status: formData.status,
       budget: rawBudget !== '' ? Number(rawBudget) : undefined,
+      // Notes are not shown in this popup, so editing keeps the existing ones
+      ...(isEdit && project.notes ? { notes: project.notes } : {}),
     };
 
     try {
-      const res = await axiosInstance.post('/projects', payload);
-      toast.success(`Project "${formData.name.trim()}" created successfully!`);
+      const res = isEdit
+        ? await axiosInstance.put(`/projects/${project.id}`, payload)
+        : await axiosInstance.post('/projects', payload);
+      toast.success(`Project "${formData.name.trim()}" ${isEdit ? 'updated' : 'created'} successfully!`);
       if (onSuccess) {
         onSuccess(res.data?.data);
       }
@@ -141,7 +159,7 @@ const ProjectFormModal = ({ isOpen, onClose, onSuccess }) => {
       }}
     >
       <div
-        className="bg-white rounded-[24px] shadow-2xl w-full max-w-[620px] overflow-hidden transition-all transform scale-100"
+        className="bg-white rounded-[24px] shadow-2xl w-full max-w-[620px] transition-all transform scale-100"
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
@@ -149,7 +167,7 @@ const ProjectFormModal = ({ isOpen, onClose, onSuccess }) => {
         {/* Modal Header */}
         <div className="flex items-center justify-between px-7 pt-6 pb-2">
           <h2 id="modal-title" className="text-xl font-bold text-slate-900 tracking-tight">
-            New Project
+            {isEdit ? 'Edit project' : 'New project'}
           </h2>
           <button
             type="button"
@@ -278,18 +296,18 @@ const ProjectFormModal = ({ isOpen, onClose, onSuccess }) => {
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
                 Status
               </label>
-              <select
-                name="status"
+              <FilterSelect
+                size="md"
                 value={formData.status}
-                onChange={handleChange}
-                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-emerald-600 bg-white cursor-pointer transition-colors"
-              >
-                <option value="PLANNING">Planning</option>
-                <option value="IN_PROGRESS">In Progress</option>
-                <option value="ON_HOLD">On Hold</option>
-                <option value="COMPLETED">Completed</option>
-                <option value="CANCELLED">Cancelled</option>
-              </select>
+                onChange={(status) => setFormData((prev) => ({ ...prev, status }))}
+                options={[
+                  { value: 'PLANNING', label: 'Planning' },
+                  { value: 'IN_PROGRESS', label: 'In progress' },
+                  { value: 'ON_HOLD', label: 'On hold' },
+                  { value: 'COMPLETED', label: 'Completed' },
+                  { value: 'CANCELLED', label: 'Cancelled' },
+                ]}
+              />
             </div>
           </div>
 
@@ -309,7 +327,7 @@ const ProjectFormModal = ({ isOpen, onClose, onSuccess }) => {
               className="inline-flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold px-6 py-2.5 rounded-xl shadow-sm transition-all cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
             >
               {submitting && <FaSpinner className="animate-spin text-xs" />}
-              <span>Save Project</span>
+              <span>{isEdit ? 'Save changes' : 'Save project'}</span>
             </button>
           </div>
         </form>

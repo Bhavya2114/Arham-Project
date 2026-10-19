@@ -212,6 +212,8 @@ export const mapLabourResponse = (
   let resolvedProjectId: string | undefined = undefined;
   let earnedDays: number = 0;
   let totalEarned: number = 0;
+  // One row per project the worker has been on, for the profile's project history
+  const projectHistory: any[] = [];
 
   if (isProjectContext) {
     const matchingAssignments = Array.isArray(labour.projectAssignments)
@@ -462,6 +464,18 @@ export const mapLabourResponse = (
           );
           cumulativeDays += paCalc.earnedDays;
           cumulativeEarned += paCalc.totalEarned;
+
+          projectHistory.push({
+            projectId: paProj?._id ? paProj._id.toString() : paProj?.toString(),
+            name: paProj && typeof paProj === 'object' ? paProj.name : undefined,
+            projectCode: paProj && typeof paProj === 'object' ? paProj.projectCode : undefined,
+            projectStatus: paProj && typeof paProj === 'object' ? paProj.status : undefined,
+            startDate: pa.startDate,
+            stoppedAt: isPAActive ? null : stop,
+            isActive: isPAActive,
+            earnedDays: paCalc.earnedDays,
+            earned: Math.round(paCalc.totalEarned * 100) / 100,
+          });
         }
       }
 
@@ -484,6 +498,20 @@ export const mapLabourResponse = (
       );
       earnedDays = calc.earnedDays;
       totalEarned = calc.totalEarned;
+
+      if (resolvedProjectId) {
+        projectHistory.push({
+          projectId: resolvedProjectId,
+          name: resolvedProject?.name,
+          projectCode: resolvedProject?.projectCode,
+          projectStatus: resolvedProject?.status,
+          startDate: effectiveAssignmentStartDate || effectiveStartDate,
+          stoppedAt: null,
+          isActive: true,
+          earnedDays: calc.earnedDays,
+          earned: Math.round(calc.totalEarned * 100) / 100,
+        });
+      }
     } else if (labour.startDate && (labour.stoppedAt || legacyCap)) {
       // Legacy inactive worker with root startDate & stoppedAt or legacyCap
       const histCap = legacyCap;
@@ -529,6 +557,10 @@ export const mapLabourResponse = (
     totalEarned,
     totalPaid: roundedPaid,
     balance,
+    // Newest project first
+    projectHistory: projectHistory.sort(
+      (a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime()
+    ),
     createdAt: labour.createdAt,
     updatedAt: labour.updatedAt,
   };
@@ -1504,7 +1536,7 @@ export const getLabourDashboardMetrics = async (): Promise<LabourDashboardMetric
     pGroup.balance = Math.round((pGroup.totalEarned - pGroup.totalPaid) * 100) / 100;
   }
 
-  const recentPayments = await LabourPayment.find({})
+  const recentPayments = await LabourPayment.find({ isDeleted: { $ne: true } })
     .sort({ paymentDate: -1, createdAt: -1 })
     .limit(5)
     .populate('labourId', 'name mobile status')

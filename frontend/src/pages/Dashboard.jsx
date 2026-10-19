@@ -1,731 +1,343 @@
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import axiosInstance from '../utils/api';
-import {
-  FaEnvelope,
-  FaShieldAlt,
-  FaBox,
-  FaExclamationTriangle,
-  FaArrowRight,
-  FaBoxes,
-  FaCalendarAlt,
-  FaRupeeSign,
-  FaShoppingCart,
-  FaChartLine,
-  FaTimesCircle,
-  FaReceipt,
-  FaHardHat,
-  FaUsers,
-  FaBan,
-  FaMoneyBillWave,
-  FaBuilding
-} from 'react-icons/fa';
-import { formatDateToIndian } from '../utils/dateUtils';
+import { getLabours } from '../utils/labourService';
+import { LuArrowRight, LuCheckCircle } from 'react-icons/lu';
+import { toApiDateFormat, formatDateShortMonth } from '../utils/dateUtils';
+
+const todayKey = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const daysBetween = (fromKey, toKey) =>
+  Math.round((new Date(`${toKey}T00:00:00`) - new Date(`${fromKey}T00:00:00`)) / 86400000);
+
+const rupees = (n) => `₹${Math.round(Number(n || 0)).toLocaleString('en-IN')}`;
+
+const shortDate = (value) => {
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return '-';
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+};
+
+// Labour payments come as "Ravi (UPI)"; show the name and the method separately
+const splitPartyName = (name) => {
+  const m = String(name || '').match(/^(.*) \(([A-Z_]+)\)$/);
+  return m ? { name: m[1], method: m[2].charAt(0) + m[2].slice(1).toLowerCase() } : { name, method: '' };
+};
 
 const Dashboard = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [summary, setSummary] = useState(null);
+  const [projects, setProjects] = useState([]);
+  const [labours, setLabours] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Three requests at once: totals, project list (for overdue + names), workers (for balances)
   useEffect(() => {
-    fetchDashboardSummary();
+    const load = async () => {
+      setLoading(true);
+      try {
+        const [sumRes, projRes, labourList] = await Promise.all([
+          axiosInstance.get('/reports/dashboard'),
+          axiosInstance.get('/projects'),
+          getLabours(),
+        ]);
+        setSummary(sumRes.data.data);
+        setProjects(projRes.data.data || []);
+        setLabours(labourList || []);
+        setError(null);
+      } catch (err) {
+        console.error('Error fetching dashboard:', err);
+        setError('Could not load the dashboard. Please refresh.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
   }, []);
 
-  const fetchDashboardSummary = async () => {
-    try {
-      setLoading(true);
-      const res = await axiosInstance.get('/reports/dashboard');
-      setSummary(res.data.data);
-      setError(null);
-    } catch (err) {
-      console.error('Error fetching dashboard summary:', err);
-      setError('Failed to load dashboard metrics');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // The page itself never scrolls: the bottom row gets the height that is left and its boxes scroll inside
+  const bottomRef = useRef(null);
+  const [bottomHeight, setBottomHeight] = useState(null);
+  useLayoutEffect(() => {
+    const fit = () => {
+      const el = bottomRef.current;
+      if (!el) return;
+      if (window.innerWidth < 1024) {
+        setBottomHeight(null);
+        return;
+      }
+      const main = el.closest('main');
+      const mainBottom = main ? main.getBoundingClientRect().bottom : window.innerHeight;
+      const mainPad = main ? parseFloat(getComputedStyle(main).paddingBottom) || 0 : 0;
+      const top = el.getBoundingClientRect().top + (main ? main.scrollTop : 0);
+      setBottomHeight(Math.max(320, Math.floor(mainBottom - top - mainPad)));
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [loading, error]);
 
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600"></div>
-        <p className="text-gray-500 font-medium">Loading inventory & business metrics...</p>
+        <div className="animate-spin rounded-full h-10 w-10 border-2 border-[#FFB82E]/20 border-t-[#FFB82E]"></div>
+        <p className="text-gray-400 text-sm">Loading...</p>
       </div>
     );
   }
 
-  const formattedDate = new Date().toLocaleDateString(undefined, {
+  const today = todayKey();
+  const formattedDate = new Date().toLocaleDateString('en-GB', {
     weekday: 'long',
-    year: 'numeric',
+    day: 'numeric',
     month: 'long',
-    day: 'numeric'
+    year: 'numeric',
   });
 
-  const getRoleBadgeClass = (role) => {
-    switch (role) {
-      case 'ADMIN': return 'bg-red-500 text-white';
-      case 'SALES': return 'bg-blue-500 text-white';
-      case 'WAREHOUSE': return 'bg-purple-500 text-white';
-      case 'ACCOUNTS': return 'bg-amber-500 text-white';
-      default: return 'bg-gray-500 text-white';
-    }
-  };
+  // Projects
+  const ongoing = projects.filter((p) => p.status === 'IN_PROGRESS');
+  const endKey = (p) => toApiDateFormat(p.expectedEndDate);
+  const overdue = ongoing.filter((p) => endKey(p) && endKey(p) < today);
 
-  const totalInvoiced = (summary?.invoices?.totalInvoiced || 0).toLocaleString('en-IN');
-  const totalCollected = (summary?.invoices?.totalPaid || 0).toLocaleString('en-IN');
-  const outstandingBalance = (summary?.invoices?.totalBalanceDue || 0).toLocaleString('en-IN');
-  const totalPurchaseSpend = (summary?.purchases?.totalSpent || 0).toLocaleString('en-IN');
-  const inventoryValuation = (summary?.inventoryValue || 0).toLocaleString('en-IN');
+  // Workers: who is on which site, and who is owed or overpaid
+  const workersOnSite = {};
+  labours.forEach((l) => {
+    const pid = l.project?.id || l.projectId;
+    if (l.status === 'ACTIVE' && pid) workersOnSite[pid] = (workersOnSite[pid] || 0) + 1;
+  });
+  const owed = labours.filter((l) => Number(l.balance) > 0);
+  const wagesToPay = owed.reduce((acc, l) => acc + Number(l.balance), 0);
+  const overpaid = labours.filter((l) => Number(l.balance) < 0);
 
-  // Labour KPI and Analytics Extraction (Single backend source of truth)
-  const labourData = summary?.labour || {};
-  const totalLabour = Number(labourData.totalLabour || 0);
-  const activeLabour = Number(labourData.activeLabour || 0);
-  const inactiveLabour = Number(labourData.inactiveLabour || 0);
-  const stoppedLabour = Number(labourData.stoppedLabour || 0);
-  const totalLabourEarned = Number(labourData.totalEarned || 0);
-  const totalLabourPaid = Number(labourData.totalPaid || 0);
-  const labourBalance = Number(labourData.balance || 0);
-  const projectedMonthlyWages = Number(labourData.projectedMonthlyWages || 0);
-  const isLabourOverpaid = labourBalance < 0;
-  const byProject = Array.isArray(labourData.byProject) ? labourData.byProject : [];
-  const recentLabourPayments = Array.isArray(labourData.recentPayments) ? labourData.recentPayments : [];
-  const activePercentage = totalLabour > 0 ? Math.round((activeLabour / totalLabour) * 100) : 0;
+  // Labour still to pay per project, from the dashboard totals
+  const labourByProject = {};
+  (summary?.labour?.byProject || []).forEach((row) => {
+    labourByProject[row.projectId] = Number(row.balance || 0);
+  });
 
-  const formattedLabourEarned = totalLabourEarned.toLocaleString('en-IN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  const formattedLabourPaid = totalLabourPaid.toLocaleString('en-IN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  const formattedLabourBalance = Math.abs(labourBalance).toLocaleString('en-IN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  const formattedProjectedWages = projectedMonthlyWages.toLocaleString('en-IN');
+  // Things that need attention today, worst first
+  const attention = [
+    ...overdue.map((p) => {
+      const days = daysBetween(endKey(p), today);
+      return {
+        key: `od-${p.id || p._id}`,
+        tone: 'red',
+        text: (
+          <>
+            <span className="text-slate-900">{p.name}</span> is overdue by {days} {days === 1 ? 'day' : 'days'}
+          </>
+        ),
+        to: `/projects/${p.id || p._id}`,
+      };
+    }),
+    ...overpaid.map((l) => ({
+      key: `op-${l.id || l._id}`,
+      tone: 'amber',
+      text: (
+        <>
+          <span className="text-slate-900">{l.name}</span> was paid {rupees(Math.abs(l.balance))} more than earned
+        </>
+      ),
+      to: `/labour/${l.id || l._id}`,
+    })),
+  ];
+
+  const recentActivity = (summary?.recentActivity || []).filter((a) => a.type !== 'INVOICE');
+
+  const cards = [
+    {
+      label: 'Ongoing projects',
+      value: ongoing.length,
+      sub: overdue.length > 0 ? `${overdue.length} overdue` : `${projects.length} projects in total`,
+      subCls: overdue.length > 0 ? 'text-[#FCA5A5]' : 'text-gray-400',
+      to: '/projects',
+    },
+    {
+      label: 'Stock value',
+      value: rupees(summary?.inventoryValue),
+      sub: `${summary?.totalProducts || 0} products at cost price`,
+      subCls: 'text-gray-400',
+      to: '/stock',
+    },
+    {
+      label: 'Wages to pay',
+      value: rupees(wagesToPay),
+      sub: owed.length > 0 ? `${owed.length} ${owed.length === 1 ? 'worker' : 'workers'} waiting` : 'All wages are paid',
+      subCls: 'text-gray-400',
+      to: '/labour',
+      valueCls: wagesToPay > 0 ? 'text-[#FFB82E]' : 'text-slate-900',
+    },
+  ];
 
   return (
-    <div className="space-y-8">
-      {/* 1. Header Banner */}
-      <div className="bg-slate-900 text-white rounded-2xl shadow-md p-6 md:p-8 flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0 border border-slate-800">
-        <div className="space-y-1">
-          <h2 className="text-3xl font-extrabold tracking-tight">
-            Welcome back, {user?.name || 'Manager'}!
-          </h2>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-slate-300 text-sm mt-1">
-            <span className="flex items-center"><FaEnvelope className="mr-1.5 text-xs text-slate-400" /> {user?.email}</span>
-            <span className="h-3 w-px bg-slate-700 hidden sm:inline"></span>
-            <span className="flex items-center gap-1">
-              <FaShieldAlt className="text-xs text-slate-400" />
-              <span className={`px-2 py-0.5 rounded text-xs font-bold ${getRoleBadgeClass(user?.role)}`}>
-                {user?.role}
-              </span>
-            </span>
-          </div>
-        </div>
-        <div className="flex items-center space-x-2 text-slate-300 bg-slate-950 px-4 py-2 rounded-xl text-sm border border-slate-800 self-start md:self-auto">
-          <FaCalendarAlt className="text-emerald-400" />
-          <span>{formattedDate}</span>
-        </div>
+    <div className="space-y-5 animate-fadeIn">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-semibold text-slate-900">Welcome back{user?.name ? `, ${user.name}` : ''}</h1>
+        <p className="text-sm text-gray-400 mt-0.5">{formattedDate}</p>
       </div>
 
       {error && (
-        <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm font-medium">
-          {error}
-        </div>
+        <div className="px-4 py-3 bg-red-500/10 border border-red-400/30 text-red-300 rounded-xl text-sm">{error}</div>
       )}
 
-      {/* 2. Key Performance Indicators — Row 1 (Core Operations & Projects) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* Active Projects */}
-        <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
-          <div className="space-y-1">
-            <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">Active Projects</span>
-            <div className="text-2xl font-extrabold text-slate-900 flex items-center">
-              {summary?.projects?.active || 0}
-            </div>
-            <span className="text-xs text-emerald-600 font-semibold">{summary?.projects?.total || 0} Total Projects Tracked</span>
-          </div>
-          <div className="p-4 rounded-2xl bg-emerald-50 text-emerald-600">
-            <FaChartLine className="text-2xl" />
-          </div>
-        </div>
-
-        {/* Total Products & Stock */}
-        <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
-          <div className="space-y-1">
-            <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">Total Products</span>
-            <div className="text-2xl font-extrabold text-gray-900">{summary?.totalProducts || 0}</div>
-            <span className="text-xs text-gray-500 font-medium">{summary?.totalStock || 0} Total Units in Stock</span>
-          </div>
-          <div className="p-4 rounded-2xl bg-blue-50 text-blue-600">
-            <FaBox className="text-2xl" />
-          </div>
-        </div>
-
-        {/* Total Inventory Asset Value */}
-        <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
-          <div className="space-y-1">
-            <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">Inventory Asset Value</span>
-            <div className="text-2xl font-extrabold text-indigo-700 flex items-center">
-              <FaRupeeSign className="text-lg mr-0.5 text-indigo-500" />
-              {inventoryValuation}
-            </div>
-            <span className="text-xs text-indigo-600 font-semibold">Valued at Cost Price</span>
-          </div>
-          <div className="p-4 rounded-2xl bg-indigo-50 text-indigo-600">
-            <FaBoxes className="text-2xl" />
-          </div>
-        </div>
-
-        {/* Total Purchases Spend */}
-        <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
-          <div className="space-y-1">
-            <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">Total Procurement</span>
-            <div className="text-2xl font-extrabold text-purple-700 flex items-center">
-              <FaRupeeSign className="text-lg mr-0.5 text-purple-500" />
-              {totalPurchaseSpend}
-            </div>
-            <span className="text-xs text-purple-600 font-semibold">{summary?.purchases?.count || 0} Orders Procured</span>
-          </div>
-          <div className="p-4 rounded-2xl bg-purple-50 text-purple-600">
-            <FaShoppingCart className="text-2xl" />
-          </div>
-        </div>
-      </div>
-
-      {/* 3. Financial Performance KPIs — Row 2 (Project Invoicing & Cash Flow) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-        {/* Total Customer Invoiced */}
-        <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
-          <div className="space-y-1">
-            <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">Total Billed Invoices</span>
-            <div className="text-2xl font-extrabold text-slate-900 flex items-center">
-              <FaRupeeSign className="text-lg mr-0.5 text-gray-500" />
-              {totalInvoiced}
-            </div>
-            <span className="text-xs text-slate-500 font-semibold">{summary?.invoices?.count || 0} Customer Invoices Issued</span>
-          </div>
-          <div className="p-4 rounded-2xl bg-slate-100 text-slate-700">
-            <FaReceipt className="text-2xl" />
-          </div>
-        </div>
-
-        {/* Total Invoice Collections */}
-        <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
-          <div className="space-y-1">
-            <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">Payments Collected</span>
-            <div className="text-2xl font-extrabold text-emerald-600 flex items-center">
-              <FaRupeeSign className="text-lg mr-0.5 text-emerald-500" />
-              {totalCollected}
-            </div>
-            <span className="text-xs text-emerald-600 font-semibold">Realized Customer Collections</span>
-          </div>
-          <div className="p-4 rounded-2xl bg-emerald-50 text-emerald-600">
-            <FaRupeeSign className="text-2xl" />
-          </div>
-        </div>
-
-        {/* Outstanding Invoices */}
-        <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
-          <div className="space-y-1">
-            <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">Outstanding Receivables</span>
-            <div className="text-2xl font-extrabold text-amber-700 flex items-center">
-              <FaRupeeSign className="text-lg mr-0.5 text-amber-500" />
-              {outstandingBalance}
-            </div>
-            <span className="text-xs text-amber-600 font-semibold">Balance Due Across Invoices</span>
-          </div>
-          <div className="p-4 rounded-2xl bg-amber-50 text-amber-600">
-            <FaReceipt className="text-2xl" />
-          </div>
-        </div>
-      </div>
-
-      {/* 4. Inventory Alerts Grid — Row 3 */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-        {/* Low Stock Counter */}
-        <Link to="/stock" className="bg-white border border-amber-200 rounded-2xl p-5 shadow-sm flex items-center justify-between hover:bg-amber-50/50 transition-colors">
-          <div className="flex items-center space-x-4">
-            <div className="p-3 bg-amber-100 text-amber-700 rounded-xl text-xl">
-              <FaExclamationTriangle />
-            </div>
-            <div>
-              <span className="text-xs text-amber-800 font-semibold uppercase">Low Stock Products</span>
-              <p className="text-lg font-bold text-amber-900">{summary?.stock?.lowStock || summary?.lowStockCount || 0} Items</p>
-            </div>
-          </div>
-          <FaArrowRight className="text-amber-500" />
-        </Link>
-
-        {/* Out of Stock Counter */}
-        <Link to="/stock" className="bg-white border border-red-200 rounded-2xl p-5 shadow-sm flex items-center justify-between hover:bg-red-50/50 transition-colors">
-          <div className="flex items-center space-x-4">
-            <div className="p-3 bg-red-100 text-red-600 rounded-xl text-xl">
-              <FaTimesCircle />
-            </div>
-            <div>
-              <span className="text-xs text-red-800 font-semibold uppercase">Out of Stock</span>
-              <p className="text-lg font-bold text-red-900">{summary?.stock?.outOfStock || summary?.outOfStockCount || 0} Items</p>
-            </div>
-          </div>
-          <FaArrowRight className="text-red-500" />
-        </Link>
-      </div>
-
-      {/* 5. Labour & Workforce Management Section */}
-      <div className="space-y-6 pt-2">
-        {/* Section Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-gray-200 pb-3">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center text-lg shadow-sm">
-              <FaHardHat />
-            </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <h3 className="text-xl font-bold text-gray-900 tracking-tight">Labour & Workforce Operations</h3>
-              </div>
-              <p className="text-gray-500 text-xs mt-0.5">
-                Site deployment, wage liabilities, calendar earnings & project allocations
-              </p>
-            </div>
-          </div>
+      {/* Three cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+        {cards.map((c) => (
           <Link
-            to="/labour"
-            className="inline-flex items-center space-x-2 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3.5 py-2 rounded-xl transition-colors self-start sm:self-auto border border-emerald-200 shadow-sm"
+            key={c.label}
+            to={c.to}
+            className="group bg-white border border-gray-200 rounded-2xl px-5 py-4 hover:border-[#FFB82E]/40 transition-colors"
           >
-            <span>Manage Workforce</span>
-            <FaArrowRight className="text-[10px]" />
+            <div className="flex items-center justify-between text-xs text-gray-400">
+              <span>{c.label}</span>
+              <LuArrowRight className="opacity-0 group-hover:opacity-100 transition-opacity text-[#FFB82E]" />
+            </div>
+            <div className={`text-2xl font-semibold mt-1 ${c.valueCls || 'text-slate-900'}`}>{c.value}</div>
+            <div className={`text-xs mt-0.5 ${c.subCls}`}>{c.sub}</div>
           </Link>
-        </div>
+        ))}
+      </div>
 
-        {/* 5A. Workforce Headcount & Run Rate (4 Cards Grid) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {/* Card 1: Total Labour */}
-          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
-            <div className="space-y-1">
-              <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">Total Labour</span>
-              <div className="text-2xl font-extrabold text-slate-900 flex items-center">
-                {totalLabour}
-              </div>
-              <span className="text-xs text-slate-500 font-semibold">
-                {activeLabour} Active · {inactiveLabour > 0 ? `${inactiveLabour} Inactive · ` : ''}{stoppedLabour} Stopped
-              </span>
-            </div>
-            <div className="p-4 rounded-2xl bg-slate-100 text-slate-700">
-              <FaHardHat className="text-2xl" />
-            </div>
-          </div>
-
-          {/* Card 2: Active Labour */}
-          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
-            <div className="space-y-1">
-              <span className="text-xs text-emerald-700 font-bold uppercase tracking-wider block">Active Labour</span>
-              <div className="text-2xl font-extrabold text-emerald-600 flex items-center">
-                {activeLabour}
-              </div>
-              <span className="text-xs text-emerald-600 font-semibold flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
-                Currently Deployed on Sites
-              </span>
-            </div>
-            <div className="p-4 rounded-2xl bg-emerald-50 text-emerald-600">
-              <FaUsers className="text-2xl" />
-            </div>
-          </div>
-
-          {/* Card 3: Stopped Labour */}
-          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
-            <div className="space-y-1">
-              <span className="text-xs text-rose-700 font-bold uppercase tracking-wider block">Stopped Labour</span>
-              <div className="text-2xl font-extrabold text-rose-600 flex items-center">
-                {stoppedLabour}
-              </div>
-              <span className="text-xs text-slate-500 font-semibold">Work Concluded</span>
-            </div>
-            <div className="p-4 rounded-2xl bg-rose-50 text-rose-600">
-              <FaBan className="text-2xl" />
-            </div>
-          </div>
-
-          {/* Card 4: Projected Monthly Wages */}
-          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
-            <div className="space-y-1">
-              <span className="text-xs text-indigo-700 font-bold uppercase tracking-wider block">Projected Monthly</span>
-              <div className="text-2xl font-extrabold text-indigo-700 flex items-center">
-                <FaRupeeSign className="text-lg mr-0.5 text-indigo-500" />
-                {formattedProjectedWages}
-              </div>
-              <span className="text-xs text-indigo-600 font-semibold">30-Day Active Wage Run Rate</span>
-            </div>
-            <div className="p-4 rounded-2xl bg-indigo-50 text-indigo-600">
-              <FaCalendarAlt className="text-2xl" />
-            </div>
-          </div>
-        </div>
-
-        {/* 5B. Labour Wages & Cash Flow (3 Cards Grid) */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-          {/* Card 1: Total Wages Earned */}
-          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
-            <div className="space-y-1">
-              <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">Total Wages Earned</span>
-              <div className="text-2xl font-extrabold text-slate-900 flex items-center">
-                <FaRupeeSign className="text-lg mr-0.5 text-gray-500" />
-                {formattedLabourEarned}
-              </div>
-              <span className="text-xs text-slate-500 font-semibold">Cumulative Calendar Wages</span>
-            </div>
-            <div className="p-4 rounded-2xl bg-blue-50 text-blue-600">
-              <FaRupeeSign className="text-2xl" />
-            </div>
-          </div>
-
-          {/* Card 2: Total Wages Paid */}
-          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
-            <div className="space-y-1">
-              <span className="text-xs text-emerald-700 font-bold uppercase tracking-wider block">Total Wages Paid</span>
-              <div className="text-2xl font-extrabold text-emerald-600 flex items-center">
-                <FaRupeeSign className="text-lg mr-0.5 text-emerald-500" />
-                {formattedLabourPaid}
-              </div>
-              <span className="text-xs text-emerald-600 font-semibold">Disbursed to Workers</span>
-            </div>
-            <div className="p-4 rounded-2xl bg-emerald-50 text-emerald-600">
-              <FaMoneyBillWave className="text-2xl" />
-            </div>
-          </div>
-
-          {/* Card 3: Net Balance Payable / Overpaid */}
-          <div className={`bg-white border rounded-2xl p-6 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow ${
-            isLabourOverpaid ? 'border-purple-200 bg-purple-50/20' : labourBalance > 0 ? 'border-amber-200' : 'border-gray-200'
-          }`}>
-            <div className="space-y-1">
-              <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">
-                {isLabourOverpaid ? 'Net Advance / Overpaid' : labourBalance > 0 ? 'Outstanding Wage Dues' : 'Wage Balance'}
-              </span>
-              <div className={`text-2xl font-extrabold flex items-center ${
-                isLabourOverpaid ? 'text-purple-700' : labourBalance > 0 ? 'text-amber-700' : 'text-emerald-600'
-              }`}>
-                {isLabourOverpaid ? '-' : ''}
-                <FaRupeeSign className={`text-lg mr-0.5 ${
-                  isLabourOverpaid ? 'text-purple-500' : labourBalance > 0 ? 'text-amber-500' : 'text-emerald-500'
-                }`} />
-                {formattedLabourBalance}
-              </div>
-              <span className={`text-xs font-semibold ${
-                isLabourOverpaid ? 'text-purple-600' : labourBalance > 0 ? 'text-amber-600' : 'text-emerald-600'
-              }`}>
-                {isLabourOverpaid
-                  ? `Overpaid by ₹${formattedLabourBalance}`
-                  : labourBalance > 0
-                  ? 'Outstanding Payable Across Workers'
-                  : 'All Labour Wages Fully Settled'}
-              </span>
-            </div>
-            <div className={`p-4 rounded-2xl ${
-              isLabourOverpaid ? 'bg-purple-100 text-purple-700' : labourBalance > 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-50 text-emerald-600'
-            }`}>
-              <FaReceipt className="text-2xl" />
-            </div>
-          </div>
-        </div>
-
-        {/* 5C. Two-Column Layout: Labour Allocation by Project & Workforce Status */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column: Labour by Project (2 spans) */}
-          <div className="lg:col-span-2 bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden flex flex-col justify-between">
-            <div>
-              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-                <div className="flex items-center space-x-2">
-                  <FaBuilding className="text-gray-400 text-sm" />
-                  <span className="font-bold text-gray-800 text-sm">Labour Allocation by Project</span>
-                </div>
-                <span className="text-xs font-semibold text-gray-500 bg-gray-200/60 px-2.5 py-0.5 rounded-full">
-                  {byProject.length} {byProject.length === 1 ? 'Project' : 'Projects'}
+      {/* Bottom row: attention + ongoing projects on the left, recent activity on the right */}
+      <div
+        ref={bottomRef}
+        className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start"
+      >
+        <div className="flex flex-col gap-5 min-h-0" style={bottomHeight ? { maxHeight: bottomHeight } : undefined}>
+          {/* Needs attention */}
+          <div className="bg-white border border-gray-200 rounded-2xl shrink-0">
+            <div className="px-5 py-3.5 flex items-center gap-2.5">
+              <h3 className="text-sm font-semibold text-slate-900">Needs attention</h3>
+              {attention.length > 0 && (
+                <span className="px-2 py-0.5 rounded-md border border-red-400/30 bg-red-500/10 text-red-300 text-[11px]">
+                  {attention.length}
                 </span>
-              </div>
-
-              {byProject.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm text-gray-600 min-w-[500px]">
-                    <thead className="bg-gray-50/50 border-b border-gray-100 text-[11px] font-bold text-gray-500 uppercase tracking-wider">
-                      <tr>
-                        <th className="px-6 py-3">Project</th>
-                        <th className="px-6 py-3 text-center">Workers</th>
-                        <th className="px-6 py-3 text-right">Total Earned</th>
-                        <th className="px-6 py-3 text-right">Total Paid</th>
-                        <th className="px-6 py-3 text-right">Balance</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100 text-xs">
-                      {byProject.map((proj) => {
-                        const isOverpaid = proj.balance < 0;
-                        return (
-                          <tr key={proj.projectId} className="hover:bg-gray-50/60 transition-colors">
-                            <td className="px-6 py-3.5">
-                              <div className="font-bold text-slate-900">{proj.projectName}</div>
-                              <span className="font-mono text-[10px] text-gray-400 font-semibold">{proj.projectCode}</span>
-                            </td>
-                            <td className="px-6 py-3.5 text-center">
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-100">
-                                {proj.activeLabour} Active
-                              </span>
-                              {proj.stoppedLabour > 0 && (
-                                <span className="ml-1 text-[11px] text-gray-400 font-medium">
-                                  ({proj.stoppedLabour} stopped)
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-6 py-3.5 text-right font-semibold text-slate-800">
-                              ₹{(proj.totalEarned || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="px-6 py-3.5 text-right font-semibold text-emerald-600">
-                              ₹{(proj.totalPaid || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="px-6 py-3.5 text-right font-extrabold">
-                              {isOverpaid ? (
-                                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-purple-100 text-purple-800">
-                                  -₹{Math.abs(proj.balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                                </span>
-                              ) : proj.balance > 0 ? (
-                                <span className="text-amber-700">
-                                  ₹{proj.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                                </span>
-                              ) : (
-                                <span className="text-emerald-600">₹0.00</span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="p-8 text-center space-y-2">
-                  <div className="w-12 h-12 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center mx-auto text-xl">
-                    <FaHardHat />
-                  </div>
-                  <p className="text-sm font-semibold text-gray-700">No Labour Assigned to Projects</p>
-                  <p className="text-xs text-gray-400 max-w-sm mx-auto">
-                    Workers assigned to active projects will appear here with wage breakdown and payment status.
-                  </p>
-                  <Link
-                    to="/labour"
-                    className="inline-block mt-2 text-xs font-bold text-emerald-600 hover:text-emerald-700 hover:underline"
-                  >
-                    + Assign Labour in Directory
-                  </Link>
-                </div>
               )}
             </div>
+            {attention.length === 0 ? (
+              <div className="px-5 pb-4 flex items-center gap-2 text-sm text-emerald-400">
+                <LuCheckCircle /> All good today
+              </div>
+            ) : (
+              <div className="border-t border-gray-100 max-h-[9.5rem] overflow-y-auto divide-y divide-gray-100">
+                {attention.map((a) => (
+                  <Link
+                    key={a.key}
+                    to={a.to}
+                    className="group flex items-center gap-3 px-5 py-2.5 text-xs text-gray-400 hover:bg-[#FFB82E]/[0.04] transition-colors"
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${a.tone === 'red' ? 'bg-red-400' : 'bg-[#FFB82E]'}`}></span>
+                    <span className="flex-1 min-w-0 truncate">{a.text}</span>
+                    <LuArrowRight className="shrink-0 text-gray-400 group-hover:text-[#FFB82E] transition-colors" />
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Right Column: Status Distribution & Recent Labour Payments */}
-          <div className="space-y-6">
-            {/* Status Breakdown Box */}
-            <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-gray-800 text-sm">Workforce Status</span>
-                <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full">
-                  {activePercentage}% Active
-                </span>
-              </div>
-
-              {/* Progress Bar */}
-              <div className="w-full bg-gray-100 h-2.5 rounded-full overflow-hidden flex">
-                <div
-                  className="bg-emerald-500 h-full transition-all duration-500"
-                  style={{ width: `${activePercentage}%` }}
-                  title={`Active: ${activeLabour}`}
-                ></div>
-                <div
-                  className="bg-rose-400 h-full transition-all duration-500"
-                  style={{ width: `${100 - activePercentage}%` }}
-                  title={`Stopped: ${stoppedLabour}`}
-                ></div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 pt-1 text-xs">
-                <div className="p-3 bg-emerald-50/60 border border-emerald-100 rounded-xl space-y-0.5">
-                  <div className="flex items-center space-x-1.5 text-emerald-800 font-bold">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
-                    <span>ACTIVE</span>
-                  </div>
-                  <p className="text-lg font-extrabold text-emerald-900">{activeLabour}</p>
-                  <p className="text-[10px] text-emerald-700">Currently Working</p>
-                </div>
-
-                <div className="p-3 bg-rose-50/60 border border-rose-100 rounded-xl space-y-0.5">
-                  <div className="flex items-center space-x-1.5 text-rose-800 font-bold">
-                    <span className="w-2 h-2 rounded-full bg-rose-500 inline-block"></span>
-                    <span>STOPPED</span>
-                  </div>
-                  <p className="text-lg font-extrabold text-rose-900">{stoppedLabour}</p>
-                  <p className="text-[10px] text-rose-700">Work Concluded</p>
-                </div>
-              </div>
+          {/* Ongoing projects */}
+          <div className="bg-white border border-gray-200 rounded-2xl flex flex-col flex-1 min-h-0">
+            <div className="px-5 py-3.5 flex items-center justify-between shrink-0">
+              <h3 className="text-sm font-semibold text-slate-900">Ongoing projects</h3>
+              <Link to="/projects" className="text-xs text-gray-400 hover:text-[#FFB82E] transition-colors">
+                View all
+              </Link>
             </div>
-
-            {/* Recent Labour Payments Quick Widget */}
-            <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-gray-800 text-sm">Recent Labour Payments</span>
-                <Link to="/labour" className="text-xs font-bold text-emerald-600 hover:text-emerald-700">
-                  View All
-                </Link>
+            {ongoing.length === 0 ? (
+              <p className="px-5 pb-4 text-sm text-gray-400">No ongoing projects.</p>
+            ) : (
+              <div className="flex-1 min-h-0 overflow-y-auto border-t border-gray-100 rounded-b-2xl">
+                <table className="w-full table-fixed text-left text-xs text-gray-600">
+                  <thead className="sticky top-0 z-10 bg-white text-gray-400 text-[11px] font-medium shadow-[0_1px_0_0_rgba(255,255,255,0.06)]">
+                    <tr>
+                      <th className="pl-5 pr-2 py-2.5">Project</th>
+                      <th className="px-2 py-2.5 w-[84px] text-right">On site</th>
+                      <th className="px-2 py-2.5 w-[112px] text-right">Labour to pay</th>
+                      <th className="pl-2 pr-5 py-2.5 w-[104px] text-right">Ends</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {ongoing.map((p) => {
+                      const id = p.id || p._id;
+                      const isLate = endKey(p) && endKey(p) < today;
+                      const toPay = Math.max(0, labourByProject[id] || 0);
+                      const onSite = workersOnSite[id] || 0;
+                      return (
+                        <tr
+                          key={id}
+                          onClick={() => navigate(`/projects/${id}`)}
+                          className="hover:bg-[#FFB82E]/[0.04] transition-colors cursor-pointer"
+                        >
+                          <td className="pl-5 pr-2 py-2.5">
+                            <div className="text-slate-900 truncate">{p.name}</div>
+                            <div className="text-[11px] text-gray-400 truncate">{p.projectCode}</div>
+                          </td>
+                          <td className="px-2 py-2.5 text-right text-slate-900">{onSite}</td>
+                          <td className="px-2 py-2.5 text-right text-slate-900 whitespace-nowrap">{rupees(toPay)}</td>
+                          <td className={`pl-2 pr-5 py-2.5 text-right whitespace-nowrap ${isLate ? 'text-[#FCA5A5]' : 'text-gray-400'}`}>
+                            {p.expectedEndDate ? formatDateShortMonth(p.expectedEndDate, '-') : '-'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
+            )}
+          </div>
+        </div>
 
-              {recentLabourPayments.length > 0 ? (
-                <div className="space-y-2.5">
-                  {recentLabourPayments.slice(0, 3).map((pay) => (
-                    <div
-                      key={pay.id}
-                      className="flex items-center justify-between p-2.5 rounded-xl bg-gray-50 border border-gray-100 hover:bg-gray-100/60 transition-colors text-xs"
+        {/* Recent activity */}
+        <div className="bg-white border border-gray-200 rounded-2xl flex flex-col min-h-0" style={bottomHeight ? { maxHeight: bottomHeight } : undefined}>
+          <div className="px-5 py-3.5 shrink-0">
+            <h3 className="text-sm font-semibold text-slate-900">Recent activity</h3>
+          </div>
+          {recentActivity.length === 0 ? (
+            <p className="px-5 pb-4 text-sm text-gray-400">Nothing yet.</p>
+          ) : (
+            <div className="flex-1 min-h-0 overflow-y-auto border-t border-gray-100 divide-y divide-gray-100 rounded-b-2xl">
+              {recentActivity.map((a) => {
+                const isPurchase = a.type === 'PURCHASE';
+                const party = isPurchase
+                  ? { name: a.partyName && a.partyName !== 'Supplier' ? a.partyName : 'Unknown supplier', method: '' }
+                  : splitPartyName(a.partyName);
+                return (
+                  <Link
+                    key={`${a.type}-${a.id}`}
+                    to={isPurchase ? '/purchases' : '/labour'}
+                    className="flex items-center gap-3 px-5 py-3 text-xs hover:bg-[#FFB82E]/[0.04] transition-colors"
+                  >
+                    <span
+                      className={`w-[72px] shrink-0 px-1.5 py-0.5 rounded-md border text-[10px] font-medium inline-flex items-center justify-center gap-1 ${
+                        isPurchase
+                          ? 'border-sky-400/40 bg-sky-500/10 text-sky-300'
+                          : 'border-emerald-400/40 bg-emerald-500/10 text-emerald-400'
+                      }`}
                     >
-                      <div className="space-y-0.5">
-                        <div className="font-bold text-slate-800">{pay.labourName}</div>
-                        <div className="flex items-center space-x-2 text-[10px] text-gray-400">
-                          <span>{formatDateToIndian(pay.paymentDate)}</span>
-                          <span>•</span>
-                          <span className="font-semibold text-slate-600">{pay.paymentMethod}</span>
-                        </div>
+                      <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                      {isPurchase ? 'Purchase' : 'Wages'}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className={`truncate ${party.name === 'Unknown supplier' ? 'text-gray-400' : 'text-slate-900'}`}>
+                        {party.name}
                       </div>
-                      <div className="font-extrabold text-emerald-700 text-right">
-                        ₹{(pay.amount || 0).toLocaleString('en-IN')}
+                      <div className="text-[11px] text-gray-400 truncate">
+                        {[isPurchase ? `Bill ${a.reference}` : party.method, shortDate(a.date)].filter(Boolean).join(' · ')}
                       </div>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-gray-400 py-3 text-center italic">
-                  No labour payments recorded yet.
-                </p>
-              )}
+                    <span className="text-slate-900 shrink-0 text-right">{rupees(a.amount)}</span>
+                  </Link>
+                );
+              })}
             </div>
-          </div>
-        </div>
-      </div>
-
-      {/* 6. Recent Activity List */}
-      {summary?.recentActivity && summary.recentActivity.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 font-bold text-gray-800 text-base flex justify-between items-center">
-            <span>Recent Activity (Project Invoices, Purchases & Labour Payments)</span>
-            <span className="text-xs font-semibold text-gray-400">Latest Transactions</span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-gray-600 min-w-[700px]">
-              <thead className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase">
-                <tr>
-                  <th className="px-6 py-3">Type</th>
-                  <th className="px-6 py-3">Reference #</th>
-                  <th className="px-6 py-3">Party Name</th>
-                  <th className="px-6 py-3">Date</th>
-                  <th className="px-6 py-3 text-right">Total Amount</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {summary.recentActivity.map((act) => (
-                  <tr key={`${act.type}-${act.id}`} className="hover:bg-gray-50/50">
-                    <td className="px-6 py-3">
-                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-extrabold ${
-                        act.type === 'INVOICE'
-                          ? 'bg-blue-100 text-blue-800'
-                          : act.type === 'PURCHASE'
-                          ? 'bg-purple-100 text-purple-800'
-                          : 'bg-amber-100 text-amber-800'
-                      }`}>
-                        {act.type === 'LABOUR_PAY' ? 'LABOUR PAY' : act.type}
-                      </span>
-                    </td>
-                    <td className="px-6 py-3 font-mono font-bold text-slate-900">{act.reference}</td>
-                    <td className="px-6 py-3 font-semibold text-gray-800">{act.partyName}</td>
-                    <td className="px-6 py-3 text-gray-500 font-medium">{formatDateToIndian(act.date)}</td>
-                    <td className="px-6 py-3 text-right font-extrabold text-slate-900">
-                      ₹{act.amount?.toFixed(2)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* 7. Quick Operations Navigation Bar */}
-      <div className="space-y-4">
-        <h3 className="text-xl font-bold text-gray-800">Quick Operations</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-          <Link
-            to="/projects"
-            className="flex items-center justify-between p-4 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition-all shadow-md group"
-          >
-            <div className="flex items-center space-x-3">
-              <div className="p-2.5 rounded-lg bg-emerald-700">
-                <FaChartLine className="text-lg" />
-              </div>
-              <span className="font-bold text-sm">🏗️ Manage Projects</span>
-            </div>
-            <FaArrowRight />
-          </Link>
-
-          <Link
-            to="/labour"
-            className="flex items-center justify-between p-4 bg-amber-600 text-white rounded-xl hover:bg-amber-700 transition-all shadow-md group"
-          >
-            <div className="flex items-center space-x-3">
-              <div className="p-2.5 rounded-lg bg-amber-700">
-                <FaHardHat className="text-lg" />
-              </div>
-              <span className="font-bold text-sm">👷 Manage Labour</span>
-            </div>
-            <FaArrowRight />
-          </Link>
-
-          <Link
-            to="/purchases/new"
-            className="flex items-center justify-between p-4 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-all shadow-md group"
-          >
-            <div className="flex items-center space-x-3">
-              <div className="p-2.5 rounded-lg bg-slate-800">
-                <FaBoxes className="text-lg" />
-              </div>
-              <span className="font-bold text-sm">+ Add Purchase</span>
-            </div>
-            <FaArrowRight />
-          </Link>
-
-          <Link
-            to="/products"
-            className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-xl hover:border-gray-300 hover:shadow-sm transition-all group"
-          >
-            <div className="flex items-center space-x-3">
-              <div className="p-2.5 rounded-lg bg-blue-50 text-blue-600">
-                <FaBox className="text-lg" />
-              </div>
-              <span className="font-semibold text-gray-800 text-sm">Products Directory</span>
-            </div>
-            <FaArrowRight className="text-gray-400 group-hover:text-gray-600" />
-          </Link>
-
-          <Link
-            to="/reports"
-            className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-xl hover:border-gray-300 hover:shadow-sm transition-all group"
-          >
-            <div className="flex items-center space-x-3">
-              <div className="p-2.5 rounded-lg bg-purple-50 text-purple-600">
-                <FaChartLine className="text-lg" />
-              </div>
-              <span className="font-semibold text-gray-800 text-sm">Reports & Profit</span>
-            </div>
-            <FaArrowRight className="text-gray-400 group-hover:text-gray-600" />
-          </Link>
+          )}
         </div>
       </div>
     </div>

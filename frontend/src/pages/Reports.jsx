@@ -9,8 +9,6 @@ import {
   FaExternalLinkAlt,
   FaBuilding,
   FaChartLine,
-  FaWallet,
-  FaClock
 } from 'react-icons/fa';
 import { formatDateToIndian } from '../utils/dateUtils';
 
@@ -28,7 +26,7 @@ const formatIndianCurrency = (val, showDecimals = false) => {
   if (showDecimals) {
     return num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
-  return num.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  return num.toLocaleString('en-IN', { maximumFractionDigits: 0 });
 };
 
 const getCardStatusBadge = (status) => {
@@ -101,15 +99,6 @@ const Reports = () => {
     const profit = p.projectProfit !== undefined ? p.projectProfit : (p.grossProfit || 0);
     return sum + Number(profit || 0);
   }, 0);
-  const totalReceivedSum = projectsProfitability.reduce((sum, p) => {
-    return sum + Number(p.totalReceived || 0);
-  }, 0);
-  const pendingCollectionSum = projectsProfitability.reduce((sum, p) => {
-    const invoiced = p.totalInvoiced !== undefined ? p.totalInvoiced : (p.revenue || 0);
-    const received = p.totalReceived || 0;
-    return sum + Math.max(0, invoiced - received);
-  }, 0);
-
   // Filter counts
   const allCount = projectsProfitability.length;
   const ongoingCount = projectsProfitability.filter(p => p.status !== 'COMPLETED' && p.status !== 'CANCELLED').length;
@@ -140,8 +129,8 @@ const Reports = () => {
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Reports & Business Analytics</h1>
-          <p className="text-slate-500 text-xs sm:text-sm mt-0.5">Analyze project performance and profitability.</p>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Reports</h1>
+          <p className="text-slate-500 text-xs sm:text-sm mt-0.5">How each project is doing on budget and cost.</p>
         </div>
       </div>
 
@@ -175,11 +164,11 @@ const Reports = () => {
       ) : (
         <div className="space-y-5">
           {/* Four KPI Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* 1. Total Projects */}
             <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-sm space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">TOTAL PROJECTS</span>
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Total projects</span>
                 <FaBuilding className="text-slate-300 text-xs" />
               </div>
               <p className="text-3xl font-extrabold text-slate-900">{totalProjectsCount}</p>
@@ -188,29 +177,12 @@ const Reports = () => {
             {/* 2. Total Profit */}
             <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-sm space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">TOTAL PROFIT</span>
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Total profit</span>
                 <FaChartLine className="text-emerald-400 text-xs" />
               </div>
-              <p className="text-3xl font-extrabold text-emerald-700">₹{formatIndianCurrency(totalProfitSum, true)}</p>
+              <p className="text-2xl font-extrabold text-emerald-700">₹{formatIndianCurrency(totalProfitSum)}</p>
             </div>
 
-            {/* 3. Total Received */}
-            <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-sm space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">TOTAL RECEIVED</span>
-                <FaWallet className="text-slate-300 text-xs" />
-              </div>
-              <p className="text-3xl font-extrabold text-slate-900">₹{formatIndianCurrency(totalReceivedSum, true)}</p>
-            </div>
-
-            {/* 4. Pending Collection */}
-            <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-sm space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">PENDING COLLECTION</span>
-                <FaClock className="text-amber-400 text-xs" />
-              </div>
-              <p className="text-3xl font-extrabold text-amber-600">₹{formatIndianCurrency(pendingCollectionSum, true)}</p>
-            </div>
           </div>
 
           {/* Filter & Action Row */}
@@ -294,8 +266,6 @@ const Reports = () => {
                   const margin = p.projectMargin !== undefined ? p.projectMargin : (p.grossMargin || 0);
                   const budget = p.projectBudget !== undefined ? p.projectBudget : (p.revenue || 0);
                   const cost = p.actualProjectCost !== undefined ? p.actualProjectCost : (p.totalProjectCost || 0);
-                  const invoiced = p.totalInvoiced !== undefined ? p.totalInvoiced : (p.revenue || 0);
-                  const received = p.totalReceived || 0;
                   const budgetUsedPercent = budget > 0 ? Math.round((cost / budget) * 100) : 0;
                   const statusBadge = getCardStatusBadge(p.status);
                   const isSelected = selectedProject?.projectId === p.projectId;
@@ -326,7 +296,7 @@ const Reports = () => {
                         {/* Project Profit Section */}
                         <div className="mt-4">
                           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                            PROJECT PROFIT
+                            Project profit
                           </span>
                           <div className="flex items-baseline space-x-2 mt-0.5">
                             <span className={`text-2xl font-black ${profit >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
@@ -365,9 +335,6 @@ const Reports = () => {
                           <p className="truncate">
                             Budget: ₹{formatIndianCurrency(budget)} · Cost: ₹{formatIndianCurrency(cost)}
                           </p>
-                          <p className="truncate">
-                            Received: ₹{formatIndianCurrency(received)} of ₹{formatIndianCurrency(invoiced)} invoiced
-                          </p>
                         </div>
                       </div>
 
@@ -393,7 +360,7 @@ const Reports = () => {
               <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
                 <div>
                   <h3 className="font-extrabold text-slate-900 text-base">Construction Projects Profitability Directory</h3>
-                  <p className="text-xs text-gray-500">Executive comparison of Project Budget, actual costs (materials + expenses), project profit, margins & cash collections.</p>
+                  <p className="text-xs text-gray-500">Executive comparison of Project Budget, actual costs (materials + expenses), project profit and margins.</p>
                 </div>
                 <span className="text-xs font-bold bg-purple-100 text-purple-800 px-3 py-1 rounded-full">
                   {projectsProfitability.length} Projects
@@ -409,17 +376,16 @@ const Reports = () => {
                   <table className="w-full text-left text-xs text-gray-600 min-w-[1150px]">
                     <thead className="bg-gray-50 border-b border-gray-200 text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
                       <tr>
-                        <th className="px-4 py-3">Project / Client</th>
+                        <th className="px-4 py-3">Project</th>
                         <th className="px-4 py-3">Code</th>
                         <th className="px-4 py-3 text-center">Status</th>
-                        <th className="px-4 py-3 text-right">Project Budget (Excl. GST) (₹)</th>
-                        <th className="px-4 py-3 text-right">Material Cost (Excl. GST) (₹)</th>
-                        <th className="px-4 py-3 text-right">Expenses (₹)</th>
-                        <th className="px-4 py-3 text-right">Actual Cost (Excl. GST) (₹)</th>
-                        <th className="px-4 py-3 text-right">Project Profit (₹)</th>
+                        <th className="px-4 py-3 text-right">Budget</th>
+                        <th className="px-4 py-3 text-right">Materials</th>
+                        <th className="px-4 py-3 text-right">Expenses</th>
+                        <th className="px-4 py-3 text-right">Labour</th>
+                        <th className="px-4 py-3 text-right">Total cost</th>
+                        <th className="px-4 py-3 text-right">Profit</th>
                         <th className="px-4 py-3 text-right">Margin %</th>
-                        <th className="px-4 py-3 text-right">Invoiced (Incl. GST) (₹)</th>
-                        <th className="px-4 py-3 text-right">Received (₹)</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 font-medium">
@@ -449,6 +415,9 @@ const Reports = () => {
                             <td className="px-4 py-3 text-right font-medium text-slate-600">
                               ₹{(p.totalProjectExpenses || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                             </td>
+                            <td className="px-4 py-3 text-right font-medium text-slate-600">
+                              ₹{(p.totalLabourCost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
                             <td className="px-4 py-3 text-right font-bold text-slate-800">
                               ₹{(p.actualProjectCost !== undefined ? p.actualProjectCost : (p.totalProjectCost || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                             </td>
@@ -459,12 +428,6 @@ const Reports = () => {
                               <span className={`px-2 py-0.5 rounded text-[10px] ${isPositive ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'}`}>
                                 {margin}%
                               </span>
-                            </td>
-                            <td className="px-4 py-3 text-right font-medium text-slate-600">
-                              ₹{(p.totalInvoiced !== undefined ? p.totalInvoiced : (p.revenue || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="px-4 py-3 text-right font-bold text-blue-700">
-                              ₹{(p.totalReceived || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                             </td>
                           </tr>
                         );
@@ -515,7 +478,7 @@ const Reports = () => {
                 {/* Profit Highlight Banner */}
                 <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-4 flex items-center justify-between">
                   <div>
-                    <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">PROJECT PROFIT</span>
+                    <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">Project profit</span>
                     <p className="text-2xl font-black text-emerald-700 mt-0.5">
                       ₹{formatIndianCurrency(selectedProject.projectProfit !== undefined ? selectedProject.projectProfit : (selectedProject.grossProfit || 0), true)}
                     </p>
@@ -527,7 +490,7 @@ const Reports = () => {
 
                 {/* Section 1: PROJECT DETAILS */}
                 <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 space-y-3">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">PROJECT DETAILS</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Project details</span>
                   <div className="space-y-2 text-xs divide-y divide-slate-100">
                     <div className="flex justify-between items-center pt-1.5 first:pt-0">
                       <span className="text-slate-500 font-medium">Project Name:</span>
@@ -570,7 +533,7 @@ const Reports = () => {
 
                 {/* Section 2: COSTS */}
                 <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 space-y-3">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">COSTS</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Costs</span>
                   <div className="space-y-2 text-xs divide-y divide-slate-100">
                     <div className="flex justify-between items-center pt-1.5 first:pt-0">
                       <span className="text-slate-500 font-medium">Project Budget (Excl. GST):</span>
@@ -591,6 +554,12 @@ const Reports = () => {
                       </span>
                     </div>
                     <div className="flex justify-between items-center pt-1.5">
+                      <span className="text-slate-500 font-medium">Labour (wages earned):</span>
+                      <span className="font-semibold text-slate-700">
+                        ₹{formatIndianCurrency(selectedProject.totalLabourCost || 0, true)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center pt-1.5">
                       <span className="text-slate-900 font-bold">Actual Cost (Excl. GST):</span>
                       <span className="font-extrabold text-slate-900">
                         ₹{formatIndianCurrency(selectedProject.actualProjectCost !== undefined ? selectedProject.actualProjectCost : (selectedProject.totalProjectCost || 0), true)}
@@ -599,30 +568,6 @@ const Reports = () => {
                   </div>
                 </div>
 
-                {/* Section 3: COLLECTIONS */}
-                <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 space-y-3">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">COLLECTIONS</span>
-                  <div className="space-y-2 text-xs divide-y divide-slate-100">
-                    <div className="flex justify-between items-center pt-1.5 first:pt-0">
-                      <span className="text-slate-500 font-medium">Invoiced (Incl. GST):</span>
-                      <span className="font-bold text-slate-900">
-                        ₹{formatIndianCurrency(selectedProject.totalInvoiced !== undefined ? selectedProject.totalInvoiced : (selectedProject.revenue || 0), true)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center pt-1.5">
-                      <span className="text-slate-500 font-medium">Received:</span>
-                      <span className="font-extrabold text-blue-700">
-                        ₹{formatIndianCurrency(selectedProject.totalReceived || 0, true)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center pt-1.5">
-                      <span className="text-amber-700 font-bold">Pending Collection:</span>
-                      <span className="font-extrabold text-amber-600">
-                        ₹{formatIndianCurrency(Math.max(0, (selectedProject.totalInvoiced !== undefined ? selectedProject.totalInvoiced : (selectedProject.revenue || 0)) - (selectedProject.totalReceived || 0)), true)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
               </div>
 
               {/* Drawer Footer Actions */}

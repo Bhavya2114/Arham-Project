@@ -80,7 +80,8 @@ export const handleDeleteLabourPayment = async (
 ): Promise<void> => {
   try {
     const id = req.params.id as string;
-    await deletePayment(id);
+    const userId = (req as any).user?.id || (req as any).user?._id;
+    await deletePayment(id, userId ? String(userId) : undefined);
     res.status(200).json(successResponse('Payment deleted successfully'));
   } catch (error) {
     next(error);

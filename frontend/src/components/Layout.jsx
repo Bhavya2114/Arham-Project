@@ -7,12 +7,12 @@ const Layout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50 font-sans">
+    <div className="flex h-screen overflow-hidden bg-page font-sans">
       {/* Mobile Floating Menu Button (Zero vertical space consumed) */}
       {!sidebarOpen && (
         <button
           onClick={() => setSidebarOpen(true)}
-          className="md:hidden fixed bottom-4 right-4 z-40 p-3 bg-slate-900 text-white rounded-full shadow-2xl hover:bg-slate-800 transition-all active:scale-95 focus:outline-none flex items-center justify-center"
+          className="md:hidden fixed bottom-4 right-4 z-40 p-3 bg-[#FFB82E] text-[#1A1B1E] rounded-full shadow-2xl hover:bg-[#F2A516] transition-all active:scale-95 focus:outline-none flex items-center justify-center"
           aria-label="Open Navigation Menu"
         >
           <FaBars className="text-base" />

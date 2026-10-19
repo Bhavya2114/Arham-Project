@@ -48,8 +48,8 @@ const LowStock = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">Low Stock & Reorder Warnings</h2>
-          <p className="text-gray-500 text-sm">Actionable alerts for products whose stock levels are at or below minimum threshold quantities.</p>
+          <h2 className="text-2xl font-bold text-gray-800">Low stock</h2>
+          <p className="text-gray-500 text-sm">Products at or below their minimum stock level.</p>
         </div>
         <div className="flex items-center space-x-3 self-start sm:self-auto">
           <button
@@ -159,7 +159,7 @@ const LowStock = () => {
             <table className="w-full text-left text-sm text-gray-600 min-w-[750px]">
               <thead className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase">
                 <tr>
-                  <th className="px-6 py-3.5">Product Name & SKU</th>
+                  <th className="px-6 py-3.5">Product</th>
                   <th className="px-6 py-3.5">Category</th>
                   <th className="px-6 py-3.5 text-center">Current Stock</th>
                   <th className="px-6 py-3.5 text-center">Min Threshold</th>

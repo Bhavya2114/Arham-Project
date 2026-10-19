@@ -107,6 +107,25 @@ export interface ExtractionResult {
   };
 }
 
+const BUSY_RETRY_DELAYS_MS = [2000, 5000];
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Temporary overload on Google's side (503 "high demand", 500/504, "overloaded")
+export const isGeminiBusyError = (err: any): boolean => {
+  const status = err?.status || err?.statusCode || err?.response?.status;
+  const msg = String(err?.message || '').toLowerCase();
+  return (
+    status === 503 ||
+    status === 500 ||
+    status === 504 ||
+    msg.includes('"code":503') ||
+    msg.includes('unavailable') ||
+    msg.includes('overloaded') ||
+    msg.includes('high demand')
+  );
+};
+
 export const extractInvoiceFromBuffer = async (
   buffer: Buffer,
   mimeType: string,
@@ -122,32 +141,59 @@ export const extractInvoiceFromBuffer = async (
   const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
   const base64Data = buffer.toString('base64');
 
+  const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.5-flash';
+
   const responseText = await geminiKeyManager.executeWithFailover(async (apiKey) => {
     const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model: modelName,
-      contents: [
-        {
-          inlineData: {
-            mimeType: mimeType,
-            data: base64Data,
-          },
-        },
-        SYSTEM_EXTRACTION_PROMPT,
-      ],
-      config: {
-        responseMimeType: 'application/json',
-      },
-    });
 
-    const text = response.text || '';
-    if (!text || !text.trim()) {
-      const error = new Error('Empty response received from Gemini API.');
-      (error as any).statusCode = 502;
-      throw error;
+    const callModel = async (model: string): Promise<string> => {
+      const response = await ai.models.generateContent({
+        model,
+        contents: [
+          {
+            inlineData: {
+              mimeType: mimeType,
+              data: base64Data,
+            },
+          },
+          SYSTEM_EXTRACTION_PROMPT,
+        ],
+        config: {
+          responseMimeType: 'application/json',
+        },
+      });
+
+      const text = response.text || '';
+      if (!text || !text.trim()) {
+        const error = new Error('Empty response received from Gemini API.');
+        (error as any).statusCode = 502;
+        throw error;
+      }
+      return text;
+    };
+
+    // Gemini often answers 503 "high demand" for a few seconds; wait and retry before giving up
+    let lastBusyError: any = null;
+    for (let attempt = 0; attempt <= BUSY_RETRY_DELAYS_MS.length; attempt++) {
+      try {
+        return await callModel(modelName);
+      } catch (err: any) {
+        if (!isGeminiBusyError(err)) throw err;
+        lastBusyError = err;
+        console.warn(`[GeminiInvoice] ${modelName} busy (attempt ${attempt + 1}): ${err?.message}`);
+        if (attempt < BUSY_RETRY_DELAYS_MS.length) await sleep(BUSY_RETRY_DELAYS_MS[attempt]);
+      }
     }
 
-    return text;
+    // Still busy: one try on the fallback model. Any failure there reports the original busy error.
+    if (fallbackModel && fallbackModel !== modelName) {
+      try {
+        return await callModel(fallbackModel);
+      } catch (err: any) {
+        console.warn(`[GeminiInvoice] Fallback ${fallbackModel} failed: ${err?.message}`);
+      }
+    }
+    throw lastBusyError;
   });
 
   // Clean markdown json fences if present
@@ -162,7 +208,7 @@ export const extractInvoiceFromBuffer = async (
   try {
     rawParsed = JSON.parse(cleanJson);
   } catch (err) {
-    const error = new Error('Failed to parse Gemini response as JSON.');
+    const error = new Error('Could not read this bill. Please try again, or enter it manually.');
     (error as any).statusCode = 502;
     throw error;
   }
@@ -217,7 +263,7 @@ export const extractInvoiceFromBuffer = async (
   const validationResult = extractedBillSchema.safeParse(rawParsed);
   if (!validationResult.success) {
     console.error('Gemini response Zod validation errors:', validationResult.error.format());
-    const error = new Error('Gemini response did not match expected bill extraction schema.');
+    const error = new Error('Could not read this bill. Please try again, or enter it manually.');
     (error as any).statusCode = 502;
     throw error;
   }

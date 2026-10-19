@@ -1,14 +1,27 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import axiosInstance from '../utils/api';
-import { FaPlus, FaSearch, FaTruck, FaInfoCircle, FaTimes, FaExclamationTriangle } from 'react-icons/fa';
-import { formatDateToIndian, formatDateShortMonth, formatDateFull } from '../utils/dateUtils';
+import { FaPlus, FaSearch, FaTruck, FaTimes, FaExclamationTriangle, FaArrowDown, FaArrowUp, FaUndo } from 'react-icons/fa';
+import FilterSelect from '../components/FilterSelect';
+import IndianDateInput from '../components/IndianDateInput';
+import { formatDateShortMonth, toApiDateFormat } from '../utils/dateUtils';
+
+const NO_SUPPLIER = '__none__';
+
+const getPurchaseDateKey = (p) => toApiDateFormat(p.purchaseDate || p.invoiceDate);
+const getPurchaseTotal = (p) => (p.totalAmount !== undefined && p.totalAmount !== null ? p.totalAmount : (p.grandTotal || 0));
+const getSupplierKey = (p) => p.supplier?.id || p.supplier?._id || p.supplierId || p.supplier?.name || NO_SUPPLIER;
 
 const Purchases = () => {
   const [purchases, setPurchases] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [supplierFilter, setSupplierFilter] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [sortBy, setSortBy] = useState('date');
+  const [sortDir, setSortDir] = useState('desc');
 
   // Details Modal
   const [isDetailOpen, setIsDetailOpen] = useState(false);
@@ -32,31 +45,111 @@ const Purchases = () => {
     fetchPurchases();
   }, []);
 
+  // The page itself never scrolls: the bill list gets the height left below the toolbar and scrolls inside
+  const listRef = useRef(null);
+  const [listMaxHeight, setListMaxHeight] = useState(null);
+  useLayoutEffect(() => {
+    const fit = () => {
+      const list = listRef.current;
+      if (!list) return;
+      const main = list.closest('main');
+      const mainBottom = main ? main.getBoundingClientRect().bottom : window.innerHeight;
+      const mainPad = main ? parseFloat(getComputedStyle(main).paddingBottom) || 0 : 0;
+      const top = list.getBoundingClientRect().top + (main ? main.scrollTop : 0);
+      // 1px card border at the bottom
+      setListMaxHeight(Math.max(200, Math.floor(mainBottom - top - mainPad - 1)));
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [loading, error, purchases.length]);
+
+  // Esc closes the bill popup
+  useEffect(() => {
+    if (!isDetailOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setIsDetailOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [isDetailOpen]);
+
   const openDetails = (purchase) => {
     setActivePurchase(purchase);
     setIsDetailOpen(true);
   };
 
-  const filteredPurchases = purchases.filter((p) => {
-    const num = p.purchaseNumber || '';
-    const supName = p.supplier?.name || '';
-    const notes = p.notes || '';
-    const term = searchTerm.toLowerCase();
+  const supplierOptions = useMemo(() => {
+    const map = new Map();
+    purchases.forEach((p) => {
+      const key = getSupplierKey(p);
+      if (!map.has(key)) map.set(key, p.supplier?.name || 'Unknown supplier');
+    });
+    return Array.from(map, ([value, label]) => ({ value, label })).sort((a, b) => {
+      if (a.value === NO_SUPPLIER) return 1;
+      if (b.value === NO_SUPPLIER) return -1;
+      return a.label.localeCompare(b.label);
+    });
+  }, [purchases]);
 
-    return (
-      num.toLowerCase().includes(term) ||
-      supName.toLowerCase().includes(term) ||
-      notes.toLowerCase().includes(term)
-    );
-  });
+  const hasActiveFilters = Boolean(searchTerm || supplierFilter || dateFrom || dateTo);
+
+  const clearFilters = () => {
+    setSearchTerm('');
+    setSupplierFilter('');
+    setDateFrom('');
+    setDateTo('');
+  };
+
+  // Clicking the active sort field flips its direction; a new field starts newest/highest first
+  const handleSort = (field) => {
+    if (sortBy === field) {
+      setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+    } else {
+      setSortBy(field);
+      setSortDir('desc');
+    }
+  };
+
+  const filteredPurchases = purchases
+    .filter((p) => {
+      const num = p.purchaseNumber || '';
+      const supName = p.supplier?.name || '';
+      const notes = p.notes || '';
+      const term = searchTerm.toLowerCase();
+
+      const matchesSearch =
+        num.toLowerCase().includes(term) ||
+        supName.toLowerCase().includes(term) ||
+        notes.toLowerCase().includes(term);
+      if (!matchesSearch) return false;
+
+      if (supplierFilter && getSupplierKey(p) !== supplierFilter) return false;
+
+      if (dateFrom || dateTo) {
+        const dateKey = getPurchaseDateKey(p);
+        if (!dateKey) return false;
+        if (dateFrom && dateKey < dateFrom) return false;
+        if (dateTo && dateKey > dateTo) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      const cmp = sortBy === 'amount'
+        ? getPurchaseTotal(a) - getPurchaseTotal(b)
+        : getPurchaseDateKey(a).localeCompare(getPurchaseDateKey(b));
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+
+  const SortIcon = sortDir === 'desc' ? FaArrowDown : FaArrowUp;
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">Purchase History & Ledger</h2>
-          <p className="text-gray-500 text-sm">Review vendor purchase orders, items received, and historical purchase prices.</p>
+          <h2 className="text-2xl font-bold text-gray-800">Purchases</h2>
+          <p className="text-gray-500 text-sm">Supplier bills and what was received.</p>
         </div>
         <Link
           to="/purchases/new"
@@ -67,21 +160,105 @@ const Purchases = () => {
         </Link>
       </div>
 
-      {/* Search Bar */}
-      <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="relative w-full sm:w-80">
-          <FaSearch className="absolute left-3.5 top-3 text-gray-400 text-xs" />
-          <input
-            type="text"
-            placeholder="Search by purchase #, supplier name, notes..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-emerald-500 bg-gray-50/50 focus:bg-white"
-          />
+      {/* Search, filters, sort and count on one row */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+        <div className="flex flex-wrap items-center gap-3 text-xs">
+          <div className="relative w-full sm:w-auto sm:flex-1 sm:max-w-xs">
+            <FaSearch className="absolute left-3.5 top-3.5 text-gray-400 text-xs pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search bill no, supplier or notes..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-8 py-2.5 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-[#FFB82E]/60 bg-gray-50/50 text-slate-800 placeholder-gray-400"
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 transition-colors cursor-pointer p-0.5"
+                title="Clear search"
+              >
+                <FaTimes className="text-xs" />
+              </button>
+            )}
+          </div>
+
+          <div className="w-full sm:w-48">
+            <FilterSelect
+              value={supplierFilter}
+              onChange={setSupplierFilter}
+              placeholder="All suppliers"
+              options={supplierOptions}
+            />
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <div className="w-36">
+              <IndianDateInput
+                id="purchases-date-from"
+                name="dateFrom"
+                value={dateFrom}
+                max={dateTo || undefined}
+                onChange={setDateFrom}
+                placeholder="From"
+                className="py-2.5"
+              />
+            </div>
+            <span className="text-gray-400">to</span>
+            <div className="w-36">
+              <IndianDateInput
+                id="purchases-date-to"
+                name="dateTo"
+                value={dateTo}
+                min={dateFrom || undefined}
+                onChange={setDateTo}
+                placeholder="To"
+                className="py-2.5"
+              />
+            </div>
+          </div>
+
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-rose-600 bg-rose-50 hover:bg-rose-100 transition-all cursor-pointer"
+            >
+              <FaUndo className="text-[10px]" />
+              <span>Reset</span>
+            </button>
+          )}
+
+          <div className="flex items-center gap-3 ml-auto flex-wrap">
+            <div className="flex items-center gap-1.5">
+              <span className="text-gray-400 mr-1">Sort by</span>
+              {[
+                { field: 'date', label: 'Date' },
+                { field: 'amount', label: 'Amount' },
+              ].map(({ field, label }) => (
+                <button
+                  key={field}
+                  type="button"
+                  onClick={() => handleSort(field)}
+                  className={`px-3 py-1.5 rounded-full border transition-colors inline-flex items-center gap-1.5 cursor-pointer ${
+                    sortBy === field
+                      ? 'bg-[#FFB82E]/10 border-[#FFB82E]/40 text-[#FFC14D]'
+                      : 'bg-white border-gray-200 text-gray-500 hover:text-gray-800'
+                  }`}
+                  title={sortBy === field ? 'Click to reverse order' : `Sort by ${label.toLowerCase()}`}
+                >
+                  <span>{label}</span>
+                  {sortBy === field && <SortIcon className="text-[10px]" />}
+                </button>
+              ))}
+            </div>
+            <span className="px-3 py-1.5 rounded-xl border border-gray-200 text-gray-500 whitespace-nowrap">
+              <span className="text-slate-900 font-semibold">{filteredPurchases.length}</span>{' '}
+              {filteredPurchases.length === 1 ? 'bill' : 'bills'}
+            </span>
+          </div>
         </div>
-        <span className="text-xs font-bold text-gray-400 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200 self-end sm:self-auto">
-          {filteredPurchases.length} Purchase Records Total
-        </span>
       </div>
 
       {/* Purchase List Table */}
@@ -117,239 +294,225 @@ const Purchases = () => {
         ) : filteredPurchases.length === 0 ? (
           /* Empty Search Filter State */
           <div className="p-10 text-center space-y-2">
-            <p className="text-sm font-bold text-gray-700">No purchases match your search query</p>
-            <p className="text-xs text-gray-400">Try searching for a different purchase number or supplier name.</p>
+            <p className="text-sm font-bold text-gray-700">No purchases match your search or filters</p>
+            <p className="text-xs text-gray-400">Try a different search term, supplier, or date range.</p>
             <button
-              onClick={() => setSearchTerm('')}
+              onClick={clearFilters}
               className="text-xs text-emerald-600 font-bold underline hover:text-emerald-700 mt-2"
             >
-              Clear Search Filter
+              Clear All Filters
             </button>
           </div>
         ) : (
-          /* Purchase History Table */
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-gray-600 min-w-[700px]">
-              <thead className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase">
-                <tr>
-                  <th className="px-6 py-3.5">Purchase Order #</th>
-                  <th className="px-6 py-3.5">Supplier Name</th>
-                  <th className="px-6 py-3.5">Purchase Date</th>
-                  <th className="px-6 py-3.5 text-center">Items Count</th>
-                  <th className="px-6 py-3.5 text-right">Supplier Total (Incl. GST)</th>
-                  <th className="px-6 py-3.5 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {filteredPurchases.map((p) => {
-                  const rawDate = p.purchaseDate || p.invoiceDate;
-                  const pDate = rawDate ? formatDateToIndian(rawDate) : '-';
-                  const pDateMonth = rawDate ? formatDateShortMonth(rawDate) : '';
-                  const itemCount = p.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0;
-                  const grandTotalVal = p.totalAmount !== undefined && p.totalAmount !== null ? p.totalAmount : (p.grandTotal || 0);
+          /* Purchase History Table: click a row to open the bill */
+          <div
+            ref={listRef}
+            className="overflow-y-auto"
+            style={listMaxHeight ? { maxHeight: listMaxHeight } : undefined}
+          >
+          <table className="w-full text-left text-sm text-gray-600">
+            <thead className="sticky top-0 z-10 bg-white text-xs font-medium text-gray-400 shadow-[0_1px_0_0_rgba(255,255,255,0.08)]">
+              <tr>
+                <th className="px-6 py-3.5">Bill no</th>
+                <th className="px-6 py-3.5">Supplier</th>
+                <th className="px-6 py-3.5">Date</th>
+                <th className="px-6 py-3.5">Items</th>
+                <th className="px-6 py-3.5 text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filteredPurchases.map((p) => {
+                const rawDate = p.purchaseDate || p.invoiceDate;
+                const pDate = formatDateShortMonth(rawDate, '-');
+                const lineCount = p.items?.length || 0;
+                const totalQty = p.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0;
+                const grandTotalVal = getPurchaseTotal(p);
 
-                  return (
-                    <tr key={p.id || p._id} className="hover:bg-gray-50/50 transition-colors">
-                      <td className="px-6 py-4 font-mono font-bold text-gray-900">{p.purchaseNumber}</td>
-                      <td className="px-6 py-4 text-xs font-bold text-gray-700">
-                        {p.supplier?.name || <span className="italic text-gray-400">Unknown Supplier</span>}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="text-xs font-bold text-gray-800">{pDate}</div>
-                        {pDateMonth && <div className="text-[11px] text-gray-400 font-medium">{pDateMonth}</div>}
-                      </td>
-                      <td className="px-6 py-4 text-center font-bold text-slate-800">{itemCount} units</td>
-                      <td className="px-6 py-4 text-right font-black text-emerald-700">
-                        ₹{grandTotalVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <button
-                          onClick={() => openDetails(p)}
-                          className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-lg transition-colors inline-flex items-center space-x-1.5"
-                        >
-                          <FaInfoCircle />
-                          <span>View Details</span>
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                return (
+                  <tr
+                    key={p.id || p._id}
+                    onClick={() => openDetails(p)}
+                    title="Open bill"
+                    className="hover:bg-[#FFB82E]/[0.04] transition-colors cursor-pointer"
+                  >
+                    <td className="px-6 py-4 font-semibold text-slate-900">{p.purchaseNumber}</td>
+                    <td className="px-6 py-4 text-slate-900">
+                      {p.supplier?.name || <span className="text-gray-400">Unknown supplier</span>}
+                    </td>
+                    <td className="px-6 py-4 text-slate-900 whitespace-nowrap">{pDate}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-slate-900">{lineCount} {lineCount === 1 ? 'item' : 'items'}</span>
+                      <span className="text-gray-400"> · {totalQty} qty</span>
+                    </td>
+                    <td className="px-6 py-4 text-right font-semibold text-slate-900 whitespace-nowrap">
+                      ₹{grandTotalVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
           </div>
         )}
+
       </div>
 
-      {/* PURCHASE DETAILS MODAL */}
-      {isDetailOpen && activePurchase && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white border border-gray-200 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4 relative max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <div>
-                <h3 className="text-base font-bold text-gray-900 flex items-center space-x-2">
-                  <FaTruck className="text-emerald-600" />
-                  <span>Purchase Order #{activePurchase.purchaseNumber}</span>
-                </h3>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Purchased on <strong className="text-slate-800">{formatDateToIndian(activePurchase.purchaseDate)}</strong>
-                  {activePurchase.purchaseDate && ` (${formatDateFull(activePurchase.purchaseDate)})`}
-                </p>
-              </div>
-              <button onClick={() => setIsDetailOpen(false)} className="text-gray-400 hover:text-gray-600">
-                <FaTimes />
-              </button>
-            </div>
+      {/* BILL DETAILS POPUP: closes with ✕, Esc or a click outside */}
+      {isDetailOpen && activePurchase && (() => {
+        const bp = activePurchase;
+        const money = (n) => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const billDate = bp.purchaseDate || bp.invoiceDate;
+        const rows = (bp.items || []).map((item) => {
+          const price = item.originalPrice !== undefined ? Number(item.originalPrice) : Number(item.purchasePrice || 0);
+          const qty = Number(item.quantity || 0);
+          const taxable = item.taxableAmount !== undefined ? Number(item.taxableAmount) : price * qty;
+          const taxRate = Number(item.taxRate || 0);
+          const lineTax = item.taxAmount !== undefined && item.taxAmount !== null ? Number(item.taxAmount) : (taxable * taxRate) / 100;
+          const sku = item.sku || item.product?.sku || '';
+          const unitRaw = item.unit || item.product?.unit || '';
+          return {
+            name: item.productName || item.product?.name || 'Unknown product',
+            // Auto-made codes like PROD-1792346422974-43 mean nothing to a reader, so only real SKUs show
+            sku: /^PROD-\d+/.test(sku) ? '' : sku,
+            unit: unitRaw ? unitRaw.charAt(0).toUpperCase() + unitRaw.slice(1) : '',
+            price,
+            qty,
+            discountPercent: Number(item.discountPercent || 0),
+            perUnit: item.discountedPrice !== undefined ? Number(item.discountedPrice) : (qty > 0 ? taxable / qty : price),
+            taxable,
+            taxRate,
+            lineTax,
+            lineTotal: item.totalCost !== undefined && item.totalCost !== null ? Number(item.totalCost) : taxable + lineTax,
+          };
+        });
+        const totalQty = rows.reduce((sum, r) => sum + r.qty, 0);
+        const taxable = Number(bp.subtotal || 0);
+        const discount = Number(bp.totalDiscount || 0);
+        const gst = bp.taxAmount !== undefined ? Number(bp.taxAmount) : Number(bp.totalGst || 0);
+        const igst = Number(bp.igst || 0);
+        const hasSplit = bp.cgst !== undefined && bp.cgst !== null && bp.sgst !== undefined && bp.sgst !== null;
+        const roundOff = Number(bp.roundedOffAmount || 0);
+        const billTotal = bp.totalAmount !== undefined ? Number(bp.totalAmount) : Number(bp.grandTotal || 0);
+        const line = (label, value, cls = 'text-slate-900') => (
+          <div className="flex items-center justify-between">
+            <span className="text-gray-400">{label}</span>
+            <span className={cls}>{value}</span>
+          </div>
+        );
 
-            {/* Supplier Info */}
-            <div className="p-3 bg-gray-50 rounded-xl space-y-1 text-xs">
-              <div className="font-bold text-gray-700">Supplier: {activePurchase.supplier?.name || 'Unknown Supplier'}</div>
-              {activePurchase.supplier?.contactPerson && (
-                <div className="text-gray-500">Contact: {activePurchase.supplier.contactPerson}</div>
-              )}
-              {activePurchase.supplier?.gstNumber && (
-                <div className="text-gray-500 font-mono text-[11px]">GSTIN: {activePurchase.supplier.gstNumber}</div>
-              )}
-              {activePurchase.invoiceNumber && (
-                <div className="text-gray-600 text-[11px]">
-                  Invoice / Bill No: <span className="font-mono font-bold text-slate-800">{activePurchase.invoiceNumber}</span>
-                  {activePurchase.purchaseDate && (
-                    <span className="text-emerald-700 font-semibold ml-2">
-                      ({formatDateToIndian(activePurchase.purchaseDate)})
-                    </span>
-                  )}
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setIsDetailOpen(false);
+            }}
+          >
+            <div className="bg-white border border-gray-200 rounded-2xl max-w-6xl w-full h-[85vh] shadow-2xl flex flex-col overflow-hidden">
+              {/* Header */}
+              <div className="px-6 py-4 border-b border-gray-100 flex items-start justify-between gap-4 shrink-0">
+                <div className="min-w-0">
+                  <h3 className="text-lg font-semibold text-slate-900">
+                    Bill {bp.invoiceNumber || bp.purchaseNumber}
+                    <span className="text-sm font-normal text-gray-400 ml-2.5">{formatDateShortMonth(billDate, '')}</span>
+                  </h3>
+                  <p className="text-xs text-gray-400 mt-0.5 truncate">
+                    <span className="text-slate-900">{bp.supplier?.name || 'Unknown supplier'}</span>
+                    {bp.supplier?.gstNumber && <span> · GSTIN {bp.supplier.gstNumber}</span>}
+                  </p>
                 </div>
-              )}
-              {activePurchase.notes && <div className="text-gray-500 italic">Notes: {activePurchase.notes}</div>}
-            </div>
+                <button
+                  type="button"
+                  onClick={() => setIsDetailOpen(false)}
+                  title="Close"
+                  aria-label="Close"
+                  className="w-8 h-8 shrink-0 rounded-lg text-gray-400 hover:text-slate-900 hover:bg-gray-100 flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  <FaTimes />
+                </button>
+              </div>
 
-            {/* Purchased Items List */}
-            <div className="space-y-2">
-              <h4 className="text-xs font-bold text-gray-700 uppercase">Purchased Items Breakdown</h4>
-              <div className="border border-gray-100 rounded-xl overflow-x-auto">
-                <table className="w-full text-left text-xs text-gray-600 min-w-[620px]">
-                  <thead className="bg-gray-50 font-bold text-gray-500">
-                    <tr>
-                      <th className="p-2.5">Product / Item</th>
-                      <th className="p-2.5 text-right">Unit Price (₹)</th>
-                      <th className="p-2.5 text-center">Disc %</th>
-                      <th className="p-2.5 text-right">Taxable (₹)</th>
-                      <th className="p-2.5 text-center">Qty</th>
-                      <th className="p-2.5 text-center">GST %</th>
-                      <th className="p-2.5 text-right">Line GST (₹)</th>
-                      <th className="p-2.5 text-right">Line Total (₹)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {activePurchase.items?.map((item, idx) => {
-                      const name = item.productName || item.product?.name || (item.productId ? `Product (${item.productId.substring(0, 8)})` : 'Unknown Product');
-                      const sku = item.sku || item.product?.sku || '';
-                      const originalPrice = item.originalPrice !== undefined ? item.originalPrice : (item.purchasePrice || 0);
-                      const discountPercent = item.discountPercent || 0;
-                      const qty = item.quantity || 0;
-                      const taxable = item.taxableAmount !== undefined ? item.taxableAmount : (originalPrice * qty);
-                      const discountedUnitPrice = item.discountedPrice !== undefined ? item.discountedPrice : (qty > 0 ? taxable / qty : originalPrice);
-                      const taxRate = item.taxRate || 0;
-                      const lineTax = item.taxAmount !== undefined && item.taxAmount !== null
-                        ? Number(item.taxAmount)
-                        : (taxable * taxRate) / 100;
-
-                      const calculatedCost = taxable + lineTax;
-                      const lineTotal = item.totalCost !== undefined && item.totalCost !== null ? item.totalCost : (item.lineTotal || calculatedCost);
-
-                      return (
-                        <tr key={idx}>
-                          <td className="p-2.5">
-                            <span className="font-bold text-gray-900 block">{name}</span>
-                            {sku && <span className="text-[11px] font-mono text-gray-400">SKU: {sku}</span>}
+              <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px]">
+                {/* Items */}
+                <div className="min-h-0 overflow-y-auto lg:border-r border-gray-100">
+                  <table className="w-full table-fixed text-left text-xs text-gray-600">
+                    <thead className="sticky top-0 z-10 bg-white text-gray-400 text-[11px] font-medium shadow-[0_1px_0_0_rgba(255,255,255,0.06)]">
+                      <tr>
+                        <th className="pl-6 pr-2 py-2.5 w-[44px]">#</th>
+                        <th className="px-2 py-2.5">Item</th>
+                        <th className="px-2 py-2.5 w-[84px] text-right">Qty</th>
+                        <th className="px-2 py-2.5 w-[96px] text-right">Rate</th>
+                        <th className="px-2 py-2.5 w-[60px] text-right">Disc %</th>
+                        <th className="px-2 py-2.5 w-[108px] text-right">Taxable</th>
+                        <th className="px-2 py-2.5 w-[56px] text-right">GST %</th>
+                        <th className="px-2 py-2.5 w-[92px] text-right">GST</th>
+                        <th className="pl-2 pr-6 py-2.5 w-[116px] text-right">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {rows.map((r, idx) => (
+                        <tr key={idx} className="hover:bg-[#FFB82E]/[0.03] transition-colors">
+                          <td className="pl-6 pr-2 py-3 text-gray-400">{idx + 1}</td>
+                          <td className="px-2 py-3">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-slate-900 truncate" title={r.name}>{r.name}</span>
+                              {r.sku && <span className="text-[11px] text-gray-400 shrink-0">{r.sku}</span>}
+                            </div>
                           </td>
-                          <td className="p-2.5 text-right font-mono">₹{originalPrice.toFixed(2)}</td>
-                          <td className="p-2.5 text-center font-bold">
-                            {discountPercent > 0 ? (
-                              <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded font-black text-[10px]">
-                                {discountPercent}%
-                              </span>
-                            ) : (
-                              <span className="text-gray-400 text-[10px]">0%</span>
-                            )}
+                          <td className="px-2 py-3 text-right text-slate-900 whitespace-nowrap">
+                            {r.qty} {r.unit && <span className="text-gray-400">{r.unit}</span>}
                           </td>
-                          <td className="p-2.5 text-right font-mono">
-                            <div className="font-bold text-slate-900">₹{taxable.toFixed(2)}</div>
-                            {discountPercent > 0 && (
-                              <div className="text-[10px] text-emerald-700 font-medium">
-                                (₹{discountedUnitPrice.toFixed(2)}/u)
-                              </div>
-                            )}
+                          <td className="px-2 py-3 text-right whitespace-nowrap">₹{money(r.price)}</td>
+                          <td className="px-2 py-3 text-right">{r.discountPercent}%</td>
+                          <td
+                            className="px-2 py-3 text-right text-slate-900 whitespace-nowrap"
+                            title={r.discountPercent > 0 ? `₹${money(r.perUnit)} per unit after discount` : undefined}
+                          >
+                            ₹{money(r.taxable)}
                           </td>
-                          <td className="p-2.5 text-center font-bold">{qty}</td>
-                          <td className="p-2.5 text-center">{taxRate}%</td>
-                          <td className="p-2.5 text-right font-medium text-amber-700 font-mono">₹{lineTax.toFixed(2)}</td>
-                          <td className="p-2.5 text-right font-bold text-emerald-800 font-mono">
-                            ₹{lineTotal.toFixed(2)}
-                          </td>
+                          <td className="px-2 py-3 text-right">{r.taxRate}%</td>
+                          <td className="px-2 py-3 text-right text-gray-400 whitespace-nowrap">{money(r.lineTax)}</td>
+                          <td className="pl-2 pr-6 py-3 text-right font-semibold text-slate-900 whitespace-nowrap">₹{money(r.lineTotal)}</td>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Summary Spend Breakdown */}
-            <div className="p-4 bg-slate-900 text-white rounded-xl space-y-2 text-xs">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
-                <div className="flex flex-wrap items-center gap-3 text-slate-300">
-                  {activePurchase.totalDiscount !== undefined && activePurchase.totalDiscount > 0 && (
-                    <>
-                      <span>Total Savings: <strong className="text-emerald-400">−₹{Number(activePurchase.totalDiscount).toFixed(2)}</strong></span>
-                      <span>|</span>
-                    </>
-                  )}
-                  <span>Taxable Subtotal: <strong className="text-white">₹{(activePurchase.subtotal || 0).toFixed(2)}</strong></span>
-                  <span>|</span>
-                  <span>Input GST: <strong className="text-amber-400">₹{(activePurchase.taxAmount !== undefined ? activePurchase.taxAmount : (activePurchase.totalGst || 0)).toFixed(2)}</strong></span>
-                  {activePurchase.cgst !== undefined && activePurchase.cgst !== null && (
-                    <span className="text-slate-400 font-mono text-[11px]">(CGST: ₹{Number(activePurchase.cgst).toFixed(2)})</span>
-                  )}
-                  {activePurchase.sgst !== undefined && activePurchase.sgst !== null && (
-                    <span className="text-slate-400 font-mono text-[11px]">(SGST: ₹{Number(activePurchase.sgst).toFixed(2)})</span>
-                  )}
-                  {activePurchase.igst !== undefined && activePurchase.igst !== null && Number(activePurchase.igst) > 0 && (
-                    <span className="text-slate-400 font-mono text-[11px]">(IGST: ₹{Number(activePurchase.igst).toFixed(2)})</span>
-                  )}
-                  {activePurchase.roundedOffAmount !== undefined && activePurchase.roundedOffAmount !== null && Number(activePurchase.roundedOffAmount) !== 0 && (
-                    <>
-                      <span>|</span>
-                      <span>
-                        Rounded Off ({Number(activePurchase.roundedOffAmount) < 0 ? '−' : '+'}):{' '}
-                        <strong className={Number(activePurchase.roundedOffAmount) < 0 ? 'text-amber-300' : 'text-white'}>
-                          {Number(activePurchase.roundedOffAmount) < 0
-                            ? `−₹${Math.abs(Number(activePurchase.roundedOffAmount)).toFixed(2)}`
-                            : `₹${Number(activePurchase.roundedOffAmount).toFixed(2)}`}
-                        </strong>
-                      </span>
-                    </>
-                  )}
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-                <div className="text-emerald-400 text-sm font-black whitespace-nowrap">
-                  Supplier Total: ₹{(activePurchase.totalAmount !== undefined ? activePurchase.totalAmount : (activePurchase.grandTotal || 0)).toFixed(2)}
+
+                {/* Summary */}
+                <div className="min-h-0 overflow-y-auto px-5 py-4 flex flex-col text-xs border-t lg:border-t-0 border-gray-100">
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-semibold text-slate-900 mb-1">Summary</h4>
+                    {line('Items', `${rows.length} items · ${totalQty} qty`)}
+                    {line('Gross (before discount)', `₹${money(taxable + discount)}`)}
+                    {discount > 0 && line('Discount', `−₹${money(discount)}`, 'text-emerald-400')}
+                    {line('Taxable', `₹${money(taxable)}`)}
+                    {igst > 0
+                      ? line('IGST', `₹${money(igst)}`)
+                      : hasSplit && (
+                        <>
+                          {line('CGST', `₹${money(bp.cgst)}`)}
+                          {line('SGST', `₹${money(bp.sgst)}`)}
+                        </>
+                      )}
+                    {line('Total GST', `₹${money(gst)}`)}
+                    {roundOff !== 0 && line('Round off', `${roundOff < 0 ? '−' : '+'}₹${money(Math.abs(roundOff))}`)}
+                  </div>
+                  {bp.notes && (
+                    <div className="mt-4 pt-4 border-t border-gray-100">
+                      <div className="text-gray-400 mb-0.5">Notes</div>
+                      <div className="text-slate-900">{bp.notes}</div>
+                    </div>
+                  )}
+                  <div className="mt-auto pt-4 border-t border-gray-100">
+                    <div className="text-gray-400">Bill total</div>
+                    <div className="text-[#FFB82E] font-semibold text-2xl">₹{money(billTotal)}</div>
+                  </div>
                 </div>
               </div>
-              <p className="text-[10px] text-slate-400 italic">
-                * Input GST is charged by the supplier. Stored unit purchase price reflects GST-exclusive cost basis.
-              </p>
-            </div>
-
-            <div className="flex justify-end pt-2">
-              <button
-                onClick={() => setIsDetailOpen(false)}
-                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl text-xs"
-              >
-                Close
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };

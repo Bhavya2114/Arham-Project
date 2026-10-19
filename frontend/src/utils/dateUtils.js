@@ -90,6 +90,25 @@ export function formatDateShortMonth(val, fallback = '') {
 }
 
 /**
+ * Formats a start/end pair as a compact range, showing the year once when both dates share it.
+ * Example: ('2026-10-11', '2026-10-28') -> '11 Oct – 28 Oct 2026'
+ * Example: ('2026-12-11', '2027-01-05') -> '11 Dec 2026 – 05 Jan 2027'
+ * Example: ('2026-10-11', null)         -> '11 Oct 2026 – Ongoing'
+ */
+export function formatDateRange(start, end, openEndLabel = 'Ongoing', fallback = '-') {
+  const s = parseDateParts(start);
+  const e = parseDateParts(end);
+  if (!s && !e) return fallback;
+  if (!s) return formatDateShortMonth(end, fallback);
+  if (!e) return `${formatDateShortMonth(start)} – ${openEndLabel}`;
+  if (s.year === e.year) {
+    const startLabel = `${s.day} ${MONTHS_SHORT[parseInt(s.month, 10) - 1] || s.month}`;
+    return `${startLabel} – ${formatDateShortMonth(end)}`;
+  }
+  return `${formatDateShortMonth(start)} – ${formatDateShortMonth(end)}`;
+}
+
+/**
  * Formats a date into: DD MMMM YYYY.
  * Example: '2026-09-04' -> '04 September 2026'
  */

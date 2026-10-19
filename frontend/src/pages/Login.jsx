@@ -146,13 +146,13 @@ const Login = () => {
 
   return (
     <div
-      className="min-h-screen w-full bg-[#ede8df] text-slate-800 font-sans selection:bg-emerald-600 selection:text-white relative bg-cover bg-center bg-no-repeat overflow-x-hidden"
+      className="min-h-screen w-full bg-[#25262A] text-slate-800 font-sans selection:bg-emerald-600 selection:text-white relative bg-cover bg-center bg-no-repeat overflow-x-hidden"
       style={{
         backgroundImage: "url('/electrical_contractor_bg.jpg')",
       }}
     >
       {/* Subtle translucent overlay to ensure text contrast while keeping background sharp and visible */}
-      <div className="absolute inset-0 bg-gradient-to-r from-white/60 via-white/20 to-black/5 pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-r from-[#141518]/95 via-[#141518]/70 to-black/30 pointer-events-none" />
 
       {/* Main Centered Container that brings Left Content and Right Login Card closer together */}
       <div className="relative z-10 w-full max-w-[1360px] 2xl:max-w-[1440px] mx-auto min-h-screen flex flex-col lg:flex-row items-stretch justify-between px-6 sm:px-10 lg:px-12 xl:px-14">
@@ -164,36 +164,36 @@ const Login = () => {
 
           {/* Top Brand Logo */}
           <div className="flex items-center gap-3.5">
-            <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-white shadow-sm border border-emerald-700/20 text-[#005f38] shrink-0">
+            <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-white shadow-sm border border-emerald-700/20 text-[#FFC14D] shrink-0">
               {/* Professional Electrical Contractor Logo: Building with Integrated Bolt & Plug */}
               <svg
-                className="w-7 h-7 text-[#005f38]"
+                className="w-7 h-7 text-[#FFC14D]"
                 viewBox="0 0 32 32"
                 fill="none"
                 xmlns="http://www.w3.org/2000/svg"
               >
                 <path
                   d="M4 14L16 4L28 14V27C28 27.5523 27.5523 28 27 28H5C4.44772 28 4 27.5523 4 27V14Z"
-                  stroke="#005f38"
+                  stroke="#FFB82E"
                   strokeWidth="2.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
                 <path
                   d="M17 9L11 17H16L15 24L21 16H16L17 9Z"
-                  fill="#005f38"
-                  stroke="#005f38"
+                  fill="#FFB82E"
+                  stroke="#FFB82E"
                   strokeWidth="1.2"
                   strokeLinejoin="round"
                 />
-                <path d="M22 23V27M25 23V27" stroke="#005f38" strokeWidth="2" strokeLinecap="round" />
+                <path d="M22 23V27M25 23V27" stroke="#FFB82E" strokeWidth="2" strokeLinecap="round" />
               </svg>
             </div>
             <div>
               <span className="text-2xl sm:text-[28px] font-extrabold tracking-tight text-slate-900 block leading-tight">
                 Arham
               </span>
-              <span className="text-xs sm:text-[13px] font-bold text-[#005f38] tracking-tight block">
+              <span className="text-xs sm:text-[13px] font-bold text-[#FFC14D] tracking-tight block">
                 Management System
               </span>
             </div>
@@ -204,7 +204,7 @@ const Login = () => {
             <div className="space-y-2">
               <h1 className="text-3xl sm:text-4xl xl:text-[42px] font-extrabold tracking-tight text-slate-900 leading-[1.12]">
                 Simplify. Manage.<br />
-                <span className="text-[#005f38]">Power Every Connection.</span>
+                <span className="text-[#FFC14D]">Power Every Connection.</span>
               </h1>
               <p className="text-slate-700 text-sm sm:text-[15px] font-medium leading-relaxed max-w-lg pt-1">
                 Arham Management System helps you manage electrical installations, maintenance, and operations across your projects with efficiency and control.
@@ -216,7 +216,7 @@ const Login = () => {
 
               {/* Feature 1 */}
               <div className="flex items-center gap-3.5 group">
-                <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-white/90 text-[#005f38] border border-emerald-600/20 shadow-sm shrink-0">
+                <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-white/90 text-[#FFC14D] border border-emerald-600/20 shadow-sm shrink-0">
                   <HiOutlineBuildingOffice2 className="w-5 h-5 stroke-[2.2]" />
                 </div>
                 <div>
@@ -227,7 +227,7 @@ const Login = () => {
 
               {/* Feature 2 */}
               <div className="flex items-center gap-3.5 group">
-                <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-white/90 text-[#005f38] border border-emerald-600/20 shadow-sm shrink-0">
+                <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-white/90 text-[#FFC14D] border border-emerald-600/20 shadow-sm shrink-0">
                   <TbCircuitSwitchClosed className="w-5 h-5 stroke-[2.2]" />
                 </div>
                 <div>
@@ -238,7 +238,7 @@ const Login = () => {
 
               {/* Feature 3 */}
               <div className="flex items-center gap-3.5 group">
-                <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-white/90 text-[#005f38] border border-emerald-600/20 shadow-sm shrink-0">
+                <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-white/90 text-[#FFC14D] border border-emerald-600/20 shadow-sm shrink-0">
                   <FiClipboard className="w-5 h-5 stroke-[2.2]" />
                 </div>
                 <div>
@@ -249,7 +249,7 @@ const Login = () => {
 
               {/* Feature 4 */}
               <div className="flex items-center gap-3.5 group">
-                <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-white/90 text-[#005f38] border border-emerald-600/20 shadow-sm shrink-0">
+                <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-white/90 text-[#FFC14D] border border-emerald-600/20 shadow-sm shrink-0">
                   <FiShield className="w-5 h-5 stroke-[2.2]" />
                 </div>
                 <div>
@@ -263,7 +263,7 @@ const Login = () => {
 
           {/* Bottom Left Statement Badge & Copyright */}
           <div className="space-y-3.5 pt-3">
-            <div className="inline-flex items-center gap-3 px-4 py-2 rounded-2xl bg-[#002f1f] text-white shadow-md border border-emerald-800/50 relative overflow-hidden max-w-sm">
+            <div className="inline-flex items-center gap-3 px-4 py-2 rounded-2xl bg-[#141518] text-white shadow-md border border-emerald-800/50 relative overflow-hidden max-w-sm">
               <div className="w-7 h-7 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
                 <FiZap className="w-3.5 h-3.5 fill-emerald-400" />
               </div>
@@ -304,7 +304,7 @@ const Login = () => {
             {/* Header */}
             <div className="text-center mb-6">
               <h2 className="text-2xl sm:text-[30px] font-extrabold text-slate-900 tracking-tight">
-                Welcome <span className="text-[#005f38]">Back!</span>
+                Welcome <span className="text-[#FFC14D]">Back!</span>
               </h2>
               <p className="text-slate-500 text-xs sm:text-[13px] mt-1 font-medium">
                 Sign in to continue to your account
@@ -344,7 +344,7 @@ const Login = () => {
                       setEmail(e.target.value);
                       setSelectedRole(null);
                     }}
-                    className="block w-full pl-10 pr-4 h-12 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-600/15 focus:border-[#005f38] transition-all text-sm bg-white hover:border-slate-300"
+                    className="block w-full pl-10 pr-4 h-12 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-600/15 focus:border-[#FFB82E] transition-all text-sm bg-white hover:border-slate-300"
                     placeholder="Enter your email address"
                   />
                 </div>
@@ -372,7 +372,7 @@ const Login = () => {
                       setPassword(e.target.value);
                       setSelectedRole(null);
                     }}
-                    className="block w-full pl-10 pr-11 h-12 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-600/15 focus:border-[#005f38] transition-all text-sm bg-white hover:border-slate-300"
+                    className="block w-full pl-10 pr-11 h-12 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-600/15 focus:border-[#FFB82E] transition-all text-sm bg-white hover:border-slate-300"
                     placeholder="Enter your password"
                   />
                   <button
@@ -395,7 +395,7 @@ const Login = () => {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full h-12 flex justify-center items-center gap-2 bg-[#005f38] hover:bg-[#004e2e] text-white rounded-xl font-bold shadow-md shadow-emerald-950/10 hover:shadow-lg hover:shadow-emerald-950/15 active:scale-[0.99] transition-all disabled:opacity-75 disabled:pointer-events-none text-base tracking-wide"
+                  className="w-full h-12 flex justify-center items-center gap-2 bg-[#FFB82E] hover:bg-[#F2A516] text-white rounded-xl font-bold shadow-md shadow-emerald-950/10 hover:shadow-lg hover:shadow-emerald-950/15 active:scale-[0.99] transition-all disabled:opacity-75 disabled:pointer-events-none text-base tracking-wide"
                 >
                   {loading ? (
                     <div className="flex items-center gap-2">

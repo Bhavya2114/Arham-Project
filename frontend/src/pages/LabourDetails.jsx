@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { getLabourById, stopLabour } from '../utils/labourService';
 import { getPaymentsByLabourId, deletePayment } from '../utils/labourPaymentService';
 import LabourFormModal from '../components/LabourFormModal';
@@ -8,31 +8,47 @@ import ConfirmationModal from '../components/ConfirmationModal';
 import axiosInstance from '../utils/api';
 import { useToast } from '../context/ToastContext';
 import { getErrorMessage } from '../utils/apiError';
-import { formatDateShortMonth } from '../utils/dateUtils';
+import { formatDateShortMonth, formatDateRange } from '../utils/dateUtils';
 import {
-  FaHardHat,
   FaArrowLeft,
   FaEdit,
   FaBan,
   FaMoneyBillWave,
-  FaHistory,
-  FaPhoneAlt,
-  FaMapMarkerAlt,
-  FaBuilding,
-  FaCalendarAlt,
-  FaRupeeSign,
   FaExclamationTriangle,
-  FaCheckCircle,
   FaTrashAlt,
   FaPlus,
   FaCreditCard,
   FaMobileAlt,
-  FaUserCheck,
 } from 'react-icons/fa';
+
+// Rectangular outlined badges: tinted fill, coloured border and text
+const BADGE = {
+  green: 'bg-[#22C55E]/10 text-[#4ADE80] border-[#22C55E]/40',
+  grey: 'bg-[#908C84]/10 text-[#B8B4AC] border-[#908C84]/40',
+  blue: 'bg-[#60A5FA]/10 text-[#93C5FD] border-[#60A5FA]/40',
+  amber: 'bg-[#FFB82E]/10 text-[#FFC14D] border-[#FFB82E]/40',
+  purple: 'bg-[#A78BFA]/10 text-[#C4B5FD] border-[#A78BFA]/40',
+  red: 'bg-[#F87171]/10 text-[#FCA5A5] border-[#F87171]/40',
+};
+
+const PROJECT_STATUS = {
+  PLANNING: { label: 'Planning', cls: BADGE.blue },
+  IN_PROGRESS: { label: 'Ongoing', cls: BADGE.green },
+  ON_HOLD: { label: 'On hold', cls: BADGE.amber },
+  COMPLETED: { label: 'Completed', cls: BADGE.purple },
+  CANCELLED: { label: 'Cancelled', cls: BADGE.red },
+};
+
+const formatRupees = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
 
 const LabourDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Opened from a project? Back returns there (to its Labour tab), otherwise to the Labour list
+  const backTo = location.state?.backTo || '/labour';
+  const backLabel = location.state?.backLabel || 'Back to labour';
+  const goBack = () => navigate(backTo, { state: location.state?.backState });
   const toast = useToast();
 
   const [labour, setLabour] = useState(null);
@@ -180,7 +196,7 @@ const LabourDetails = () => {
         return (
           <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
             <FaMoneyBillWave className="text-[10px]" />
-            <span>CASH</span>
+            <span>Cash</span>
           </span>
         );
       case 'UPI':
@@ -194,7 +210,7 @@ const LabourDetails = () => {
         return (
           <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
             <FaCreditCard className="text-[10px]" />
-            <span>BANK TRANSFER</span>
+            <span>Bank transfer</span>
           </span>
         );
       default:
@@ -231,7 +247,7 @@ const LabourDetails = () => {
           <div className="pt-2">
             <button
               type="button"
-              onClick={() => navigate('/labour')}
+              onClick={goBack}
               className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all inline-flex items-center space-x-2"
             >
               <FaArrowLeft className="text-xs" />
@@ -258,7 +274,7 @@ const LabourDetails = () => {
           <div className="flex items-center justify-center space-x-3 pt-2">
             <button
               type="button"
-              onClick={() => navigate('/labour')}
+              onClick={goBack}
               className="px-4 py-2 border border-gray-300 hover:bg-gray-100 text-gray-700 font-bold text-xs rounded-xl transition-all"
             >
               Back to Labour
@@ -276,391 +292,235 @@ const LabourDetails = () => {
     );
   }
 
-  const isStopped = labour.status === 'STOPPED';
+  const isActive = labour.status === 'ACTIVE';
   const balanceVal = Number(labour.balance ?? 0);
   const isOverpaid = balanceVal < 0;
+  // Newest project first. If the server sends no history (older records or an old backend),
+  // still show the project the worker is on right now.
+  const projectHistory = (() => {
+    const rows = Array.isArray(labour.projectHistory) ? [...labour.projectHistory] : [];
+    const currentId = labour.project?.id || labour.projectId;
+    if (isActive && currentId && !rows.some((h) => h.projectId === currentId && h.isActive)) {
+      rows.push({
+        projectId: currentId,
+        name: labour.project?.name,
+        projectCode: labour.project?.projectCode,
+        projectStatus: labour.project?.status,
+        startDate: labour.assignmentStartDate || labour.startDate,
+        stoppedAt: null,
+        isActive: true,
+        earnedDays: rows.length ? null : labour.earnedDays,
+        earned: rows.length ? null : labour.totalEarned,
+      });
+    }
+    return rows.sort((a, b) => new Date(b.startDate || 0) - new Date(a.startDate || 0));
+  })();
+  const startDateLabel = formatDateShortMonth(labour.assignmentStartDate || labour.startDate, 'Not set');
+  const stoppedDateLabel = labour.stoppedAt
+    ? formatDateShortMonth(labour.stoppedAt)
+    : isActive
+    ? 'Still working'
+    : 'Not recorded';
+  const rupees = (v) => `₹${Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+
+  // Deleted payments are still listed (marked as deleted) but don't count
+  const activePaymentCount = payments.filter((p) => !p.isDeleted).length;
+  const deletedLabel = (p) =>
+    `Deleted${p.deletedAt ? ` ${formatDateShortMonth(p.deletedAt)}` : ''}${p.deletedBy?.name ? ` by ${p.deletedBy.name}` : ''}`;
+
+  const statCards = [
+    {
+      label: 'Earned days',
+      value: `${labour.earnedDays || 0} ${labour.earnedDays === 1 ? 'day' : 'days'}`,
+      note: labour.stoppedAt ? `till ${formatDateShortMonth(labour.stoppedAt)}` : isActive ? 'till today' : null,
+      valueClass: 'text-slate-900',
+    },
+    {
+      label: 'Total earned',
+      value: rupees(labour.totalEarned),
+      note: `₹${Number(labour.dailyWage || 0).toLocaleString('en-IN')} / day`,
+      valueClass: 'text-slate-900',
+    },
+    {
+      label: 'Total paid',
+      value: rupees(labour.totalPaid),
+      note: `${activePaymentCount} ${activePaymentCount === 1 ? 'payment' : 'payments'}`,
+      valueClass: 'text-emerald-700',
+    },
+    {
+      label: 'Balance',
+      value: `${isOverpaid ? '-' : ''}${rupees(Math.abs(balanceVal))}`,
+      note: isOverpaid ? 'Overpaid' : balanceVal === 0 ? 'Settled' : 'To pay',
+      valueClass: isOverpaid ? 'text-rose-600' : balanceVal === 0 ? 'text-slate-500' : 'text-[#FFC14D]',
+      noteClass: isOverpaid ? 'text-rose-500' : balanceVal === 0 ? 'text-gray-400' : 'text-[#FFC14D]/80',
+    },
+  ];
+
+  const hasNotes = payments.some((p) => p.notes && String(p.notes).trim());
+
+  const workDetails = [
+    {
+      label: 'Project',
+      value: labour.project?.name || 'Unassigned',
+      sub: labour.project?.projectCode,
+      muted: !labour.project?.name,
+    },
+    { label: 'Daily wage', value: `₹${Number(labour.dailyWage || 0).toLocaleString('en-IN')} / day` },
+    { label: 'Start date', value: startDateLabel, muted: startDateLabel === 'Not set' },
+    { label: 'Stopped date', value: stoppedDateLabel, muted: !labour.stoppedAt },
+  ];
 
   return (
-    <div className="max-w-6xl mx-auto py-6 px-4 space-y-6 animate-fadeIn pb-16">
-      {/* SECTION 1 — TOP BREADCRUMB & BACK NAVIGATION */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <div className="text-xs text-gray-400 font-semibold mb-1 flex items-center space-x-1.5">
-            <Link to="/labour" className="hover:text-emerald-600 transition-colors">
-              Labour
-            </Link>
-            <span>&gt;</span>
-            <span className="text-emerald-700 font-bold">{labour.name}</span>
-          </div>
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-lg shadow-sm border border-emerald-200">
-              <FaHardHat />
-            </div>
-            <div>
-              <div className="flex items-center space-x-3">
-                <h1 className="text-2xl font-black text-slate-900 tracking-tight">{labour.name}</h1>
-                {/* Status Badge */}
-                {labour.status === 'ACTIVE' ? (
-                  <span className="px-3 py-1 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-full font-black text-[11px] inline-flex items-center space-x-1.5 shadow-xs">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span>ACTIVE</span>
-                  </span>
-                ) : (
-                  <span className="px-3 py-1 bg-slate-100 text-slate-700 border border-slate-200 rounded-full font-black text-[11px] inline-flex items-center space-x-1.5 shadow-xs">
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
-                    <span>INACTIVE</span>
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500 mt-1 font-medium">
-                <span className="flex items-center space-x-1">
-                  <FaPhoneAlt className="text-[10px] text-gray-400" />
-                  <span className="font-semibold text-slate-700">{labour.mobile}</span>
-                </span>
-                <span>•</span>
-                <span className="flex items-center space-x-1">
-                  <FaMapMarkerAlt className="text-[11px] text-gray-400" />
-                  <span>{labour.location}</span>
-                </span>
-                <span>•</span>
-                <span className="flex items-center space-x-1">
-                  <FaBuilding className="text-[11px] text-emerald-600" />
-                  <span className="font-semibold text-slate-800">
-                    {labour.project?.name || 'Unassigned'}
-                  </span>
-                  {labour.project?.projectCode && (
-                    <span className="text-[10px] font-mono text-gray-400 uppercase">
-                      ({labour.project.projectCode})
-                    </span>
-                  )}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
+    <div className="space-y-5 animate-fadeIn pb-16">
+      {/* Back link */}
+      <button
+        type="button"
+        onClick={goBack}
+        className="inline-flex items-center gap-2 text-sm text-gray-400 hover:text-slate-900 transition-colors cursor-pointer"
+      >
+        <FaArrowLeft className="text-xs" />
+        {backLabel}
+      </button>
 
-        {/* Action Buttons: Back, Edit, Stop, Pay */}
-        <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-auto">
-          {/* Back Button */}
-          <button
-            type="button"
-            onClick={() => navigate('/labour')}
-            className="px-4 py-2 border border-gray-300 hover:bg-gray-100 text-gray-700 font-bold text-xs rounded-xl transition-all flex items-center space-x-2 bg-white shadow-xs cursor-pointer"
-          >
-            <FaArrowLeft className="text-xs" />
-            <span>Back</span>
-          </button>
-
-          {/* Edit Labour Button */}
-          <button
-            type="button"
-            onClick={handleOpenEdit}
-            className="px-4 py-2 bg-white hover:bg-slate-50 border border-gray-300 text-slate-700 font-bold text-xs rounded-xl shadow-xs transition-all flex items-center space-x-2 cursor-pointer"
-            title="Edit worker profile"
-          >
-            <FaEdit className="text-xs text-emerald-600" />
-            <span>Edit</span>
-          </button>
-
-          {/* Stop Labour Button */}
-          {labour.status === 'ACTIVE' ? (
-            <button
-              type="button"
-              onClick={handleOpenStop}
-              className="px-4 py-2 bg-white hover:bg-rose-50 border border-rose-300 text-rose-700 font-bold text-xs rounded-xl shadow-xs transition-all flex items-center space-x-2 cursor-pointer"
-              title="Stop active worker"
-            >
-              <FaBan className="text-xs text-rose-600" />
-              <span>Stop</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              disabled
-              className="px-4 py-2 bg-gray-100 border border-gray-200 text-gray-400 font-bold text-xs rounded-xl cursor-not-allowed opacity-60 flex items-center space-x-2"
-              title="Worker is not currently active on a project"
-            >
-              <FaBan className="text-xs" />
-              <span>Stop</span>
-            </button>
-          )}
-
-          {/* Record Payment Button */}
-          <button
-            type="button"
-            onClick={handleOpenRecordPayment}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all flex items-center space-x-2 cursor-pointer"
-            title="Record payment to worker"
-          >
-            <FaMoneyBillWave className="text-xs" />
-            <span>Record Payment</span>
-          </button>
-        </div>
-      </div>
-
-      {/* SECTION 2 — FINANCIAL SUMMARY CARDS */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {/* Card 1: Earned Days */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm relative overflow-hidden flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">
-              EARNED DAYS
-            </span>
-            <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-xs">
-              <FaCalendarAlt />
-            </div>
-          </div>
-          <div className="mt-3">
-            <div className="flex items-baseline space-x-1.5">
-              <span className="text-2xl font-black text-slate-900 font-mono">
-                {labour.earnedDays || 0}
-              </span>
-              <span className="text-xs font-bold text-gray-500">
-                {labour.earnedDays === 1 ? 'day' : 'days'}
-              </span>
-            </div>
-            <p className="text-[11px] text-gray-400 font-medium mt-1">
-              Started {formatDateShortMonth(labour.startDate)}
-            </p>
-          </div>
-        </div>
-
-        {/* Card 2: Total Earned */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm relative overflow-hidden flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">
-              TOTAL EARNED
-            </span>
-            <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-xs">
-              <FaRupeeSign />
-            </div>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl font-black text-slate-900 font-mono">
-              ₹{Number(labour.totalEarned || 0).toLocaleString('en-IN', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-            </div>
-            <p className="text-[11px] text-gray-400 font-medium mt-1">
-              ₹{Number(labour.dailyWage || 0).toLocaleString('en-IN')} / day
-            </p>
-          </div>
-        </div>
-
-        {/* Card 3: Total Paid */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm relative overflow-hidden flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">
-              TOTAL PAID
-            </span>
-            <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-xs">
-              <FaMoneyBillWave />
-            </div>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl font-black text-emerald-700 font-mono">
-              ₹{Number(labour.totalPaid || 0).toLocaleString('en-IN', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-            </div>
-            <p className="text-[11px] text-gray-400 font-medium mt-1">
-              {payments.length} {payments.length === 1 ? 'payment recorded' : 'payments recorded'}
-            </p>
-          </div>
-        </div>
-
-        {/* Card 4: Balance */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm relative overflow-hidden flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">
-              NET BALANCE
-            </span>
-            <div
-              className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs ${
-                isOverpaid
-                  ? 'bg-rose-50 text-rose-600'
-                  : balanceVal === 0
-                  ? 'bg-gray-50 text-gray-500'
-                  : 'bg-amber-50 text-amber-600'
-              }`}
-            >
-              <FaRupeeSign />
-            </div>
-          </div>
-          <div className="mt-3">
-            <div
-              className={`text-2xl font-black font-mono ${
-                isOverpaid
-                  ? 'text-rose-600'
-                  : balanceVal === 0
-                  ? 'text-slate-500'
-                  : 'text-slate-900'
-              }`}
-            >
-              {isOverpaid ? '-' : ''}₹{Math.abs(balanceVal).toLocaleString('en-IN', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-            </div>
-            <div className="mt-1">
-              {isOverpaid ? (
-                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700">
-                  Overpaid by ₹{Math.abs(balanceVal).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </span>
-              ) : balanceVal === 0 ? (
-                <span className="text-[11px] text-slate-500 font-semibold">Settled in full</span>
-              ) : (
-                <span className="text-[11px] text-amber-700 font-semibold">Pending settlement</span>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* SECTION 3 — WORK INFORMATION DETAILS CARD */}
-      <div className="bg-white p-6 border border-gray-200 rounded-2xl shadow-sm space-y-4">
-        <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-          <h2 className="text-sm font-extrabold text-slate-900 flex items-center space-x-2">
-            <FaHardHat className="text-emerald-600 text-xs" />
-            <span>Employment & Work Information</span>
-          </h2>
+      {/* Header: avatar + name, actions on the right */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5 min-w-0">
+          <span className="w-12 h-12 rounded-full bg-[#FFB82E]/15 text-[#FFC14D] grid place-items-center text-lg font-semibold shrink-0">
+            {(labour.name || '?').charAt(0).toUpperCase()}
+          </span>
+          <h1 className="text-2xl font-semibold text-slate-900 truncate">{labour.name}</h1>
           <span
-            className={`px-3 py-0.5 text-xs font-extrabold rounded-lg border ${
-              !isStopped
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                : 'bg-rose-50 text-rose-700 border-rose-200'
+            className={`px-2.5 py-1 rounded-md border text-[11px] font-medium inline-flex items-center gap-1.5 shrink-0 ${
+              isActive ? BADGE.green : BADGE.grey
             }`}
           >
-            {labour.status}
+            <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+            {isActive ? 'Active' : 'Inactive'}
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 text-xs">
-          {/* Labour Name */}
-          <div className="space-y-1">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">
-              WORKER NAME
-            </span>
-            <div className="font-extrabold text-slate-900 text-sm">{labour.name}</div>
-          </div>
-
-          {/* Mobile */}
-          <div className="space-y-1">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">
-              MOBILE NUMBER
-            </span>
-            <div className="font-semibold text-slate-800 flex items-center space-x-1.5">
-              <FaPhoneAlt className="text-gray-400 text-[10px]" />
-              <span>{labour.mobile}</span>
-            </div>
-          </div>
-
-          {/* Address */}
-          <div className="space-y-1">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">
-              ADDRESS (CITY)
-            </span>
-            <div className="font-semibold text-slate-800 flex items-center space-x-1.5">
-              <FaMapMarkerAlt className="text-gray-400 text-[11px]" />
-              <span>{labour.address || labour.location}</span>
-            </div>
-          </div>
-
-          {/* Assigned Project */}
-          <div className="space-y-1">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">
-              ASSIGNED PROJECT
-            </span>
-            <div className="font-extrabold text-slate-900 flex items-center space-x-1.5">
-              <FaBuilding className="text-emerald-600 text-xs flex-shrink-0" />
-              <span>{labour.project?.name || 'Unassigned / Not Found'}</span>
-              {labour.project?.projectCode && (
-                <span className="text-[10px] font-mono text-gray-400 uppercase">
-                  ({labour.project.projectCode})
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 text-xs pt-4 border-t border-gray-100">
-          {/* Daily Wage */}
-          <div className="space-y-1">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">
-              DAILY WAGE RATE
-            </span>
-            <div className="font-black text-slate-900 text-sm font-mono flex items-center">
-              <FaRupeeSign className="text-xs text-gray-400 mr-0.5" />
-              {Number(labour.dailyWage || 0).toLocaleString('en-IN')}
-              <span className="text-[10px] text-gray-400 font-normal ml-1">/ day</span>
-            </div>
-          </div>
-
-          {/* Start Date */}
-          <div className="space-y-1">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">
-              START DATE
-            </span>
-            <div className="font-bold text-slate-800 flex items-center space-x-1.5">
-              <FaCalendarAlt className="text-emerald-600 text-xs" />
-              <span>{formatDateShortMonth(labour.startDate)}</span>
-            </div>
-          </div>
-
-          {/* Stopped At */}
-          <div className="space-y-1">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">
-              STOPPED DATE
-            </span>
-            <div className="font-bold text-slate-800">
-              {isStopped && labour.stoppedAt ? (
-                <span className="text-rose-600 flex items-center space-x-1.5">
-                  <FaBan className="text-xs" />
-                  <span>{formatDateShortMonth(labour.stoppedAt)}</span>
-                </span>
-              ) : (
-                <span className="text-gray-400 font-normal">— (Active Worker)</span>
-              )}
-            </div>
-          </div>
-
-          {/* Earned Days */}
-          <div className="space-y-1">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">
-              TOTAL EARNED DAYS
-            </span>
-            <div className="font-black text-slate-900 font-mono text-sm">
-              {labour.earnedDays || 0} {labour.earnedDays === 1 ? 'day' : 'days'}
-            </div>
-          </div>
+        <div className="flex items-center gap-2.5 shrink-0">
+          <button
+            type="button"
+            onClick={handleOpenEdit}
+            className="px-4 py-2 bg-white hover:bg-gray-100 border border-gray-200 text-slate-700 text-sm rounded-xl transition-all flex items-center gap-2 cursor-pointer"
+          >
+            <FaEdit className="text-xs" />
+            Edit
+          </button>
+          {isActive && (
+            <button
+              type="button"
+              onClick={handleOpenStop}
+              className="px-4 py-2 border border-rose-500/30 hover:bg-rose-500/10 text-rose-500 text-sm rounded-xl transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <FaBan className="text-xs" />
+              Stop
+            </button>
+          )}
         </div>
       </div>
 
-      {/* SECTION 4 — PAYMENT HISTORY SECTION */}
-      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-        {/* Header */}
-        <div className="p-5 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="flex items-center space-x-2.5">
-            <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-xs">
-              <FaHistory />
-            </div>
-            <div>
-              <h2 className="text-sm font-extrabold text-slate-900">Payment History</h2>
-              <p className="text-[11px] text-gray-500 font-medium">
-                Record of all monetary disbursements made to this worker
-              </p>
-            </div>
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
+        {statCards.map((c) => (
+          <div key={c.label} className="bg-white px-4 py-3.5 rounded-2xl border border-gray-200">
+            <p className="text-xs text-gray-400">{c.label}</p>
+            <p className={`text-2xl font-semibold font-mono mt-1 ${c.valueClass}`}>{c.value}</p>
+            {c.note && <p className={`text-xs mt-0.5 ${c.noteClass || 'text-gray-400'}`}>{c.note}</p>}
           </div>
+        ))}
+      </div>
 
+      {/* Work details */}
+      <div className="bg-white px-5 py-4 border border-gray-200 rounded-2xl">
+        <h2 className="text-sm font-semibold text-slate-900 mb-3">Work details</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-5">
+          {workDetails.map((d) => (
+            <div key={d.label}>
+              <p className="text-xs text-gray-400">{d.label}</p>
+              <p className={`text-sm mt-1 ${d.muted ? 'text-gray-400' : 'text-slate-900 font-medium'}`}>{d.value}</p>
+              {d.sub && <p className="text-xs text-gray-400 mt-0.5">{d.sub}</p>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Project history: every project this worker has been on */}
+      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-slate-900">Project history</h2>
+          {projectHistory.length > 0 && (
+            <span className="text-xs text-gray-400">
+              {projectHistory.length} {projectHistory.length === 1 ? 'project' : 'projects'}
+            </span>
+          )}
+        </div>
+        {projectHistory.length === 0 ? (
+          <p className="px-5 py-6 text-xs text-gray-400">Not assigned to any project yet.</p>
+        ) : (
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-50 border-b border-gray-200 text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">
+              <tr>
+                <th className="px-5 py-3">Project</th>
+                <th className="px-5 py-3">Project status</th>
+                <th className="px-5 py-3">Worked</th>
+                <th className="px-5 py-3 text-right">Days</th>
+                <th className="px-5 py-3 text-right">Earned</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {projectHistory.map((h, idx) => {
+                const st = PROJECT_STATUS[h.projectStatus];
+                return (
+                  <tr key={`${h.projectId}-${idx}`} className="hover:bg-[#FFB82E]/[0.05] transition-colors duration-150">
+                    <td className="px-5 py-3.5">
+                      <button
+                        type="button"
+                        onClick={() => h.projectId && navigate(`/projects/${h.projectId}`)}
+                        className="text-left cursor-pointer hover:text-[#FFC14D]"
+                      >
+                        <span className="font-medium text-slate-900">{h.name || 'Deleted project'}</span>
+                        {h.projectCode && <span className="block text-[11px] text-gray-400 mt-0.5">{h.projectCode}</span>}
+                      </button>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      {st ? (
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-medium ${st.cls}`}>
+                          <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                          {st.label}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3.5 text-slate-800">
+                      {formatDateRange(h.startDate, h.stoppedAt, 'today')}
+                      {h.isActive && (
+                        <span className={`ml-2 inline-block px-2 py-0.5 rounded-md border text-[10px] ${BADGE.amber}`}>Current</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3.5 text-right text-slate-800">{h.earnedDays ?? '-'}</td>
+                    <td className="px-5 py-3.5 text-right font-medium text-slate-900">{h.earned == null ? '-' : formatRupees(h.earned)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Payments */}
+      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-slate-900">Payments</h2>
           <button
             type="button"
             onClick={handleOpenRecordPayment}
-            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center space-x-1.5 self-start sm:self-auto cursor-pointer"
+            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all duration-150 hover:scale-110 flex items-center space-x-1.5 cursor-pointer"
           >
             <FaPlus className="text-[10px]" />
-            <span>Record Payment</span>
+            <span>Record payment</span>
           </button>
         </div>
 
@@ -693,17 +553,20 @@ const LabourDetails = () => {
                 <thead className="bg-slate-50 border-b border-gray-200 text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">
                   <tr>
                     <th className="px-5 py-3 text-center w-12">#</th>
-                    <th className="px-5 py-3">Payment Date</th>
-                    <th className="px-5 py-3 text-right">Amount</th>
-                    <th className="px-5 py-3 text-center">Method</th>
-                    <th className="px-5 py-3">Notes</th>
+                    <th className="px-5 py-3 w-40">Payment date</th>
+                    <th className="px-5 py-3 w-40">Amount</th>
+                    <th className="px-5 py-3">Method</th>
+                    {hasNotes && <th className="px-5 py-3">Notes</th>}
                     <th className="px-5 py-3">Recorded By</th>
-                    <th className="px-5 py-3 text-center w-28">Actions</th>
+                    <th className="px-5 py-3 text-center w-56">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 text-xs">
                   {payments.map((payment, index) => (
-                    <tr key={payment.id} className="hover:bg-slate-50/60 transition-colors">
+                    <tr
+                      key={payment.id}
+                      className={`transition-colors duration-150 ${payment.isDeleted ? 'opacity-50' : 'hover:bg-[#FFB82E]/[0.05]'}`}
+                    >
                       {/* Index */}
                       <td className="px-5 py-3.5 text-center font-mono text-gray-400 font-semibold">
                         {index + 1}
@@ -711,15 +574,12 @@ const LabourDetails = () => {
 
                       {/* Payment Date */}
                       <td className="px-5 py-3.5">
-                        <div className="font-bold text-slate-800 flex items-center space-x-1.5">
-                          <FaCalendarAlt className="text-gray-400 text-[10px]" />
-                          <span>{formatDateShortMonth(payment.paymentDate)}</span>
-                        </div>
+                        <span className="font-medium text-slate-800">{formatDateShortMonth(payment.paymentDate)}</span>
                       </td>
 
                       {/* Amount */}
-                      <td className="px-5 py-3.5 text-right">
-                        <span className="font-black text-slate-900 font-mono text-xs">
+                      <td className="px-5 py-3.5">
+                        <span className={`font-black text-slate-900 font-mono text-xs ${payment.isDeleted ? 'line-through' : ''}`}>
                           ₹{Number(payment.amount || 0).toLocaleString('en-IN', {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
@@ -728,16 +588,18 @@ const LabourDetails = () => {
                       </td>
 
                       {/* Method */}
-                      <td className="px-5 py-3.5 text-center">
+                      <td className="px-5 py-3.5">
                         {getMethodBadge(payment.paymentMethod)}
                       </td>
 
-                      {/* Notes */}
-                      <td className="px-5 py-3.5">
-                        <span className="text-gray-600 font-normal italic">
-                          {payment.notes ? payment.notes : <span className="text-gray-300 font-normal">—</span>}
-                        </span>
-                      </td>
+                      {/* Notes (column hidden when no payment has a note) */}
+                      {hasNotes && (
+                        <td className="px-5 py-3.5">
+                          <span className="text-gray-600 font-normal italic">
+                            {payment.notes ? payment.notes : <span className="text-gray-300 font-normal">—</span>}
+                          </span>
+                        </td>
+                      )}
 
                       {/* Recorded By */}
                       <td className="px-5 py-3.5">
@@ -751,26 +613,37 @@ const LabourDetails = () => {
                         )}
                       </td>
 
-                      {/* Actions: Edit, Delete */}
+                      {/* Actions: Edit, Delete (delete asks for confirmation) */}
                       <td className="px-5 py-3.5 text-center">
-                        <div className="inline-flex items-center space-x-1">
+                        {payment.isDeleted ? (
+                          <div className="leading-tight">
+                            <span className="inline-flex px-2 py-0.5 rounded-full text-[11px] bg-rose-50 text-rose-500">Deleted</span>
+                            {(payment.deletedAt || payment.deletedBy?.name) && (
+                              <p className="text-[11px] text-gray-400 mt-1">
+                                {[payment.deletedAt && formatDateShortMonth(payment.deletedAt), payment.deletedBy?.name && `by ${payment.deletedBy.name}`]
+                                  .filter(Boolean)
+                                  .join(' ')}
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                        <div className="inline-flex items-center gap-3">
                           <button
                             type="button"
                             onClick={() => handleOpenEditPayment(payment)}
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 transition-colors cursor-pointer"
-                            title="Edit Payment"
+                            className="w-16 py-1.5 rounded-lg text-xs text-slate-700 border border-gray-200 hover:bg-gray-100 transition-all duration-150 hover:scale-105 cursor-pointer"
                           >
-                            <FaEdit className="text-xs" />
+                            Edit
                           </button>
                           <button
                             type="button"
                             onClick={() => handleOpenDeletePayment(payment)}
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                            title="Delete Payment"
+                            className="w-16 py-1.5 rounded-lg text-xs text-rose-500 border border-rose-500/30 hover:bg-rose-500/10 transition-all duration-150 hover:scale-105 cursor-pointer"
                           >
-                            <FaTrashAlt className="text-xs" />
+                            Delete
                           </button>
                         </div>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -781,7 +654,7 @@ const LabourDetails = () => {
             {/* Mobile Cards View */}
             <div className="block md:hidden divide-y divide-gray-100">
               {payments.map((payment, index) => (
-                <div key={payment.id} className="p-4 space-y-2.5">
+                <div key={payment.id} className={`p-4 space-y-2.5 ${payment.isDeleted ? 'opacity-50' : ''}`}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
                       <span className="text-[11px] font-mono font-bold text-gray-400">
@@ -791,10 +664,9 @@ const LabourDetails = () => {
                         {formatDateShortMonth(payment.paymentDate)}
                       </span>
                     </div>
-                    <span className="font-black text-slate-900 font-mono text-sm">
+                    <span className={`font-black text-slate-900 font-mono text-sm ${payment.isDeleted ? 'line-through' : ''}`}>
                       ₹{Number(payment.amount || 0).toLocaleString('en-IN', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
+                        maximumFractionDigits: 0,
                       })}
                     </span>
                   </div>
@@ -812,6 +684,9 @@ const LabourDetails = () => {
                     </p>
                   )}
 
+                  {payment.isDeleted ? (
+                    <p className="text-xs text-rose-500 text-right">{deletedLabel(payment)}</p>
+                  ) : (
                   <div className="flex items-center justify-end space-x-2 pt-1 border-t border-gray-50">
                     <button
                       type="button"
@@ -830,6 +705,7 @@ const LabourDetails = () => {
                       <span>Delete</span>
                     </button>
                   </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -918,7 +794,7 @@ const LabourDetails = () => {
               ?
             </p>
             <p className="text-xs text-gray-500 font-normal">
-              This action cannot be undone. Total Paid and Balance will automatically be recalculated.
+              It will stay in the payment history marked as deleted, and will no longer count towards Total Paid and Balance.
             </p>
           </div>
         }

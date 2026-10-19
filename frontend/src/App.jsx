@@ -6,7 +6,6 @@ import Products from "./pages/Products";
 import Categories from "./pages/Categories";
 import Suppliers from "./pages/Suppliers";
 import Stock from "./pages/Stock";
-import LowStock from "./pages/LowStock";
 import AddPurchase from "./pages/AddPurchase";
 import PurchaseChoice from "./pages/PurchaseChoice";
 import PurchaseUpload from "./pages/PurchaseUpload";
@@ -18,8 +17,6 @@ import NotFound from "./pages/NotFound";
 import Projects from "./pages/Projects";
 import AddProject from "./pages/AddProject";
 import ProjectDetails from "./pages/ProjectDetails";
-import CreateProjectInvoice from "./pages/CreateProjectInvoice";
-import ProjectInvoiceDetails from "./pages/ProjectInvoiceDetails";
 import Labour from "./pages/Labour";
 import LabourDetails from "./pages/LabourDetails";
 import AuthProvider from "./context/AuthContext";
@@ -51,15 +48,12 @@ const App = () => (
             <Route path="/projects/new" element={<AddProject />} />
             <Route path="/projects/:id" element={<ProjectDetails />} />
             <Route path="/projects/:id/edit" element={<AddProject />} />
-            <Route path="/projects/:projectId/invoices/new" element={<CreateProjectInvoice />} />
-            <Route path="/project-invoices/:id" element={<ProjectInvoiceDetails />} />
             <Route path="/labour" element={<Labour />} />
             <Route path="/labour/:id" element={<LabourDetails />} />
             <Route path="/products" element={<Products />} />
             <Route path="/categories" element={<Categories />} />
             <Route path="/suppliers" element={<Suppliers />} />
             <Route path="/stock" element={<Stock />} />
-            <Route path="/low-stock" element={<LowStock />} />
             <Route path="/purchases/new" element={<PurchaseChoice />} />
             <Route path="/purchases/new/choice" element={<PurchaseChoice />} />
             <Route path="/purchases/new/manual" element={<AddPurchase />} />

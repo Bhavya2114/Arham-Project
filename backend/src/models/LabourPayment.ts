@@ -9,6 +9,10 @@ export interface ILabourPayment extends Document {
   paymentMethod: LabourPaymentMethod;
   notes?: string;
   createdBy: mongoose.Types.ObjectId;
+  // Deleted payments are kept for history and excluded from every total
+  isDeleted: boolean;
+  deletedAt?: Date | null;
+  deletedBy?: mongoose.Types.ObjectId | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -49,6 +53,20 @@ const labourPaymentSchema = new Schema<ILabourPayment>(
       ref: 'User',
       required: [true, 'Created by user is required'],
       index: true,
+    },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+    deletedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
     },
   },
   {

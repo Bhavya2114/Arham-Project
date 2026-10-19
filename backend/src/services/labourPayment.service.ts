@@ -37,9 +37,24 @@ export const mapLabourPaymentResponse = (payment: any) => ({
       : payment.createdBy
       ? payment.createdBy.toString()
       : undefined,
+  isDeleted: Boolean(payment.isDeleted),
+  deletedAt: payment.deletedAt || null,
+  deletedBy:
+    payment.deletedBy && typeof payment.deletedBy === 'object' && payment.deletedBy._id
+      ? {
+          id: payment.deletedBy._id.toString(),
+          name: payment.deletedBy.name,
+          email: payment.deletedBy.email,
+        }
+      : payment.deletedBy
+      ? payment.deletedBy.toString()
+      : null,
   createdAt: payment.createdAt,
   updatedAt: payment.updatedAt,
 });
+
+// Deleted payments stay in the collection for history; totals must skip them
+const NOT_DELETED = { isDeleted: { $ne: true } };
 
 /**
  * Record a new labour payment.
@@ -76,9 +91,10 @@ export const createPayment = async (
 
 /**
  * Retrieve list of payments with optional labourId filter.
+ * Deleted payments are left out; the per-labour history endpoint includes them.
  */
 export const getPayments = async (query: { labourId?: string }): Promise<any[]> => {
-  const filter: any = {};
+  const filter: any = { ...NOT_DELETED };
 
   if (query.labourId && query.labourId.trim() !== '') {
     if (mongoose.Types.ObjectId.isValid(query.labourId)) {
@@ -107,6 +123,7 @@ export const getPaymentById = async (id: string): Promise<any> => {
 
   const payment = await LabourPayment.findById(id)
     .populate('createdBy', 'name email')
+    .populate('deletedBy', 'name email')
     .populate('labourId', 'name mobile status')
     .lean();
 
@@ -135,6 +152,12 @@ export const updatePayment = async (
     throw error;
   }
 
+  if (payment.isDeleted) {
+    const error = new Error('Deleted payments cannot be edited');
+    (error as any).statusCode = 400;
+    throw error;
+  }
+
   if (input.amount !== undefined) payment.amount = Number(input.amount);
   if (input.paymentDate !== undefined) payment.paymentDate = new Date(input.paymentDate);
   if (input.paymentMethod !== undefined) payment.paymentMethod = input.paymentMethod;
@@ -146,20 +169,30 @@ export const updatePayment = async (
 
 /**
  * Delete a payment record.
+ * The record is kept and marked as deleted so the payment history still shows it;
+ * it no longer counts towards Total Paid or Balance.
  */
-export const deletePayment = async (id: string): Promise<boolean> => {
+export const deletePayment = async (id: string, userId?: string): Promise<boolean> => {
   if (!mongoose.Types.ObjectId.isValid(id)) {
     const error = new Error('Invalid payment ID format');
     (error as any).statusCode = 400;
     throw error;
   }
 
-  const result = await LabourPayment.findByIdAndDelete(id);
-  if (!result) {
+  const payment = await LabourPayment.findById(id);
+  if (!payment || payment.isDeleted) {
     const error = new Error('Payment not found');
     (error as any).statusCode = 404;
     throw error;
   }
+
+  payment.isDeleted = true;
+  payment.deletedAt = new Date();
+  payment.deletedBy =
+    userId && mongoose.Types.ObjectId.isValid(userId)
+      ? new mongoose.Types.ObjectId(userId)
+      : null;
+  await payment.save();
 
   return true;
 };
@@ -181,10 +214,12 @@ export const getPaymentsByLabourId = async (labourId: string): Promise<any[]> =>
     throw error;
   }
 
+  // Includes deleted payments so the history shows what was paid and later removed
   const payments = await LabourPayment.find({
     labourId: new mongoose.Types.ObjectId(labourId),
   })
     .populate('createdBy', 'name email')
+    .populate('deletedBy', 'name email')
     .sort({ paymentDate: -1, createdAt: -1 })
     .lean();
 
@@ -200,7 +235,7 @@ export const getTotalPaidByLabourId = async (
   if (!mongoose.Types.ObjectId.isValid(labourId)) return 0;
 
   const result = await LabourPayment.aggregate([
-    { $match: { labourId: new mongoose.Types.ObjectId(labourId) } },
+    { $match: { labourId: new mongoose.Types.ObjectId(labourId), ...NOT_DELETED } },
     { $group: { _id: null, totalPaid: { $sum: '$amount' } } },
   ]);
 
@@ -224,7 +259,7 @@ export const getTotalPaidMapForLabours = async (
   if (validObjectIds.length === 0) return map;
 
   const results = await LabourPayment.aggregate([
-    { $match: { labourId: { $in: validObjectIds } } },
+    { $match: { labourId: { $in: validObjectIds }, ...NOT_DELETED } },
     { $group: { _id: '$labourId', totalPaid: { $sum: '$amount' } } },
   ]);
 

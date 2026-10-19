@@ -3,16 +3,9 @@ import { createPortal } from 'react-dom';
 import { getLabours, assignLabourToProject } from '../utils/labourService';
 import { getErrorMessage } from '../utils/apiError';
 import { toApiDateFormat, formatDateToIndian } from '../utils/dateUtils';
-import {
-  FaHardHat,
-  FaTimes,
-  FaBuilding,
-  FaUserCheck,
-  FaRupeeSign,
-  FaExclamationTriangle,
-  FaCheck,
-  FaSpinner,
-} from 'react-icons/fa';
+import { FaTimes, FaExclamationTriangle, FaSpinner } from 'react-icons/fa';
+import FilterSelect from './FilterSelect';
+import IndianDateInput from './IndianDateInput';
 
 /**
  * AssignLabourModal Component
@@ -164,204 +157,134 @@ const AssignLabourModal = ({
     }
   };
 
+  const capitalise = (t) => (t ? t.trim().charAt(0).toUpperCase() + t.trim().slice(1) : '');
+  const labourOptions = labourList.map((l) => ({
+    value: l.id || l._id,
+    label: l.name,
+    hint: `${capitalise(l.address || l.location) || 'No city'} · ₹${Number(l.dailyWage || 0).toLocaleString('en-IN')}/day`,
+  }));
+
+  const labelCls = 'block text-xs text-gray-400 mb-1.5';
+
   const modalContent = (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn"
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn"
       style={{ margin: 0, padding: '1rem' }}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-gray-100 animate-scaleUp"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-200 animate-scaleUp"
         role="dialog"
         aria-modal="true"
         aria-labelledby="assign-labour-modal-title"
       >
-        {/* Modal Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-slate-50/70">
-          <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center text-base shadow-sm">
-              <FaHardHat />
-            </div>
-            <div>
-              <h3
-                id="assign-labour-modal-title"
-                className="text-base font-black text-slate-900 tracking-tight"
-              >
-                Assign Labour to Project
-              </h3>
-              <p className="text-[11px] text-gray-500 font-medium">
-                Associate an existing worker from the Labour directory
-              </p>
-            </div>
+        {/* Header */}
+        <div className="flex items-start justify-between px-6 pt-5 pb-1">
+          <div>
+            <h3 id="assign-labour-modal-title" className="text-lg font-semibold text-slate-900">
+              Assign labour
+            </h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              to <span className="text-slate-700">{projectName}</span>
+            </p>
           </div>
           <button
             type="button"
             onClick={onClose}
             disabled={submitting}
-            className="text-gray-400 hover:text-gray-600 transition-colors p-1.5 rounded-lg hover:bg-gray-100 cursor-pointer"
-            aria-label="Close modal"
+            className="w-8 h-8 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-400 hover:text-slate-900 flex items-center justify-center transition-colors cursor-pointer"
+            aria-label="Close"
           >
-            <FaTimes className="text-sm" />
+            <FaTimes className="text-xs" />
           </button>
         </div>
 
-        {/* Modal Body / Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs">
-          {/* Form-level Error Banner */}
+        <form onSubmit={handleSubmit} className="px-6 pt-4 pb-5 space-y-4">
           {formError && (
-            <div className="p-3.5 bg-red-50 border border-red-200 text-red-700 rounded-xl font-semibold flex items-center space-x-2.5 animate-fadeIn">
-              <FaExclamationTriangle className="text-red-500 text-sm flex-shrink-0" />
+            <div className="p-3 bg-rose-500/10 border border-rose-500/30 text-rose-400 rounded-xl text-xs flex items-center gap-2">
+              <FaExclamationTriangle className="text-sm flex-shrink-0" />
               <span>{formError}</span>
             </div>
           )}
 
-          {/* Project (Read-only) */}
+          {/* Worker */}
           <div>
-            <label className="block font-bold text-gray-700 mb-1">
-              Project
-            </label>
-            <div className="px-3.5 py-2.5 bg-slate-50 border border-gray-200 rounded-xl flex items-center space-x-2 text-xs text-slate-800">
-              <FaBuilding className="text-amber-600 text-xs flex-shrink-0" />
-              <span className="font-bold truncate">{projectName}</span>
-              <span className="text-[10px] text-gray-400 font-semibold ml-auto flex-shrink-0">
-                (read-only)
-              </span>
-            </div>
-          </div>
-
-          {/* Select Labour * */}
-          <div>
-            <label className="block font-bold text-gray-700 mb-1">
-              Select Labour <span className="text-red-500">*</span>
-            </label>
+            <label className={labelCls}>Worker</label>
             {loadingLabours ? (
-              <div className="flex items-center space-x-2 py-2 px-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-500">
-                <FaSpinner className="animate-spin text-amber-600 text-xs" />
-                <span>Loading available labours...</span>
+              <div className="flex items-center gap-2 py-2.5 px-3.5 border border-gray-200 rounded-xl text-xs text-gray-400">
+                <FaSpinner className="animate-spin text-[#FFB82E] text-xs" />
+                Loading workers...
               </div>
+            ) : labourList.length === 0 ? (
+              <p className="py-2.5 px-3.5 border border-gray-200 rounded-xl text-xs text-gray-400">
+                No free workers. Only inactive workers can be assigned.
+              </p>
             ) : (
-              <div className="relative">
-                <select
-                  value={selectedLabourId}
-                  onChange={(e) => {
-                    setSelectedLabourId(e.target.value);
-                    if (fieldError) setFieldError('');
-                    if (formError) setFormError(null);
-                    if (startDateError) setStartDateError('');
-                  }}
-                  className={`w-full px-3 py-2.5 border rounded-xl bg-gray-50/50 focus:bg-white focus:outline-none transition-all text-slate-800 font-bold ${
-                    fieldError
-                      ? 'border-red-500 focus:border-red-500'
-                      : 'border-gray-200 focus:border-amber-500'
-                  }`}
-                >
-                  <option value="">-- Select an eligible labour (Inactive) --</option>
-                  {labourList.length === 0 ? (
-                    <option value="" disabled>
-                      No inactive labour workers available
-                    </option>
-                  ) : (
-                    labourList.map((l) => {
-                      const lId = l.id || l._id;
-                      return (
-                        <option key={lId} value={lId}>
-                          {l.name} ({l.address || l.location || 'No City'}) — ₹{l.dailyWage}/day
-                        </option>
-                      );
-                    })
-                  )}
-                </select>
-              </div>
+              <FilterSelect
+                size="md"
+                value={selectedLabourId}
+                placeholder="Choose a worker"
+                options={labourOptions}
+                onChange={(v) => {
+                  setSelectedLabourId(v);
+                  if (fieldError) setFieldError('');
+                  if (formError) setFormError(null);
+                  if (startDateError) setStartDateError('');
+                }}
+              />
             )}
-            {labourList.length === 0 && !loadingLabours && (
-              <p className="text-gray-400 text-[11px] mt-1 font-medium">
-                Only unassigned (inactive) labour workers can be assigned to a project.
-              </p>
-            )}
-            {fieldError && (
-              <p className="text-red-500 text-[11px] mt-1 font-medium">
-                {fieldError}
-              </p>
+            {fieldError && <p className="text-rose-400 text-[11px] mt-1">{fieldError}</p>}
+            {!loadingLabours && labourList.length > 0 && (
+              <p className="text-[11px] text-gray-400 mt-1.5">Only workers not on a site right now are listed.</p>
             )}
           </div>
 
-          {/* Daily Wage (Informational / Read-only) */}
-          <div>
-            <label className="block font-bold text-gray-700 mb-1">
-              Daily Wage
-            </label>
-            <div className="px-3.5 py-2.5 bg-gray-50/70 border border-gray-200 rounded-xl flex items-center justify-between text-xs">
-              <div className="flex items-center space-x-1.5 text-slate-900 font-black font-mono">
-                <FaRupeeSign className="text-gray-400 text-xs" />
-                <span>
-                  {selectedLabour
-                    ? `₹${Number(selectedLabour.dailyWage || 0).toLocaleString('en-IN')}/day`
-                    : 'Select a worker to view'}
-                </span>
+          {/* Wage + start date */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>Daily wage</label>
+              <div className="px-3.5 py-2.5 border border-gray-200 rounded-xl text-xs sm:text-sm font-mono text-slate-900">
+                {selectedLabour ? `₹${Number(selectedLabour.dailyWage || 0).toLocaleString('en-IN')}/day` : <span className="text-gray-400 font-sans">-</span>}
               </div>
-              <span className="text-[10px] text-gray-400 font-medium">
-                (informational)
-              </span>
+            </div>
+            <div>
+              <label htmlFor="assign-labour-start-date" className={labelCls}>
+                Start date
+              </label>
+              <IndianDateInput
+                id="assign-labour-start-date"
+                name="startDate"
+                value={startDate}
+                onChange={(iso) => {
+                  setStartDate(iso);
+                  if (startDateError) setStartDateError('');
+                  if (formError) setFormError(null);
+                }}
+                max={effectiveMaxDateIso}
+                min={projectStartDateIso || undefined}
+                disabled={submitting}
+                error={startDateError}
+                className="py-2.5 sm:text-sm"
+              />
             </div>
           </div>
 
-          {/* Start Date */}
-          <div>
-            <label htmlFor="assign-labour-start-date" className="block font-bold text-gray-700 mb-1">
-              Start Date <span className="text-red-500">*</span>
-            </label>
-            <input
-              id="assign-labour-start-date"
-              name="startDate"
-              type="date"
-              value={startDate}
-              onChange={(e) => {
-                setStartDate(e.target.value);
-                if (startDateError) setStartDateError('');
-                if (formError) setFormError(null);
-              }}
-              max={effectiveMaxDateIso}
-              min={projectStartDateIso || undefined}
-              disabled={submitting}
-              className={`w-full px-3 py-2.5 border rounded-xl bg-gray-50/50 focus:bg-white focus:outline-none transition-all text-slate-800 font-bold ${
-                startDateError
-                  ? 'border-red-500 focus:border-red-500'
-                  : 'border-gray-200 focus:border-amber-500'
-              }`}
-              required
-            />
-            {startDateError && (
-              <p className="text-red-500 text-[11px] mt-1 font-medium">
-                {startDateError}
-              </p>
-            )}
-          </div>
-
-          {/* Modal Footer / Action Buttons */}
-          <div className="flex items-center justify-end space-x-3 pt-4 border-t border-gray-100">
+          {/* Actions */}
+          <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
             <button
               type="button"
               onClick={onClose}
               disabled={submitting}
-              className="px-4 py-2.5 rounded-xl border border-gray-200 text-gray-700 font-bold hover:bg-gray-50 transition-colors text-xs cursor-pointer"
+              className="px-4 py-2.5 rounded-xl text-sm text-gray-400 hover:text-slate-900 transition-colors cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={submitting || loadingLabours || !selectedLabourId}
-              className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 active:scale-95 disabled:opacity-50 text-white font-bold transition-all text-xs inline-flex items-center space-x-2 shadow-sm cursor-pointer"
+              className="px-6 py-2.5 rounded-xl bg-[#FFB82E] hover:bg-[#FFC14D] text-[#1A1B1E] font-medium disabled:opacity-40 disabled:cursor-not-allowed text-sm transition-all inline-flex items-center gap-2 cursor-pointer"
             >
-              {submitting ? (
-                <>
-                  <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white"></div>
-                  <span>Assigning Labour...</span>
-                </>
-              ) : (
-                <>
-                  <FaUserCheck className="text-xs" />
-                  <span>Assign Labour</span>
-                </>
-              )}
+              {submitting && <FaSpinner className="animate-spin text-xs" />}
+              {submitting ? 'Assigning...' : 'Assign'}
             </button>
           </div>
         </form>

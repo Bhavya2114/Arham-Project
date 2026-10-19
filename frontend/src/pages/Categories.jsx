@@ -164,8 +164,8 @@ const Categories = () => {
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">Category Taxonomy</h2>
-          <p className="text-gray-500 text-sm">Organize products into structured inventory categories.</p>
+          <h2 className="text-2xl font-bold text-gray-800">Categories</h2>
+          <p className="text-gray-500 text-sm">Group products so they are easy to find.</p>
         </div>
         {isAdmin && (
           <button

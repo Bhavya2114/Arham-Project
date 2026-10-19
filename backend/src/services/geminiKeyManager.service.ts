@@ -158,10 +158,9 @@ export class GeminiKeyManager {
 
   public markKeyServerFailed(key: string, reason?: string): void {
     // Transient 503 / server error: place in shorter cooldown (15s)
+    // A busy/overloaded Gemini is not the key's fault, so the key stays usable for the next try
     const state = this.keyStates.get(key) || { status: 'HEALTHY', failureCount: 0 };
-    state.status = 'COOLDOWN';
     state.failureCount += 1;
-    state.cooldownUntil = Date.now() + 15000;
     state.lastFailureReason = reason || 'Transient Server Error';
     this.keyStates.set(key, state);
   }
@@ -273,34 +272,19 @@ export class GeminiKeyManager {
             `[GeminiKeyManager] Key ${keyEntry.name} (${maskApiKey(keyEntry.key)}) encountered server error. Reason: ${evaluation.message}. Attempting failover...`
           );
           this.markKeyServerFailed(keyEntry.key, evaluation.message);
+          // Busy is model-wide (already retried with waits), so other keys would only add delay
+          break;
         }
       }
     }
 
-    // All available/configured keys failed or were exhausted
-    if (anyQuotaExceeded || (lastError && this.evaluateError(lastError).isQuota)) {
-      const keyCount = keys.length;
-      let errorMsg = '';
-      if (keyCount > 1) {
-        errorMsg = `Gemini AI quota exceeded (HTTP 429): All configured Gemini API keys (${keyCount} keys) have exceeded their quota or rate limit. Please try again later or enter details manually.`;
-      } else {
-        const rawMsg = lastError?.message || 'Rate limit reached. Please try again later or enter details manually.';
-        errorMsg = rawMsg.startsWith('Gemini AI quota exceeded')
-          ? rawMsg
-          : `Gemini AI quota exceeded (HTTP 429): ${rawMsg}`;
-      }
-      const error = new Error(errorMsg);
-      (error as any).statusCode = 429;
-      throw error;
-    }
-
-    const fallbackStatus = lastError?.statusCode || 502;
-    const rawServiceMsg = lastError?.message || 'Extraction failed';
-    const fallbackMsg = rawServiceMsg.startsWith('Gemini AI service error')
-      ? rawServiceMsg
-      : `Gemini AI service error (HTTP ${fallbackStatus}): ${rawServiceMsg}`;
-    const error = new Error(fallbackMsg);
-    (error as any).statusCode = fallbackStatus;
+    // All available/configured keys failed or were exhausted. The real reason goes to the server
+    // log; the person using the app only sees a plain "network busy" message.
+    console.warn(`[GeminiKeyManager] Bill reading failed after trying all keys: ${lastError?.message || 'no key available'}`);
+    const isQuota = anyQuotaExceeded || (lastError && this.evaluateError(lastError).isQuota);
+    const error = new Error('Network busy. Please wait a moment and try again, or enter the bill manually.');
+    (error as any).statusCode = isQuota ? 429 : 503;
+    (error as any).code = 'AI_BUSY';
     throw error;
   }
 }

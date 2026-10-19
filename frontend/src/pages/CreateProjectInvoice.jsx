@@ -367,7 +367,7 @@ const CreateProjectInvoice = () => {
           </div>
           <h2 className="text-2xl font-extrabold text-slate-900 flex items-center space-x-2">
             <FaFileInvoiceDollar className="text-emerald-600" />
-            <span>CREATE PROJECT INVOICE</span>
+            <span>New invoice</span>
           </h2>
           <p className="text-xs text-gray-500 mt-0.5">
             Generate a customer billing invoice for materials consumed, site expenses & professional charges.
@@ -394,7 +394,7 @@ const CreateProjectInvoice = () => {
       {/* Project & Client Card Header */}
       <div className="bg-white p-5 border border-gray-200 rounded-2xl shadow-sm grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
         <div className="space-y-1">
-          <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">CONSTRUCTION PROJECT</span>
+          <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">Construction project</span>
           <div className="font-extrabold text-slate-900 text-sm flex items-center space-x-2">
             <FaBuilding className="text-emerald-600" />
             <span>{project.name}</span>
@@ -405,7 +405,7 @@ const CreateProjectInvoice = () => {
 
         {project.customer ? (
           <div className="space-y-1">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">CUSTOMER / CLIENT</span>
+            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">Customer / client</span>
             <div className="font-extrabold text-slate-900 text-sm flex items-center space-x-2">
               <FaUserCheck className="text-emerald-600" />
               <span>{project.customer.name}</span>
@@ -415,7 +415,7 @@ const CreateProjectInvoice = () => {
           </div>
         ) : (
           <div className="space-y-1">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">BILLING CLIENT</span>
+            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">Billing client</span>
             <div className="text-xs text-gray-500 font-medium">Standard Project Billing</div>
           </div>
         )}
@@ -447,13 +447,13 @@ const CreateProjectInvoice = () => {
                 <thead className="bg-gray-50 font-extrabold text-gray-500 uppercase tracking-wider text-[10px]">
                   <tr>
                     <th className="p-3 w-10 text-center">Select</th>
-                    <th className="p-3">Material / Product</th>
+                    <th className="p-3">Material</th>
                     <th className="p-3 text-center">Unbilled Qty</th>
                     <th className="p-3 text-right">
                       <div>Fixed Billing Rate — Incl. GST (₹)</div>
                       <div className="text-[9px] font-medium text-gray-400 normal-case tracking-normal">Dealer Cost + Fixed 18% GST</div>
                     </th>
-                    <th className="p-3 text-right">Line Total — Incl. GST (₹)</th>
+                    <th className="p-3 text-right">Line total</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 font-medium">
@@ -532,9 +532,9 @@ const CreateProjectInvoice = () => {
                 <thead className="bg-gray-50 font-extrabold text-gray-500 uppercase tracking-wider text-[10px]">
                   <tr>
                     <th className="p-3 w-10 text-center">Select</th>
-                    <th className="p-3">Category & Description</th>
-                    <th className="p-3 text-right">Actual Cost (₹)</th>
-                    <th className="p-3 text-right w-44">Customer Billing Charge (₹)</th>
+                    <th className="p-3">Expense</th>
+                    <th className="p-3 text-right">Actual Cost</th>
+                    <th className="p-3 text-right w-44">Bill amount</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 font-medium">

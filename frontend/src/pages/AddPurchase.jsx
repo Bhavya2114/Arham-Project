@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import axiosInstance from '../utils/api';
 import { useToast } from '../context/ToastContext';
@@ -9,12 +9,38 @@ import {
   FaExclamationTriangle, 
   FaArrowLeft,
   FaArrowRight,
-  FaRobot,
   FaCheckCircle,
-  FaInfoCircle
 } from 'react-icons/fa';
-import { calculateLineItem } from '../utils/purchaseCalculations';
-import { formatDateToIndian, formatDateShortMonth, toApiDateFormat } from '../utils/dateUtils';
+import { calculateLineItem, calculatePurchaseTotals } from '../utils/purchaseCalculations';
+import { toApiDateFormat } from '../utils/dateUtils';
+import FilterSelect from '../components/FilterSelect';
+import IndianDateInput from '../components/IndianDateInput';
+
+// Units shown in the unit dropdown; bill units like "R" or "Nos" are mapped onto these
+const UNIT_OPTIONS = ['Pcs', 'Mtr', 'Roll', 'Coil', 'Box', 'Set', 'Kg', 'Pkt'];
+const UNIT_ALIASES = {
+  r: 'Pcs', pc: 'Pcs', pcs: 'Pcs', piece: 'Pcs', pieces: 'Pcs', no: 'Pcs', nos: 'Pcs', qty: 'Pcs', u: 'Pcs', unit: 'Pcs', units: 'Pcs',
+  m: 'Mtr', mtr: 'Mtr', mtrs: 'Mtr', meter: 'Mtr', meters: 'Mtr', metre: 'Mtr', metres: 'Mtr',
+  roll: 'Roll', rolls: 'Roll', rl: 'Roll', coil: 'Coil', coils: 'Coil',
+  box: 'Box', boxes: 'Box', bx: 'Box', set: 'Set', sets: 'Set',
+  kg: 'Kg', kgs: 'Kg', pkt: 'Pkt', pkts: 'Pkt', packet: 'Pkt', packets: 'Pkt',
+};
+const normalizeUnit = (unit) => {
+  const raw = String(unit || '').trim();
+  if (!raw) return 'Pcs';
+  return UNIT_ALIASES[raw.toLowerCase().replace(/[^a-z]/g, '')] || raw;
+};
+
+// Product names compared without case, spaces or punctuation ("6A Switch" = "6a-switch")
+const normalizeName = (name) => String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const findProductByName = (name, list) => {
+  const n = normalizeName(name);
+  if (n.length < 3) return null;
+  return list.find((p) => normalizeName(p.name) === n || (p.sku && normalizeName(p.sku) === n)) || null;
+};
+
+const formatMoney = (n) =>
+  Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const AddPurchase = () => {
   const navigate = useNavigate();
@@ -81,6 +107,7 @@ const AddPurchase = () => {
         const numDisc = Number(String(rawDisc).replace(/%/g, '').trim());
         return {
           ...item,
+          unit: normalizeUnit(item.unit),
           discountPercent: isNaN(numDisc) ? 0 : numDisc,
           discountAmount: Number(item.discountAmount) || 0,
         };
@@ -104,6 +131,9 @@ const AddPurchase = () => {
       setSuppliers(fetchedSuppliers);
       setProducts(fetchedProducts);
 
+      // Bill items whose name matches a product already in inventory are linked to it
+      setItems((prev) => prev.map((item) => linkToExistingProduct(item, fetchedProducts)));
+
       // Auto select first supplier if available and not set
       if (fetchedSuppliers.length > 0 && !supplierId && !isNewSupplier && !incomingState.isAiExtracted && !incomingState.isNewSupplier) {
         setSupplierId(fetchedSuppliers[0].id || fetchedSuppliers[0]._id);
@@ -119,6 +149,25 @@ const AddPurchase = () => {
   useEffect(() => {
     fetchPrerequisites();
   }, []);
+
+  // Link a new-product row to an inventory product with the same name, keeping the bill's rate, GST and unit
+  const linkToExistingProduct = (item, list) => {
+    if (!item.isNewProduct) return item;
+    const match = findProductByName(item.newProduct?.name || item.extractedItemName || item.productName, list);
+    if (!match) return item;
+    return {
+      ...item,
+      isNewProduct: false,
+      newProduct: null,
+      productId: match.id || match._id,
+      productName: match.name,
+      autoMatched: true,
+    };
+  };
+
+  const handleNewProductBlur = (id) => {
+    setItems((prev) => prev.map((item) => (item.id === id ? linkToExistingProduct(item, products) : item)));
+  };
 
   // Add Empty Item Row
   const handleAddItemRow = () => {
@@ -157,6 +206,7 @@ const AddPurchase = () => {
 
         // When Product selection changes, update default prices and GST if not explicitly set
         if (field === 'productId') {
+          updated.autoMatched = false;
           if (value === 'NEW') {
             updated.isNewProduct = true;
             updated.productId = '';
@@ -177,7 +227,7 @@ const AddPurchase = () => {
                 updated.gstPercent = selectedProd.gstRate !== undefined ? selectedProd.gstRate : 18;
               }
               if (selectedProd.unit) {
-                updated.unit = selectedProd.unit;
+                updated.unit = normalizeUnit(selectedProd.unit);
               }
               updated.matched = true;
             }
@@ -237,6 +287,28 @@ const AddPurchase = () => {
 
   const allRowsSelected = items.length > 0 && items.every((i) => Boolean(i.selected));
   const [invalidRowId, setInvalidRowId] = useState(null);
+
+  // The page itself never scrolls: the items list gets whatever height is left above the totals bar
+  const listRef = useRef(null);
+  const barRef = useRef(null);
+  const [listMaxHeight, setListMaxHeight] = useState(null);
+  useLayoutEffect(() => {
+    const fit = () => {
+      const list = listRef.current;
+      if (!list) return;
+      const main = list.closest('main');
+      const mainBottom = main ? main.getBoundingClientRect().bottom : window.innerHeight;
+      const mainPad = main ? parseFloat(getComputedStyle(main).paddingBottom) || 0 : 0;
+      const top = list.getBoundingClientRect().top + (main ? main.scrollTop : 0);
+      const barHeight = barRef.current ? barRef.current.offsetHeight : 0;
+      // 1px card border + 20px gap (space-y-5) above the totals bar
+      const available = mainBottom - top - mainPad - barHeight - 21;
+      setListMaxHeight(Math.max(240, Math.floor(available)));
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [loading, items.length, error, formError, isNewSupplier, newSupplier?.gstNumber]);
 
   // Form Validation & Navigation to Review Purchase
   const handleReviewPurchase = (e) => {
@@ -405,417 +477,342 @@ const AddPurchase = () => {
     navigate('/purchases/new/review', { state: formData });
   };
 
-  return (
-    <div className="space-y-6 pb-12 animate-fadeIn">
-      {/* Top Header & Breadcrumb */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <div className="text-xs text-gray-400 font-semibold mb-1 flex items-center space-x-1">
-            <span>Purchases</span>
-            <span>&gt;</span>
-            <span className="text-emerald-600 font-bold">Add Purchase</span>
-          </div>
-          <div className="flex items-center space-x-3">
-            <h2 className="text-2xl font-extrabold text-slate-900">Record Purchase</h2>
-            {incomingState.isAiExtracted && (
-              <span className="px-3 py-1 bg-emerald-100 text-emerald-800 font-bold text-xs rounded-full flex items-center space-x-1.5 border border-emerald-300 shadow-sm">
-                <FaRobot className="text-emerald-600 text-sm" />
-                <span>AI Extracted</span>
-              </span>
-            )}
-          </div>
-          <p className="text-gray-500 text-xs mt-0.5">
-            Add purchased goods to your inventory and keep a record of the supplier invoice.
-          </p>
-        </div>
+  // Bill totals for the bar next to Review purchase, worked out the same way as on Review purchase
+  const roundOffValue = roundedOffAmount !== null && roundedOffAmount !== undefined ? Number(roundedOffAmount) || 0 : 0;
+  const totals = calculatePurchaseTotals({
+    items: calculatedItems,
+    suppliedCgst: incomingState.cgst,
+    suppliedSgst: incomingState.sgst,
+    suppliedIgst: incomingState.igst,
+    roundedOffAmount: roundOffValue !== 0 ? roundOffValue : null,
+  });
+  const totalTaxable = totals.taxableTotal;
+  const totalGst = totals.totalTax;
+  const grandTotal = totals.grandTotal;
+  const billTotal = incomingState.extractedGrandTotal !== undefined && incomingState.extractedGrandTotal !== null
+    ? Number(incomingState.extractedGrandTotal)
+    : null;
+  const billDiff = billTotal !== null && !isNaN(billTotal) ? grandTotal - billTotal : null;
 
+  // IGST only shows when the bill has it; CGST/SGST hide on an IGST-only bill
+  const hasIgst = calculatedItems.some((i) => (i.igstAmount || 0) > 0);
+  const hasCgstSgst = !hasIgst || calculatedItems.some((i) => (i.cgstAmount || 0) > 0 || (i.sgstAmount || 0) > 0);
+
+  const productOptions = [
+    { value: 'NEW', label: '+ New product' },
+    ...products.map((p) => ({
+      value: p.id || p._id,
+      label: p.name,
+      hint: `${p.currentStock !== undefined ? p.currentStock : 0} in stock`,
+    })),
+  ];
+  const supplierOptions = [
+    ...suppliers.map((s) => ({ value: s.id || s._id, label: s.name })),
+    { value: 'NEW', label: '+ New supplier' },
+  ];
+
+  const labelCls = 'block text-xs text-gray-400 mb-1.5';
+  const fieldCls =
+    'w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-xs sm:text-sm text-gray-900 bg-white focus:outline-none focus:border-[#FFB82E]/60';
+  const cellInputCls =
+    'w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-900 bg-white text-center focus:outline-none focus:border-[#FFB82E]/60 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none';
+
+  const startNewSupplier = () => {
+    setIsNewSupplier(true);
+    setSupplierId('');
+    setNewSupplier({ name: '', gstNumber: '', mobile: '', email: '', address: '' });
+  };
+
+  return (
+    <div className="space-y-5 animate-fadeIn">
+      {/* Header */}
+      <div className="flex items-start gap-3">
         <button
           type="button"
           onClick={() => navigate('/purchases/new')}
-          className="px-4 py-2 border border-gray-300 hover:bg-gray-100 text-gray-700 font-bold text-xs rounded-xl shadow-sm transition-all self-start sm:self-auto flex items-center space-x-2 bg-white"
+          title="Back to add purchase"
+          aria-label="Back to add purchase"
+          className="mt-0.5 w-9 h-9 shrink-0 rounded-lg border border-gray-200 text-gray-400 hover:text-slate-900 hover:bg-gray-100 flex items-center justify-center transition-colors cursor-pointer focus:outline-none"
         >
           <FaArrowLeft className="text-xs" />
-          <span>Back to Add Purchase</span>
         </button>
-      </div>
-
-      {/* AI Extraction Banner */}
-      {incomingState.isAiExtracted && (
-        <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-2xl text-xs font-semibold flex items-center space-x-3 shadow-sm">
-          <FaCheckCircle className="text-emerald-600 text-base flex-shrink-0" />
-          <div>
-            <span className="font-bold text-slate-900">Bill extracted successfully!</span> All purchase details and line items have been auto-populated below. You can review and edit any value before confirming.
-          </div>
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold text-slate-900">Record purchase</h1>
+          {incomingState.isAiExtracted ? (
+            <p className="text-sm text-gray-400 mt-0.5 flex items-center gap-1.5">
+              <FaCheckCircle className="text-emerald-400 text-xs shrink-0" />
+              <span>Filled in from the bill. Check the values before you review.</span>
+            </p>
+          ) : (
+            <p className="text-sm text-gray-400 mt-0.5">Add the goods you bought and the supplier's bill.</p>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Error Alert Banner */}
       {(error || formError) && (
-        <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-2xl text-sm font-semibold flex items-center space-x-3 shadow-sm">
+        <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-2xl text-sm font-medium flex items-center space-x-3">
           <FaExclamationTriangle className="text-red-500 text-lg flex-shrink-0" />
           <span>{formError || error}</span>
         </div>
       )}
 
       {loading ? (
-        <div className="flex flex-col items-center justify-center py-12 space-y-3 bg-white rounded-2xl border border-gray-200 shadow-sm">
-          <div className="animate-spin rounded-full h-9 w-9 border-b-2 border-emerald-600"></div>
-          <p className="text-sm text-gray-400 font-medium">Loading purchase record prerequisites...</p>
+        <div className="flex flex-col items-center justify-center py-12 space-y-3 bg-white rounded-2xl border border-gray-200">
+          <div className="animate-spin rounded-full h-9 w-9 border-2 border-[#FFB82E]/20 border-t-[#FFB82E]"></div>
+          <p className="text-sm text-gray-400">Loading...</p>
         </div>
       ) : (
-        <form onSubmit={handleReviewPurchase} noValidate className="space-y-6">
-          {/* SECTION 1 — PURCHASE INFORMATION CARD (4 FIELDS) */}
-          <div className="bg-white p-6 border border-gray-200 rounded-2xl shadow-sm space-y-4">
-            <h3 className="text-sm font-extrabold text-slate-900 border-b border-gray-100 pb-3">
-              Purchase Information
-            </h3>
+        <form onSubmit={handleReviewPurchase} noValidate className="space-y-5">
+          {/* Purchase details */}
+          <div className="bg-white p-5 border border-gray-200 rounded-2xl">
+            <h3 className="text-sm font-semibold text-slate-900 mb-4">Purchase details</h3>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              {/* Field 1: Supplier Selector */}
+              {/* Supplier */}
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">
-                  Supplier <span className="text-red-500">*</span>
-                </label>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <label className="text-xs text-gray-400">Supplier</label>
+                  {isNewSupplier && (
+                    <span className="px-1.5 py-0.5 rounded-md border border-[#FFB82E]/40 bg-[#FFB82E]/10 text-[#FFB82E] text-[10px] font-medium inline-flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                      New supplier
+                    </span>
+                  )}
+                </div>
                 {isNewSupplier ? (
-                  <div className="p-2.5 bg-amber-50/70 border border-amber-300 rounded-xl space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="px-2 py-0.5 bg-amber-200 text-amber-900 font-extrabold text-[10px] rounded-md">
-                        🟡 New Supplier
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsNewSupplier(false);
-                          setSupplierId(suppliers.length > 0 ? (suppliers[0].id || suppliers[0]._id) : '');
-                        }}
-                        className="text-[10px] text-amber-700 underline font-bold hover:text-amber-900"
-                      >
-                        Choose Existing
-                      </button>
-                    </div>
+                  <>
                     <input
                       type="text"
                       required
                       value={newSupplier?.name || ''}
                       onChange={(e) => setNewSupplier({ ...newSupplier, name: e.target.value })}
-                      className="w-full px-2 py-1 border border-amber-300 rounded-lg text-xs font-bold text-slate-900 bg-white focus:outline-none focus:border-amber-500"
-                      placeholder="Enter Supplier Name..."
+                      className={fieldCls}
+                      placeholder="Supplier name"
                     />
                     {newSupplier?.gstNumber ? (
-                      <div className="text-[10px] font-mono text-gray-600 bg-white/80 px-2 py-0.5 rounded border border-amber-200/60 truncate">
-                        <span className="font-bold text-gray-500">GSTIN:</span> {newSupplier.gstNumber}
-                      </div>
+                      <p className="mt-1 text-[11px] text-gray-400 truncate">GSTIN {newSupplier.gstNumber}</p>
                     ) : null}
-                    <p className="text-[10px] text-amber-700 font-medium flex items-center space-x-1">
-                      <FaInfoCircle className="text-amber-500 flex-shrink-0" />
-                      <span>Not in directory. Will be created on confirmation.</span>
-                    </p>
-                  </div>
+                  </>
                 ) : (
-                  <div className="space-y-1">
-                    <select
-                      required
-                      value={supplierId}
-                      onChange={(e) => {
-                        if (e.target.value === 'NEW') {
-                          setIsNewSupplier(true);
-                          setSupplierId('');
-                          setNewSupplier({ name: '', gstNumber: '', mobile: '', email: '', address: '' });
-                        } else {
-                          setSupplierId(e.target.value);
-                        }
-                      }}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs font-bold text-gray-900 bg-white focus:outline-none focus:border-emerald-500"
-                    >
-                      <option value="">-- Choose Supplier --</option>
-                      {suppliers.map((s) => (
-                        <option key={s.id || s._id} value={s.id || s._id}>
-                          {s.name}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="flex justify-end pt-0.5 px-0.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsNewSupplier(true);
-                          setSupplierId('');
-                          setNewSupplier({ name: '', gstNumber: '', mobile: '', email: '', address: '' });
-                        }}
-                        className="text-[11px] text-emerald-600 font-bold hover:text-emerald-700 hover:underline flex items-center space-x-1"
-                      >
-                        <span>+ Create New Supplier</span>
-                      </button>
-                    </div>
-                  </div>
+                  <FilterSelect
+                    size="md"
+                    value={supplierId}
+                    onChange={(v) => (v === 'NEW' ? startNewSupplier() : setSupplierId(v))}
+                    options={supplierOptions}
+                    placeholder="Choose supplier"
+                  />
                 )}
               </div>
 
-              {/* Field 2: Invoice / Bill Number */}
+              {/* Bill number */}
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">
-                  Invoice / Bill Number <span className="text-red-500">*</span>
-                </label>
+                <label className={labelCls}>Bill number</label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. FCC/26-27/1278"
                   value={invoiceNumber}
                   onChange={(e) => setInvoiceNumber(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs font-medium text-gray-900 bg-gray-50/50 focus:bg-white focus:outline-none focus:border-emerald-500"
+                  className={fieldCls}
                 />
               </div>
 
-              {/* Field 3: Invoice Date */}
+              {/* Bill date */}
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-bold text-gray-700">
-                    Invoice Date <span className="text-red-500">*</span>
-                  </label>
-                  {invoiceDate && (
-                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                      {formatDateToIndian(invoiceDate)} ({formatDateShortMonth(invoiceDate)})
-                    </span>
-                  )}
-                </div>
-                <input
-                  type="date"
-                  required
+                <label className={labelCls}>Bill date</label>
+                <IndianDateInput
+                  id="purchase-invoice-date"
+                  name="invoiceDate"
                   value={invoiceDate}
-                  onChange={(e) => setInvoiceDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs font-medium text-gray-900 bg-gray-50/50 focus:bg-white focus:outline-none focus:border-emerald-500 shadow-sm"
+                  onChange={setInvoiceDate}
+                  className="py-2.5 sm:text-sm"
                 />
-                <div className="mt-1 flex items-center justify-between text-[11px] text-gray-400">
-                  <span>Standard Indian format: <strong>DD/MM/YYYY</strong></span>
-                  {invoiceDate && (
-                    <span className="text-slate-600 font-medium">
-                      Display: <strong className="text-emerald-700">{formatDateToIndian(invoiceDate)}</strong>
-                    </span>
-                  )}
-                </div>
               </div>
 
-              {/* Field 4: Notes (Optional) */}
+              {/* Notes */}
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Notes (Optional)</label>
+                <label className={labelCls}>Notes (optional)</label>
                 <input
                   type="text"
-                  placeholder="Any additional notes..."
+                  placeholder="Any notes"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs font-medium text-gray-900 bg-gray-50/50 focus:bg-white focus:outline-none focus:border-emerald-500"
+                  className={fieldCls}
                 />
               </div>
             </div>
           </div>
 
-          {/* SECTION 2 — PURCHASED ITEMS CARD */}
-          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div className="flex items-center space-x-3">
-                <h3 className="text-sm font-extrabold text-slate-900">Purchased Items</h3>
-                <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 font-bold text-xs rounded-full border border-emerald-200">
-                  {items.length} {items.length === 1 ? 'Item' : 'Items'}
+          {/* Items */}
+          <div className="bg-white border border-gray-200 rounded-2xl">
+            <div className="px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <h3 className="text-sm font-semibold text-slate-900">Items</h3>
+                <span className="px-2 py-0.5 rounded-md border border-gray-200 text-gray-400 text-[11px]">
+                  {items.length} {items.length === 1 ? 'item' : 'items'}
                 </span>
               </div>
 
-              <div className="flex items-center space-x-3">
-                <button
-                  type="button"
-                  onClick={handleAddItemRow}
-                  className="px-3 py-1.5 border border-emerald-500 text-emerald-600 hover:bg-emerald-50 font-bold text-xs rounded-xl transition-all flex items-center space-x-1.5 bg-white"
-                >
-                  <FaPlus className="text-[10px]" />
-                  <span>Add Item</span>
-                </button>
-
+              <div className="flex items-center gap-2">
                 {items.length > 0 && (
                   <button
                     type="button"
                     onClick={handleDeleteSelected}
-                    className="px-3 py-1.5 border border-red-200 text-red-500 hover:bg-red-50 font-bold text-xs rounded-xl transition-all flex items-center space-x-1.5 bg-white"
+                    className="px-3 py-1.5 border border-red-400/40 text-red-400 hover:bg-red-500/10 text-xs rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
                   >
                     <FaTrash className="text-[10px]" />
-                    <span>Delete Selected</span>
+                    <span>Delete selected</span>
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={handleAddItemRow}
+                  className="px-3 py-1.5 border border-[#FFB82E]/50 text-[#FFB82E] hover:bg-[#FFB82E]/10 text-xs rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <FaPlus className="text-[10px]" />
+                  <span>Add item</span>
+                </button>
               </div>
             </div>
 
             {items.length === 0 ? (
-              <div className="py-12 flex flex-col items-center justify-center text-center space-y-3 bg-gray-50/50">
-                <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-xl shadow-xs">
-                  <FaPlus />
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-slate-900">No Purchased Items Added Yet</h4>
-                  <p className="text-xs text-gray-400 font-medium mt-0.5">Click "+ Add Item" to add products to this purchase record.</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleAddItemRow}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all flex items-center space-x-1.5"
-                >
-                  <FaPlus className="text-[10px]" />
-                  <span>Add First Item</span>
-                </button>
+              <div className="py-10 border-t border-gray-100 text-center">
+                <p className="text-sm text-gray-400">No items yet. Use "Add item" to add one.</p>
               </div>
             ) : (
-              /* Table with Horizontal Scroll */
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-gray-600 min-w-[1050px]">
-                <thead className="bg-gray-50/80 border-b border-gray-200 text-gray-400 font-extrabold text-[11px] uppercase tracking-wider">
+              <div
+                ref={listRef}
+                className="overflow-y-auto rounded-b-2xl border-t border-gray-100"
+                style={listMaxHeight ? { maxHeight: listMaxHeight } : undefined}
+              >
+              <table className="w-full table-fixed text-left text-xs text-gray-600">
+                <thead className="sticky top-0 z-10 bg-white text-gray-400 text-[11px] font-medium shadow-[0_1px_0_0_rgba(255,255,255,0.06)]">
                   <tr>
-                    <th className="px-3 py-3 w-10 text-center">
+                    <th className="pl-5 pr-2 py-2.5 w-11">
                       <input
                         type="checkbox"
                         checked={allRowsSelected}
                         onChange={(e) => handleToggleSelectAll(e.target.checked)}
-                        className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                        className="rounded border-gray-300 accent-[#FFB82E]"
                       />
                     </th>
-                    <th className="px-3 py-3 min-w-[200px]">ITEM / PRODUCT</th>
-                    <th className="px-3 py-3 w-16 text-center">QTY</th>
-                    <th className="px-3 py-3 w-16">UNIT</th>
-                    <th className="px-3 py-3 w-24 text-center">UNIT RATE (₹)</th>
-                    <th className="px-3 py-3 w-16 text-center">DISC %</th>
-                    <th className="px-3 py-3 w-28 text-center">TAXABLE (₹)</th>
-                    <th className="px-3 py-3 w-16 text-center">GST %</th>
-                    <th className="px-3 py-3 w-20 text-center">CGST (₹)</th>
-                    <th className="px-3 py-3 w-20 text-center">SGST (₹)</th>
-                    <th className="px-3 py-3 w-20 text-center">IGST (₹)</th>
-                    <th className="px-3 py-3 w-24 text-right">TOTAL (₹)</th>
+                    <th className="px-2 py-2.5">Item</th>
+                    <th className="px-2 py-2.5 w-[72px] text-center">Qty</th>
+                    <th className="px-2 py-2.5 w-[80px] text-center">Unit</th>
+                    <th className="px-2 py-2.5 w-[96px] text-center">Rate</th>
+                    <th className="px-2 py-2.5 w-[72px] text-center">Disc %</th>
+                    <th className="px-2 py-2.5 w-[112px] text-right">Taxable</th>
+                    <th className="px-2 py-2.5 w-[68px] text-center">GST %</th>
+                    {hasCgstSgst && <th className="px-2 py-2.5 w-[88px] text-right">CGST</th>}
+                    {hasCgstSgst && <th className="px-2 py-2.5 w-[88px] text-right">SGST</th>}
+                    {hasIgst && <th className="px-2 py-2.5 w-[88px] text-right">IGST</th>}
+                    <th className="pl-2 pr-5 py-2.5 w-[120px] text-right">Total</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100 font-medium">
+                <tbody className="divide-y divide-gray-100">
                   {calculatedItems.map((item) => {
-                    const prodObj = products.find((p) => (p.id || p._id) === item.productId);
                     const isRowInvalid = invalidRowId === item.id;
+                    const unitChoices = UNIT_OPTIONS.includes(item.unit) || !item.unit ? UNIT_OPTIONS : [item.unit, ...UNIT_OPTIONS];
 
                     return (
                       <tr
                         key={item.id}
                         className={`transition-colors ${
-                          isRowInvalid
-                            ? 'bg-red-50/80 border-l-4 border-l-red-500'
-                            : 'hover:bg-gray-50/50'
+                          isRowInvalid ? 'bg-red-500/10' : 'hover:bg-[#FFB82E]/[0.03]'
                         }`}
                       >
-                        {/* 1. Checkbox */}
-                        <td className="px-3 py-3 text-center">
+                        <td className="pl-5 pr-2 py-2">
                           <input
                             type="checkbox"
                             checked={item.selected}
                             onChange={() => handleToggleSelectRow(item.id)}
-                            className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                            className="rounded border-gray-300 accent-[#FFB82E]"
                           />
                         </td>
 
-                        {/* 2. Item / Product */}
-                        <td className="px-3 py-3">
+                        {/* Item */}
+                        <td className="px-2 py-2">
                           {item.isNewProduct ? (
-                            <div className="p-2.5 bg-amber-50/70 border border-amber-300 rounded-xl space-y-1">
-                              <div className="flex items-center justify-between">
-                                <span className="px-2 py-0.5 bg-amber-200 text-amber-900 font-extrabold text-[10px] rounded-md">
-                                  🟡 New Product
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleItemFieldChange(item.id, 'productId', '')}
-                                  className="text-[10px] text-amber-700 underline font-bold hover:text-amber-900"
-                                >
-                                  Choose Existing
-                                </button>
-                              </div>
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span
+                                title="Will be added to inventory when you save"
+                                className="px-1.5 py-0.5 shrink-0 rounded-md border border-[#FFB82E]/40 bg-[#FFB82E]/10 text-[#FFB82E] text-[10px] font-medium inline-flex items-center gap-1 whitespace-nowrap"
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                                New product
+                              </span>
                               <input
                                 type="text"
                                 value={item.newProduct?.name || item.extractedItemName || ''}
                                 onChange={(e) => handleItemFieldChange(item.id, 'newProductName', e.target.value)}
-                                className="w-full px-2 py-1 border border-amber-300 rounded-lg text-xs font-bold text-slate-900 bg-white"
-                                placeholder="Enter Product Name..."
+                                onBlur={() => handleNewProductBlur(item.id)}
+                                className="min-w-0 flex-1 px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-900 bg-white focus:outline-none focus:border-[#FFB82E]/60"
+                                placeholder="Product name"
                               />
-                              <p className="text-[10px] text-amber-700 font-medium flex items-center space-x-1">
-                                <FaInfoCircle className="text-amber-500 flex-shrink-0" />
-                                <span>This product is not currently in your inventory. It will be created when you confirm this purchase.</span>
-                              </p>
                             </div>
                           ) : (
-                            <div className="space-y-1">
-                              <select
-                                value={item.productId}
-                                onChange={(e) => handleItemFieldChange(item.id, 'productId', e.target.value)}
-                                className="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs font-bold text-gray-900 bg-white focus:outline-none focus:border-emerald-500"
-                              >
-                                <option value="">-- Select Item or Product --</option>
-                                {products.map((p) => (
-                                  <option key={p.id || p._id} value={p.id || p._id}>
-                                    {p.name}
-                                  </option>
-                                ))}
-                              </select>
-                              <div className="flex items-center justify-between pt-0.5 px-0.5">
-                                {prodObj ? (
-                                  <div className="text-[10px] font-mono text-gray-400 space-x-2">
-                                    <span>SKU: {prodObj.sku || 'N/A'}</span>
-                                    <span>Stock: {prodObj.currentStock !== undefined ? prodObj.currentStock : 0}</span>
-                                  </div>
-                                ) : (
-                                  <div></div>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => handleItemFieldChange(item.id, 'productId', 'NEW')}
-                                  className="text-[11px] text-emerald-600 font-bold hover:text-emerald-700 hover:underline flex items-center space-x-1"
+                            <div className="flex items-center gap-2 min-w-0">
+                              {item.autoMatched && (
+                                <span
+                                  title="Found in your inventory"
+                                  className="px-1.5 py-0.5 shrink-0 rounded-md border border-emerald-400/40 bg-emerald-500/10 text-emerald-400 text-[10px] font-medium inline-flex items-center gap-1 whitespace-nowrap"
                                 >
-                                  <span>+ Create New Product</span>
-                                </button>
+                                  <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                                  In inventory
+                                </span>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <FilterSelect
+                                  value={item.productId}
+                                  onChange={(v) => handleItemFieldChange(item.id, 'productId', v)}
+                                  options={productOptions}
+                                  placeholder="Choose product"
+                                />
                               </div>
                             </div>
                           )}
                         </td>
 
-                        {/* 3. Quantity */}
-                        <td className="px-3 py-3 text-center">
+                        {/* Qty */}
+                        <td className="px-2 py-2">
                           <input
                             type="number"
                             min="1"
                             value={item.quantity}
                             onChange={(e) => handleItemFieldChange(item.id, 'quantity', e.target.value)}
-                            className="w-16 px-2 py-1.5 border border-gray-200 rounded-xl text-xs font-bold text-center text-gray-900 bg-white focus:outline-none focus:border-emerald-500"
+                            className={cellInputCls}
                           />
                         </td>
 
-                        {/* 4. Unit */}
-                        <td className="px-3 py-3">
+                        {/* Unit */}
+                        <td className="px-2 py-2">
                           <select
                             value={item.unit}
                             onChange={(e) => handleItemFieldChange(item.id, 'unit', e.target.value)}
-                            className="w-16 px-1.5 py-1.5 border border-gray-200 rounded-xl text-xs font-bold text-gray-900 bg-white focus:outline-none focus:border-emerald-500"
+                            className="w-full px-1.5 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-900 bg-white focus:outline-none focus:border-[#FFB82E]/60 cursor-pointer"
                           >
-                            <option value="R">R</option>
-                            <option value="Roll">Roll</option>
-                            <option value="Pcs">Pcs</option>
-                            <option value="Box">Box</option>
-                            <option value="Kg">Kg</option>
-                            <option value="Mtr">Mtr</option>
+                            {unitChoices.map((u) => (
+                              <option key={u} value={u}>{u}</option>
+                            ))}
                           </select>
                         </td>
 
-                        {/* 5. Unit Rate (Original Pre-Discount Rate) */}
-                        <td className="px-3 py-3 text-center">
+                        {/* Rate (before discount) */}
+                        <td className="px-2 py-2">
                           <input
                             type="number"
                             step="0.01"
                             min="0"
                             value={item.unitPrice}
                             onChange={(e) => handleItemFieldChange(item.id, 'unitPrice', e.target.value)}
-                            className="w-20 px-2 py-1.5 border border-gray-200 rounded-xl text-xs font-bold text-center text-gray-900 bg-white focus:outline-none focus:border-emerald-500"
-                            title="Original Supplier Unit Rate before discount"
+                            className={cellInputCls}
+                            title="Rate before discount"
                           />
                         </td>
 
-                        {/* 6. Discount % */}
-                        <td className="px-3 py-3 text-center">
+                        {/* Discount % */}
+                        <td className="px-2 py-2">
                           <input
                             type="number"
                             step="0.1"
@@ -823,94 +820,104 @@ const AddPurchase = () => {
                             max="100"
                             value={item.discountPercent === '' ? '' : (item.discountPercent !== undefined && item.discountPercent !== null ? item.discountPercent : 0)}
                             onChange={(e) => handleItemFieldChange(item.id, 'discountPercent', e.target.value)}
-                            className="w-16 px-1.5 py-1.5 border border-amber-300 rounded-xl text-xs font-bold text-center text-amber-900 bg-amber-50/40 focus:outline-none focus:border-amber-500"
-                            placeholder="0%"
-                            title="Discount percentage applied to line item"
+                            className={cellInputCls}
+                            placeholder="0"
                           />
                         </td>
 
-                        {/* 7. Taxable Value (After Discount) */}
-                        <td className="px-3 py-3 text-center">
-                          <div className="font-extrabold text-slate-900 font-mono">
-                            ₹{item.taxableAmount.toFixed(2)}
-                          </div>
-                          {item.discPct > 0 && (
-                            <div className="text-[10px] text-emerald-600 font-bold" title="Effective discounted cost basis per unit">
-                              (₹{item.discountedUnitPrice.toFixed(2)}/unit)
-                            </div>
-                          )}
+                        {/* Taxable (after discount) */}
+                        <td
+                          className="px-2 py-2 text-right text-slate-900 whitespace-nowrap"
+                          title={item.discPct > 0 ? `₹${formatMoney(item.discountedUnitPrice)} per unit after discount` : undefined}
+                        >
+                          ₹{formatMoney(item.taxableAmount)}
                         </td>
 
-                        {/* 8. GST % */}
-                        <td className="px-3 py-3 text-center">
+                        {/* GST % */}
+                        <td className="px-2 py-2">
                           <input
                             type="number"
                             step="0.1"
                             min="0"
                             value={item.gstPercent}
                             onChange={(e) => handleItemFieldChange(item.id, 'gstPercent', e.target.value)}
-                            className="w-14 px-2 py-1.5 border border-emerald-200 rounded-xl text-xs font-bold text-center text-emerald-700 bg-emerald-50/20 focus:outline-none focus:border-emerald-500"
+                            className={cellInputCls}
                           />
                         </td>
 
-                        {/* 9. CGST Amt (₹) */}
-                        <td className="px-3 py-3 text-center font-bold text-gray-600">
-                          {item.cgstAmount.toFixed(2)}
-                        </td>
+                        {hasCgstSgst && (
+                          <td className="px-2 py-2 text-right text-gray-400 whitespace-nowrap">{formatMoney(item.cgstAmount)}</td>
+                        )}
+                        {hasCgstSgst && (
+                          <td className="px-2 py-2 text-right text-gray-400 whitespace-nowrap">{formatMoney(item.sgstAmount)}</td>
+                        )}
+                        {hasIgst && (
+                          <td className="px-2 py-2 text-right text-gray-400 whitespace-nowrap">{formatMoney(item.igstAmount)}</td>
+                        )}
 
-                        {/* 10. SGST Amt (₹) */}
-                        <td className="px-3 py-3 text-center font-bold text-gray-600">
-                          {item.sgstAmount.toFixed(2)}
-                        </td>
-
-                        {/* 11. IGST Amt (₹) */}
-                        <td className="px-3 py-3 text-center font-bold text-gray-400">
-                          {item.igstAmount.toFixed(2)}
-                        </td>
-
-                        {/* 12. Total (₹) */}
-                        <td className="px-3 py-3 text-right font-black text-gray-900 text-sm">
-                          {item.lineTotal.toFixed(2)}
+                        {/* Total */}
+                        <td className="pl-2 pr-5 py-2 text-right font-semibold text-slate-900 whitespace-nowrap">
+                          ₹{formatMoney(item.lineTotal)}
                         </td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
-            </div>
-          )}
-        </div>
+              </div>
+            )}
+          </div>
 
-          {/* SECTION 3 — BOTTOM ACTION BAR */}
-          <div className="pt-2 flex items-center justify-between">
-            <div className="flex items-center space-x-3">
+          {/* Totals + actions */}
+          <div ref={barRef}>
+            <div className="bg-white border border-gray-200 rounded-2xl px-5 py-3.5 flex flex-col lg:flex-row lg:items-center gap-3 lg:gap-6">
               <button
                 type="button"
                 onClick={() => navigate('/purchases')}
-                className="px-5 py-2.5 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 font-bold text-xs rounded-xl shadow-sm transition-all"
+                className="self-start lg:self-auto px-5 py-2.5 border border-gray-300 hover:bg-gray-100 text-gray-700 text-xs rounded-xl transition-colors cursor-pointer"
               >
                 Cancel
               </button>
 
+              <div className="flex-1 flex flex-wrap items-center justify-end gap-x-6 gap-y-1 text-xs text-gray-400">
+                <span>
+                  Taxable <span className="text-slate-900 ml-1">₹{formatMoney(totalTaxable)}</span>
+                </span>
+                <span>
+                  GST <span className="text-slate-900 ml-1">₹{formatMoney(totalGst)}</span>
+                </span>
+                {roundOffValue !== 0 && (
+                  <span>
+                    Round off <span className="text-slate-900 ml-1">{roundOffValue > 0 ? '+' : '−'}₹{formatMoney(Math.abs(roundOffValue))}</span>
+                  </span>
+                )}
+                <span className="text-sm">
+                  Total <span className="text-[#FFB82E] font-semibold text-base ml-1">₹{formatMoney(grandTotal)}</span>
+                </span>
+                {billDiff !== null && (
+                  Math.abs(billDiff) < 1 ? (
+                    <span className="flex items-center gap-1 text-emerald-400">
+                      <FaCheckCircle className="text-[11px]" /> Matches the bill
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-red-400" title="Total printed on the bill">
+                      <FaExclamationTriangle className="text-[11px]" /> Bill says ₹{formatMoney(billTotal)}
+                    </span>
+                  )
+                )}
+              </div>
+
               <button
-                type="button"
-                onClick={() => toast.success('Purchase saved as draft.')}
-                className="px-5 py-2.5 bg-white border border-emerald-500 hover:bg-emerald-50 text-emerald-600 font-bold text-xs rounded-xl shadow-sm transition-all"
+                type="submit"
+                disabled={!allRowsSelected}
+                className={`self-end lg:self-auto px-6 py-2.5 bg-[#FFB82E] hover:bg-[#FFC555] text-[#1A1B1E] font-medium text-sm rounded-xl transition-colors flex items-center gap-2 cursor-pointer ${
+                  !allRowsSelected ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
               >
-                Save as Draft
+                <span>Review purchase</span>
+                <FaArrowRight className="text-xs" />
               </button>
             </div>
-
-            <button
-              type="submit"
-              disabled={!allRowsSelected}
-              className={`px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all flex items-center space-x-2 ${
-                !allRowsSelected ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            >
-              <span>Review Purchase</span>
-              <FaArrowRight className="text-xs" />
-            </button>
           </div>
         </form>
       )}

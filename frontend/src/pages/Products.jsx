@@ -165,9 +165,6 @@ const Products = () => {
       if (isNaN(stock) || stock < 0) errors.currentStock = "Current stock cannot be negative.";
     }
 
-    const minStock = parseInt(form.minStockQuantity, 10);
-    if (isNaN(minStock) || minStock < 0) errors.minStockQuantity = "Minimum stock threshold cannot be negative.";
-
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -295,8 +292,7 @@ const Products = () => {
     const matchesCategory = selectedCategory ? p.category === selectedCategory : true;
 
     let matchesStock = true;
-    if (stockFilter === 'IN_STOCK') matchesStock = p.currentStock > (p.minStockQuantity || 5);
-    else if (stockFilter === 'LOW_STOCK') matchesStock = p.currentStock > 0 && p.currentStock <= (p.minStockQuantity || 5);
+    if (stockFilter === 'IN_STOCK') matchesStock = p.currentStock > 0;
     else if (stockFilter === 'OUT_OF_STOCK') matchesStock = p.currentStock === 0;
 
     return matchesSearch && matchesCategory && matchesStock;
@@ -307,8 +303,8 @@ const Products = () => {
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">Inventory Catalog</h2>
-          <p className="text-gray-500 text-sm">Manage products, pricing, minimum stock thresholds, and suppliers.</p>
+          <h2 className="text-2xl font-bold text-gray-800">Products</h2>
+          <p className="text-gray-500 text-sm">Prices, minimum stock levels and suppliers.</p>
         </div>
 
         {isWriter && (
@@ -371,8 +367,7 @@ const Products = () => {
           className="px-3 py-2 border border-gray-200 rounded-xl text-xs bg-gray-50/50 focus:bg-white focus:outline-none focus:border-emerald-500"
         >
           <option value="">All Stock Levels</option>
-          <option value="IN_STOCK">In Stock (Normal)</option>
-          <option value="LOW_STOCK">Low Stock Alert</option>
+          <option value="IN_STOCK">In Stock</option>
           <option value="OUT_OF_STOCK">Out of Stock</option>
         </select>
       </div>
@@ -426,7 +421,7 @@ const Products = () => {
             <table className="w-full text-left text-sm text-gray-600 min-w-[800px]">
               <thead className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase">
                 <tr>
-                  <th className="px-6 py-3.5">Product Name & SKU</th>
+                  <th className="px-6 py-3.5">Product</th>
                   <th className="px-6 py-3.5">Category</th>
                   <th className="px-6 py-3.5 text-right">Cost Price</th>
                   <th className="px-6 py-3.5 text-center">Stock Level</th>
@@ -436,7 +431,6 @@ const Products = () => {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredProducts.map((p) => {
-                  const isLow = p.currentStock > 0 && p.currentStock <= (p.minStockQuantity || 5);
                   const isOut = p.currentStock === 0;
 
                   return (
@@ -455,8 +449,6 @@ const Products = () => {
                       <td className="px-6 py-4 text-center">
                         {isOut ? (
                           <span className="px-2.5 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold">Out of Stock</span>
-                        ) : isLow ? (
-                          <span className="px-2.5 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-bold">Low Stock ({p.currentStock})</span>
                         ) : (
                           <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 rounded-full text-xs font-bold">In Stock</span>
                         )}
@@ -617,16 +609,6 @@ const Products = () => {
                   />
                 </div>
 
-                <div>
-                  <label className="block font-bold text-gray-700 mb-1">Minimum Stock Threshold</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={addForm.minStockQuantity}
-                    onChange={(e) => setAddForm({ ...addForm, minStockQuantity: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
 
                 <div>
                   <label className="block font-bold text-gray-700 mb-1">Unit of Measure</label>
@@ -761,16 +743,6 @@ const Products = () => {
                   </select>
                 </div>
 
-                <div>
-                  <label className="block font-bold text-gray-700 mb-1">Minimum Stock Threshold</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={editForm.minStockQuantity}
-                    onChange={(e) => setEditForm({ ...editForm, minStockQuantity: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
               </div>
 
               <div className="flex justify-end space-x-3 pt-3 border-t border-gray-100">
@@ -832,10 +804,6 @@ const Products = () => {
                 <div className="p-2 border border-gray-100 rounded-lg">
                   <span className="text-gray-400 block">GST Rate</span>
                   <span className="font-bold text-gray-800">{activeProduct.gstRate || 18}%</span>
-                </div>
-                <div className="p-2 border border-gray-100 rounded-lg col-span-2">
-                  <span className="text-gray-400 block">Min Threshold</span>
-                  <span className="font-bold text-gray-800">{activeProduct.minStockQuantity || 5}</span>
                 </div>
               </div>
             </div>

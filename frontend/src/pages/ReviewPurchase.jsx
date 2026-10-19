@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import axiosInstance from '../utils/api';
 import { useToast } from '../context/ToastContext';
@@ -7,15 +7,14 @@ import {
   FaArrowLeft,
   FaCheck,
   FaExclamationTriangle,
-  FaFileInvoice,
-  FaBoxOpen,
-  FaCalendarAlt,
   FaSpinner,
-  FaArrowUp,
   FaCloudUploadAlt
 } from 'react-icons/fa';
 import { calculateLineItem, calculatePurchaseTotals, toSafeNumber, parseExplicitRoundOff } from '../utils/purchaseCalculations';
-import { formatDateToIndian, formatDateShortMonth, toApiDateFormat } from '../utils/dateUtils';
+import { formatDateShortMonth, toApiDateFormat } from '../utils/dateUtils';
+
+const formatMoney = (n) =>
+  toSafeNumber(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const ReviewPurchase = () => {
   const navigate = useNavigate();
@@ -29,6 +28,28 @@ const ReviewPurchase = () => {
   const [loadingPrereqs, setLoadingPrereqs] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [apiError, setApiError] = useState(null);
+
+  // The page itself never scrolls: on wide screens the two columns fill the height that is left
+  const gridRef = useRef(null);
+  const [gridHeight, setGridHeight] = useState(null);
+  useLayoutEffect(() => {
+    const fit = () => {
+      const grid = gridRef.current;
+      if (!grid) return;
+      if (window.innerWidth < 1024) {
+        setGridHeight(null);
+        return;
+      }
+      const main = grid.closest('main');
+      const mainBottom = main ? main.getBoundingClientRect().bottom : window.innerHeight;
+      const mainPad = main ? parseFloat(getComputedStyle(main).paddingBottom) || 0 : 0;
+      const top = grid.getBoundingClientRect().top + (main ? main.scrollTop : 0);
+      setGridHeight(Math.max(420, Math.floor(mainBottom - top - mainPad)));
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [apiError, loadingPrereqs, formData]);
 
   // Fetch Supplier & Products metadata for preview
   useEffect(() => {
@@ -188,7 +209,8 @@ const ReviewPurchase = () => {
   const grandTaxable = toSafeNumber(totals.taxableTotal ?? totals.subtotal);
   const grandTax = toSafeNumber(totals.totalTax ?? totals.taxAmount);
   const grandTotal = toSafeNumber(totals.grandTotal ?? totals.totalAmount);
-  const totalQtyAdded = lineItems.reduce((acc, i) => acc + toSafeNumber(i.qty, 0), 0);
+
+  const totalQty = lineItems.reduce((acc, i) => acc + toSafeNumber(i.qty, 0), 0);
 
   const extractedTotal = formData.extractedGrandTotal !== undefined && formData.extractedGrandTotal !== null
     ? toSafeNumber(formData.extractedGrandTotal)
@@ -283,401 +305,265 @@ const ReviewPurchase = () => {
     }
   };
 
-  return (
-    <div className="max-w-5xl mx-auto py-6 px-4 space-y-6 animate-fadeIn pb-16">
-      {/* Top Header & Breadcrumb */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <div className="text-xs text-gray-400 font-semibold mb-1 flex items-center space-x-1">
-            <span>Purchases</span>
-            <span>&gt;</span>
-            <span>Add Purchase</span>
-            <span>&gt;</span>
-            <span className="text-emerald-600 font-bold">Review Purchase</span>
-          </div>
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center text-base shadow-sm">
-              <FaFileInvoice />
-            </div>
-            <h2 className="text-2xl font-extrabold text-slate-900">Review Purchase</h2>
-          </div>
-          <p className="text-gray-500 text-xs mt-0.5">
-            Please review all details before confirming this purchase
-          </p>
-        </div>
+  const isNewRow = (item) => item.isNewProduct || (!item.productId && (item.newProduct?.name || item.productName));
+  const rowName = (item) =>
+    isNewRow(item)
+      ? item.newProduct?.name || item.productName || item.extractedItemName
+      : item.productName || item.existingProd?.name || 'Product';
+  const isNewSupplierView = formData.isNewSupplier || (!formData.supplierId && formData.newSupplier?.name);
+  const supplierName = isNewSupplierView ? formData.newSupplier?.name || 'New supplier' : supplierDetails?.name || '—';
+  const supplierGst = isNewSupplierView ? formData.newSupplier?.gstNumber : supplierDetails?.gstNumber;
 
+  const newBadge = (label) => (
+    <span className="px-1.5 py-0.5 shrink-0 rounded-md border border-[#FFB82E]/40 bg-[#FFB82E]/10 text-[#FFB82E] text-[10px] font-medium inline-flex items-center gap-1 whitespace-nowrap">
+      <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+      {label}
+    </span>
+  );
+
+  const editPurchase = () =>
+    navigate('/purchases/new/manual', { state: { ...formData, roundedOffAmount, roundedOffType } });
+
+  return (
+    <div className="space-y-5 animate-fadeIn">
+      {/* Header */}
+      <div className="flex items-start gap-3">
         <button
           type="button"
           disabled={submitting}
-          onClick={() => navigate('/purchases/new/manual', { state: { ...formData, roundedOffAmount, roundedOffType } })}
-          className="px-4 py-2 border border-gray-300 hover:bg-gray-100 text-gray-700 font-bold text-xs rounded-xl shadow-sm transition-all self-start sm:self-auto flex items-center space-x-2 bg-white disabled:opacity-50"
+          onClick={editPurchase}
+          title="Back to edit"
+          aria-label="Back to edit"
+          className="mt-0.5 w-9 h-9 shrink-0 rounded-lg border border-gray-200 text-gray-400 hover:text-slate-900 hover:bg-gray-100 flex items-center justify-center transition-colors cursor-pointer focus:outline-none disabled:opacity-50"
         >
           <FaArrowLeft className="text-xs" />
-          <span>Back to Edit</span>
         </button>
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold text-slate-900">Review purchase</h1>
+          <p className="text-sm text-gray-400 mt-0.5">Check everything once more, then confirm to add the stock.</p>
+        </div>
       </div>
 
-      {/* Extracted Total Discrepancy Alert Banner */}
+      {/* Bill total doesn't match what was read from the bill */}
       {isTotalMismatch && (
-        <div className="p-4 bg-amber-50 border border-amber-300 text-amber-900 rounded-2xl text-xs font-semibold flex items-start space-x-3 shadow-sm">
-          <FaExclamationTriangle className="text-amber-600 text-base flex-shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <div className="font-extrabold text-amber-950">Invoice Total Discrepancy Warning</div>
-            <div className="text-amber-800">
-              Calculated supplier bill total (₹{grandTotal.toFixed(2)}) differs from the extracted invoice grand total (₹{extractedTotal.toFixed(2)}). Please inspect line items, GST, and rounding before confirming.
-            </div>
-          </div>
+        <div className="px-4 py-3 bg-red-500/10 border border-red-400/30 text-red-300 rounded-xl text-xs flex items-center gap-2.5">
+          <FaExclamationTriangle className="text-red-400 text-sm shrink-0" />
+          <span>
+            Our total ₹{formatMoney(grandTotal)} doesn't match the bill's total ₹{formatMoney(extractedTotal)}. Check the items, GST and round off before confirming.
+          </span>
         </div>
       )}
 
-      {/* API Error Alert Banner (Renders Detailed Validation Issues) */}
+      {/* API error */}
       {apiError && (
-        <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-2xl text-xs font-semibold flex items-center space-x-3 shadow-sm">
-          <FaExclamationTriangle className="text-red-500 text-lg flex-shrink-0" />
-          <div className="break-all">
-            <span className="font-bold">Error: </span>
-            {apiError}
-          </div>
+        <div className="px-4 py-3 bg-red-500/10 border border-red-400/30 text-red-300 rounded-xl text-xs flex items-center gap-2.5">
+          <FaExclamationTriangle className="text-red-400 text-sm shrink-0" />
+          <div className="break-all">{apiError}</div>
         </div>
       )}
 
-      {/* SECTION 1 — READ-ONLY PURCHASE INFORMATION CARD */}
-      <div className="bg-white p-6 border border-gray-200 rounded-2xl shadow-sm space-y-4">
-        <h3 className="text-sm font-extrabold text-slate-900 border-b border-gray-100 pb-3 flex items-center space-x-2">
-          <FaFileInvoice className="text-emerald-600 text-xs" />
-          <span>Purchase Information Summary</span>
-        </h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 text-xs">
-          {/* Supplier */}
-          <div className="space-y-1">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">SUPPLIER</span>
-            {formData.isNewSupplier || (!formData.supplierId && formData.newSupplier?.name) ? (
-              <div className="space-y-0.5">
-                <div className="font-extrabold text-slate-900 flex items-center space-x-2">
-                  <span>{formData.newSupplier?.name || 'New Supplier'}</span>
-                  <span className="px-2 py-0.5 bg-amber-100 text-amber-900 font-extrabold text-[10px] rounded">
-                    NEW SUPPLIER
-                  </span>
-                </div>
-                {formData.newSupplier?.gstNumber ? (
-                  <div className="text-[11px] font-mono text-gray-500">
-                    GSTIN: {formData.newSupplier.gstNumber}
-                  </div>
-                ) : (
-                  <div className="text-[11px] text-amber-700 italic">Will be created on confirmation</div>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-0.5">
-                <div className="font-extrabold text-slate-900">
-                  {supplierDetails?.name || `Supplier ID: ${formData.supplierId}`}
-                </div>
-                {supplierDetails?.gstNumber && (
-                  <div className="text-[11px] font-mono text-gray-500">
-                    GSTIN: {supplierDetails.gstNumber}
-                  </div>
-                )}
-              </div>
-            )}
+      {/* Items on the left, bill details + totals + actions on the right */}
+      <div
+        ref={gridRef}
+        className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-5"
+        style={gridHeight ? { height: gridHeight } : undefined}
+      >
+        {/* Items */}
+        <div className="bg-white border border-gray-200 rounded-2xl flex flex-col min-h-0">
+          <div className="px-5 py-4 flex items-center gap-2.5 shrink-0">
+            <h3 className="text-sm font-semibold text-slate-900">Items</h3>
+            <span className="px-2 py-0.5 rounded-md border border-gray-200 text-gray-400 text-[11px]">
+              {lineItems.length} {lineItems.length === 1 ? 'item' : 'items'}
+            </span>
           </div>
 
-          {/* Invoice / Bill No */}
-          <div className="space-y-1">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">INVOICE / BILL NO</span>
-            <div className="font-extrabold text-slate-900">{formData.invoiceNumber}</div>
-          </div>
-
-          {/* Invoice Date */}
-          <div className="space-y-1">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">INVOICE DATE</span>
-            <div className="font-extrabold text-slate-900 flex items-center space-x-2">
-              <FaCalendarAlt className="text-emerald-600 text-xs" />
-              <span>{formatDateToIndian(formData.invoiceDate)}</span>
-              {formData.invoiceDate && (
-                <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
-                  {formatDateShortMonth(formData.invoiceDate)}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Notes */}
-          <div className="space-y-1">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">NOTES</span>
-            <div className="font-medium text-gray-700">
-              {formData.notes ? formData.notes : <span className="text-gray-300 font-normal">None</span>}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* SECTION 2 — PURCHASED ITEMS READ-ONLY TABLE (FIXED MAX HEIGHT + INTERNAL SCROLLBAR) */}
-      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
-          <h3 className="text-sm font-extrabold text-slate-900 flex items-center space-x-2">
-            <FaBoxOpen className="text-emerald-600" />
-            <span>Purchased Items ({lineItems.length})</span>
-          </h3>
-        </div>
-
-        <div className="overflow-x-auto max-h-72 overflow-y-auto">
-          <table className="w-full text-left text-xs text-gray-600 min-w-[1050px]">
-            <thead className="bg-gray-50/80 border-b border-gray-200 text-gray-400 font-extrabold text-[11px] uppercase tracking-wider sticky top-0 bg-white shadow-xs z-10">
-              <tr>
-                <th className="px-4 py-3 min-w-[200px]">ITEM / PRODUCT</th>
-                <th className="px-3 py-3 w-16 text-center">QTY</th>
-                <th className="px-2 py-3 w-14">UNIT</th>
-                <th className="px-3 py-3 w-24 text-right">UNIT RATE (₹)</th>
-                <th className="px-2 py-3 w-16 text-center">DISC %</th>
-                <th className="px-3 py-3 w-28 text-right">TAXABLE (₹)</th>
-                <th className="px-2 py-3 w-14 text-center">GST %</th>
-                <th className="px-3 py-3 w-20 text-right">CGST (₹)</th>
-                <th className="px-3 py-3 w-20 text-right">SGST (₹)</th>
-                <th className="px-3 py-3 w-20 text-right">IGST (₹)</th>
-                <th className="px-4 py-3 w-24 text-right">LINE TOTAL (₹)</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 font-medium">
-              {lineItems.map((item, idx) => (
-                <tr key={idx} className="hover:bg-gray-50/50 transition-colors">
-                  <td className="px-4 py-3">
-                    {item.isNewProduct || (!item.productId && (item.newProduct?.name || item.productName)) ? (
-                      <div>
-                        <div className="font-extrabold text-slate-900 flex items-center space-x-2">
-                          <span>{item.newProduct?.name || item.productName || item.extractedItemName}</span>
-                          <span className="px-2 py-0.5 bg-amber-100 text-amber-900 font-extrabold text-[10px] rounded">
-                            NEW PRODUCT
-                          </span>
-                        </div>
-                        <div className="text-[10px] text-amber-700 italic">Will be created on confirmation</div>
-                      </div>
-                    ) : (
-                      <div>
-                        <div className="font-extrabold text-slate-900">
-                          {item.productName || item.existingProd?.name || 'Product'}
-                        </div>
-                        {item.existingProd?.sku && (
-                          <div className="text-[10px] font-mono text-gray-400">
-                            SKU: {item.existingProd.sku}
-                          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto rounded-b-2xl border-t border-gray-100">
+            <table className="w-full table-fixed text-left text-xs text-gray-600">
+              <thead className="sticky top-0 z-10 bg-white text-gray-400 text-[11px] font-medium shadow-[0_1px_0_0_rgba(255,255,255,0.06)]">
+                <tr>
+                  <th className="pl-5 pr-2 py-2.5 w-[48px]">#</th>
+                  <th className="px-2 py-2.5">Item</th>
+                  <th className="px-2 py-2.5 w-[84px] text-right">Qty</th>
+                  <th className="px-2 py-2.5 w-[96px] text-right">Rate</th>
+                  <th className="px-2 py-2.5 w-[64px] text-right">Disc %</th>
+                  <th className="px-2 py-2.5 w-[112px] text-right">Taxable</th>
+                  <th className="px-2 py-2.5 w-[60px] text-right">GST %</th>
+                  <th className="px-2 py-2.5 w-[96px] text-right">GST</th>
+                  <th className="pl-2 pr-5 py-2.5 w-[124px] text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {lineItems.map((item, idx) => (
+                  <tr key={idx} className="hover:bg-[#FFB82E]/[0.03] transition-colors">
+                    <td className="pl-5 pr-2 py-3 text-gray-400">{idx + 1}</td>
+                    <td className="px-2 py-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {isNewRow(item) && newBadge('New product')}
+                        <span className="text-slate-900 truncate" title={rowName(item)}>{rowName(item)}</span>
+                        {!isNewRow(item) && item.existingProd?.sku && (
+                          <span className="text-[11px] text-gray-400 shrink-0">{item.existingProd.sku}</span>
                         )}
                       </div>
-                    )}
-                  </td>
-                  <td className="px-3 py-3 text-center font-extrabold text-slate-900">{item.qty}</td>
-                  <td className="px-2 py-3 font-semibold text-gray-600">{item.unit || 'Pcs'}</td>
-                  <td className="px-3 py-3 text-right font-medium text-gray-700 font-mono">
-                    ₹{toSafeNumber(item.price).toFixed(2)}
-                  </td>
-                  <td className="px-2 py-3 text-center font-bold">
-                    {toSafeNumber(item.discountPercent) > 0 ? (
-                      <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded font-black text-[10px]">
-                        {toSafeNumber(item.discountPercent)}%
-                      </span>
-                    ) : (
-                      <span className="text-gray-400 text-[10px]">0%</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-3 text-right">
-                    <div className="font-bold text-slate-900 font-mono">
-                      ₹{toSafeNumber(item.taxableAmount).toFixed(2)}
-                    </div>
-                    {toSafeNumber(item.discountPercent) > 0 && (
-                      <div className="text-[10px] text-emerald-700 font-medium">
-                        (₹{toSafeNumber(item.discountedUnitPrice).toFixed(2)}/u)
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-2 py-3 text-center font-bold text-emerald-700">{toSafeNumber(item.gstPct)}%</td>
-                  <td className="px-3 py-3 text-right font-medium text-gray-600 font-mono">{toSafeNumber(item.cgst).toFixed(2)}</td>
-                  <td className="px-3 py-3 text-right font-medium text-gray-600 font-mono">{toSafeNumber(item.sgst).toFixed(2)}</td>
-                  <td className="px-3 py-3 text-right font-medium text-gray-400 font-mono">{toSafeNumber(item.igst).toFixed(2)}</td>
-                  <td className="px-4 py-3 text-right font-black text-slate-900 text-sm font-mono">
-                    ₹{toSafeNumber(item.lineTotal).toFixed(2)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    </td>
+                    <td className="px-2 py-3 text-right text-slate-900 whitespace-nowrap">
+                      {item.qty} <span className="text-gray-400">{item.unit || 'Pcs'}</span>
+                    </td>
+                    <td className="px-2 py-3 text-right whitespace-nowrap">₹{formatMoney(item.price)}</td>
+                    <td className="px-2 py-3 text-right">{toSafeNumber(item.discountPercent)}%</td>
+                    <td
+                      className="px-2 py-3 text-right text-slate-900 whitespace-nowrap"
+                      title={toSafeNumber(item.discountPercent) > 0 ? `₹${formatMoney(item.discountedUnitPrice)} per unit after discount` : undefined}
+                    >
+                      ₹{formatMoney(item.taxableAmount)}
+                    </td>
+                    <td className="px-2 py-3 text-right">{toSafeNumber(item.gstPct)}%</td>
+                    <td
+                      className="px-2 py-3 text-right text-gray-400 whitespace-nowrap"
+                      title={
+                        toSafeNumber(item.igst) > 0
+                          ? `IGST ₹${formatMoney(item.igst)}`
+                          : `CGST ₹${formatMoney(item.cgst)} · SGST ₹${formatMoney(item.sgst)}`
+                      }
+                    >
+                      {formatMoney(item.taxAmount)}
+                    </td>
+                    <td className="pl-2 pr-5 py-3 text-right font-semibold text-slate-900 whitespace-nowrap">
+                      ₹{formatMoney(item.lineTotal)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
 
-      {/* SECTION 3 — BOTTOM TWO-COLUMN SECTION (FINANCIAL SUMMARY + INVENTORY IMPACT PREVIEW) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* LEFT: FINANCIAL SUMMARY CARD */}
-        <div className="bg-white p-6 border border-gray-200 rounded-2xl shadow-sm flex flex-col justify-between min-h-[260px]">
-          <div>
-            <h4 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider border-b border-gray-100 pb-3">
-              Financial Summary
-            </h4>
-            <div className="space-y-2.5 text-xs pt-4">
-              <div className="flex items-center justify-between text-gray-600">
-                <span>Gross Subtotal (Before Discount)</span>
-                <span className="font-bold text-slate-900 font-mono">₹{toSafeNumber(grandGross).toFixed(2)}</span>
+        {/* Bill details + summary + actions */}
+        <div className="bg-white border border-gray-200 rounded-2xl flex flex-col min-h-0">
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4 text-xs">
+            {/* Bill details */}
+            <div className="space-y-2.5">
+              <h4 className="text-sm font-semibold text-slate-900">Bill details</h4>
+              <div>
+                <div className="flex items-center gap-2 text-gray-400 mb-0.5">
+                  <span>Supplier</span>
+                  {isNewSupplierView && newBadge('New supplier')}
+                </div>
+                <div className="text-sm text-slate-900 truncate" title={supplierName}>{supplierName}</div>
+                {supplierGst && <div className="text-[11px] text-gray-400 truncate">GSTIN {supplierGst}</div>}
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400">Bill number</span>
+                <span className="text-slate-900">{formData.invoiceNumber}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400">Bill date</span>
+                <span className="text-slate-900">{formatDateShortMonth(formData.invoiceDate)}</span>
+              </div>
+              {formData.notes && (
+                <div>
+                  <div className="text-gray-400 mb-0.5">Notes</div>
+                  <div className="text-slate-900">{formData.notes}</div>
+                </div>
+              )}
+            </div>
+
+            {/* Money summary */}
+            <div className="pt-4 border-t border-gray-100 space-y-2">
+              <h4 className="text-sm font-semibold text-slate-900 mb-1">Summary</h4>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400">Items</span>
+                <span className="text-slate-900">{lineItems.length} items · {totalQty} qty</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400">Gross (before discount)</span>
+                <span className="text-slate-900">₹{formatMoney(grandGross)}</span>
               </div>
               {toSafeNumber(grandDiscount) > 0 && (
-                <div className="flex items-center justify-between text-emerald-700 font-medium bg-emerald-50/70 px-2.5 py-1.5 rounded-lg">
-                  <span className="font-bold">Total Discount Savings</span>
-                  <span className="font-black font-mono">−₹{toSafeNumber(grandDiscount).toFixed(2)}</span>
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-400">Discount</span>
+                  <span className="text-emerald-400">−₹{formatMoney(grandDiscount)}</span>
                 </div>
               )}
-              <div className="flex items-center justify-between text-gray-600">
-                <span>Taxable Subtotal (Post-Discount)</span>
-                <span className="font-bold text-slate-900 font-mono">₹{toSafeNumber(grandTaxable).toFixed(2)}</span>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400">Taxable</span>
+                <span className="text-slate-900">₹{formatMoney(grandTaxable)}</span>
               </div>
-              <div className="flex items-center justify-between text-gray-600">
-                <span>Input GST (Total Tax)</span>
-                <span className="font-bold text-emerald-700 font-mono">₹{toSafeNumber(grandTax).toFixed(2)}</span>
+              {totals.igst > 0 ? (
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-400">IGST</span>
+                  <span className="text-slate-900">₹{formatMoney(totals.igst)}</span>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-400">CGST</span>
+                    <span className="text-slate-900">₹{formatMoney(totals.cgst)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-400">SGST</span>
+                    <span className="text-slate-900">₹{formatMoney(totals.sgst)}</span>
+                  </div>
+                </>
+              )}
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400">Total GST</span>
+                <span className="text-slate-900">₹{formatMoney(grandTax)}</span>
               </div>
-              {formData.cgst !== undefined && formData.cgst !== null && (
-                <div className="flex items-center justify-between text-[11px] text-gray-400 pl-3">
-                  <span>CGST Breakdown</span>
-                  <span className="font-mono">₹{toSafeNumber(formData.cgst).toFixed(2)}</span>
-                </div>
-              )}
-              {formData.sgst !== undefined && formData.sgst !== null && (
-                <div className="flex items-center justify-between text-[11px] text-gray-400 pl-3">
-                  <span>SGST Breakdown</span>
-                  <span className="font-mono">₹{toSafeNumber(formData.sgst).toFixed(2)}</span>
-                </div>
-              )}
-              {formData.igst !== undefined && formData.igst !== null && Number(formData.igst) > 0 && (
-                <div className="flex items-center justify-between text-[11px] text-gray-400 pl-3">
-                  <span>IGST Breakdown</span>
-                  <span className="font-mono">₹{toSafeNumber(formData.igst).toFixed(2)}</span>
-                </div>
-              )}
-
-              {/* Conditionally Render Rounded Off Amount - ONLY if explicitly present on bill */}
               {hasRoundedOff && (
-                <div className="flex items-center justify-between text-gray-700 font-semibold bg-gray-50/80 px-2.5 py-1.5 rounded-lg border border-gray-100">
-                  <span>Rounded Off ({roundedOffAmount < 0 || roundedOffType === 'less' ? '−' : '+'})</span>
-                  <span className={`font-mono font-bold ${roundedOffAmount < 0 ? 'text-amber-700' : 'text-slate-900'}`}>
-                    {roundedOffAmount < 0 ? `−₹${Math.abs(roundedOffAmount).toFixed(2)}` : `₹${roundedOffAmount.toFixed(2)}`}
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-400">Round off</span>
+                  <span className="text-slate-900">
+                    {roundedOffAmount < 0 ? '−' : '+'}₹{formatMoney(Math.abs(roundedOffAmount))}
                   </span>
                 </div>
               )}
             </div>
           </div>
 
-          <div className="pt-4 border-t border-gray-200 space-y-1">
-            <div className="flex items-center justify-between text-slate-900">
-              <span className="font-black text-sm uppercase tracking-wider">Supplier Bill Total</span>
-              <span className="text-emerald-600 font-black text-xl font-mono">₹{toSafeNumber(grandTotal).toFixed(2)}</span>
-            </div>
-            <p className="text-[10px] text-gray-400 italic">
-              * Input GST is paid to supplier and does not enter operational project material cost.
-            </p>
-          </div>
-        </div>
-
-        {/* RIGHT: INVENTORY IMPACT PREVIEW CARD */}
-        <div className="bg-white p-6 border border-gray-200 rounded-2xl shadow-sm flex flex-col justify-between min-h-[260px]">
-          <div className="space-y-3">
+          {/* Bill total + actions, always at the bottom of the panel */}
+          <div className="shrink-0 px-5 pt-3 pb-4 border-t border-gray-100 space-y-3">
             <div>
-              <h4 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">
-                Inventory Impact Preview
-              </h4>
-              <p className="text-[11px] text-gray-400 font-medium">
-                Inventory valuation will update using effective discounted purchase cost.
-              </p>
+              <div className="text-xs text-gray-400">Bill total</div>
+              <div className="text-[#FFB82E] font-semibold text-2xl">₹{formatMoney(grandTotal)}</div>
             </div>
-
-            {/* Internal Vertical Scrollable Product List */}
-            <div className="max-h-52 overflow-y-auto space-y-2.5 pr-1">
-              {lineItems.map((item, idx) => (
-                <div key={idx} className="p-3 bg-gray-50 border border-gray-100 rounded-xl space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="font-extrabold text-xs text-slate-900 truncate max-w-[200px]">
-                      {item.isNewProduct || (!item.productId && (item.newProduct?.name || item.productName)) ? (item.newProduct?.name || item.productName || item.extractedItemName) : (item.productName || item.existingProd?.name)}
-                    </div>
-                    {item.isNewProduct || (!item.productId && (item.newProduct?.name || item.productName)) ? (
-                      <span className="px-2 py-0.5 bg-amber-100 text-amber-900 font-extrabold text-[9px] rounded">
-                        NEW PRODUCT
-                      </span>
-                    ) : (
-                      <span className="font-mono text-[10px] text-gray-400">
-                        {item.existingProd?.sku || 'SKU'}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-4 gap-2 text-center text-xs border-t border-gray-200/60 pt-2">
-                    <div>
-                      <div className="text-[10px] font-bold text-gray-400 uppercase">Current</div>
-                      <div className="font-bold text-gray-600">{toSafeNumber(item.currentStock)}</div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] font-bold text-gray-400 uppercase">Purchase</div>
-                      <div className="font-extrabold text-emerald-600">+{toSafeNumber(item.qty)} {item.unit || 'Pcs'}</div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] font-bold text-gray-400 uppercase">New Stock</div>
-                      <div className="font-black text-slate-900">{toSafeNumber(item.newStock)}</div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] font-bold text-gray-400 uppercase">Cost Basis</div>
-                      <div className="font-bold text-emerald-700 font-mono">₹{toSafeNumber(item.discountedUnitPrice).toFixed(2)}</div>
-                    </div>
-                  </div>
-                </div>
-              ))}
+            <button
+              type="button"
+              onClick={handleConfirmPurchase}
+              disabled={submitting}
+              className="w-full px-6 py-2.5 bg-[#FFB82E] hover:bg-[#FFC555] text-[#1A1B1E] font-medium text-sm rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer"
+            >
+              {submitting ? (
+                <>
+                  <FaSpinner className="animate-spin text-sm" />
+                  <span>Confirming...</span>
+                </>
+              ) : (
+                <>
+                  <FaCheck className="text-xs" />
+                  <span>Confirm purchase</span>
+                </>
+              )}
+            </button>
+            <div className="grid grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={editPurchase}
+                className="px-4 py-2 border border-gray-300 hover:bg-gray-100 text-gray-700 text-xs rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <FaArrowLeft className="text-[10px]" />
+                <span>Edit</span>
+              </button>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => navigate('/purchases')}
+                className="px-4 py-2 border border-gray-300 hover:bg-gray-100 text-gray-700 text-xs rounded-xl transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                Cancel
+              </button>
             </div>
           </div>
-
-          {/* Compact Bottom Summary Row */}
-          <div className="pt-3 border-t border-gray-200 flex items-center justify-between text-xs font-bold text-gray-600">
-            <div>Products: <span className="text-slate-900 font-black">{lineItems.length}</span></div>
-            <div>Qty Added: <span className="text-slate-900 font-black">+{totalQtyAdded}</span></div>
-            <div className="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 font-extrabold text-[10px] rounded-full flex items-center space-x-1">
-              <FaArrowUp className="text-[9px]" />
-              <span>Stock Increase</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* SECTION 4 — BOTTOM ACTION BAR */}
-      <div className="bg-white p-4 border border-gray-200 rounded-2xl shadow-sm flex items-center justify-between">
-        <button
-          type="button"
-          disabled={submitting}
-          onClick={() => navigate('/purchases')}
-          className="px-5 py-2.5 border border-gray-300 hover:bg-gray-100 text-gray-700 font-bold text-xs rounded-xl shadow-sm transition-all disabled:opacity-50 bg-white"
-        >
-          Cancel Purchase
-        </button>
-
-        <div className="flex items-center space-x-3">
-          <button
-            type="button"
-            disabled={submitting}
-            onClick={() => navigate('/purchases/new/manual', { state: formData })}
-            className="px-5 py-2.5 border border-gray-300 hover:bg-gray-100 text-gray-700 font-bold text-xs rounded-xl shadow-sm transition-all disabled:opacity-50 flex items-center space-x-1.5 bg-white"
-          >
-            <FaArrowLeft className="text-[10px]" />
-            <span>Edit Purchase</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleConfirmPurchase}
-            disabled={submitting}
-            className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-md transition-all flex items-center space-x-2 disabled:opacity-50"
-          >
-            {submitting ? (
-              <>
-                <FaSpinner className="animate-spin text-sm" />
-                <span>Confirming Purchase...</span>
-              </>
-            ) : (
-              <>
-                <FaCheck className="text-xs" />
-                <span>Confirm Purchase</span>
-              </>
-            )}
-          </button>
         </div>
       </div>
     </div>

@@ -1,44 +1,80 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import axiosInstance from '../utils/api';
 import { useToast } from '../context/ToastContext';
 import { getErrorMessage } from '../utils/apiError';
-import { formatDateToIndian, toApiDateFormat } from '../utils/dateUtils';
+import { formatDateToIndian, formatDateShortMonth, formatDateRange, toApiDateFormat } from '../utils/dateUtils';
 import { PROJECT_GST_RATE, PROJECT_GST_MULTIPLIER, roundToTwo } from '../utils/projectGst.constants';
-import {
-  FaBuilding,
-  FaArrowLeft,
-  FaEdit,
-  FaCalendarAlt,
-  FaMapMarkerAlt,
-  FaRupeeSign,
-  FaBoxOpen,
-  FaPlus,
-  FaTimes,
-  FaSpinner,
-  FaReceipt,
-  FaFileInvoiceDollar,
-  FaExclamationTriangle,
-  FaCheck,
-  FaTag,
-  FaHardHat,
-  FaUsers,
-  FaBan,
-  FaEye,
-} from 'react-icons/fa';
+import { FaArrowLeft, FaEdit, FaPlus, FaTimes, FaSpinner, FaReceipt, FaExclamationTriangle, FaCheck } from 'react-icons/fa';
+import { LuChevronDown, LuMapPin, LuCalendarDays, LuWallet, LuUser, LuStickyNote } from 'react-icons/lu';
 import LabourFormModal from '../components/LabourFormModal';
 import AssignLabourModal from '../components/AssignLabourModal';
 import ConfirmationModal from '../components/ConfirmationModal';
+import FilterSelect from '../components/FilterSelect';
+import IndianDateInput from '../components/IndianDateInput';
+import ProjectFormModal from '../components/ProjectFormModal';
+import LabourPaymentModal from '../components/LabourPaymentModal';
 import { stopLabour } from '../utils/labourService';
 import { useAuth } from '../context/AuthContext';
 
-const STATUS_BADGES = {
-  PLANNING: 'bg-blue-100 text-blue-800 border-blue-200',
-  IN_PROGRESS: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-  ON_HOLD: 'bg-amber-100 text-amber-800 border-amber-200',
-  COMPLETED: 'bg-purple-100 text-purple-800 border-purple-200',
-  CANCELLED: 'bg-rose-100 text-rose-800 border-rose-200',
+const BADGE = {
+  green: 'bg-[#22C55E]/10 text-[#4ADE80] border-[#22C55E]/40',
+  grey: 'bg-[#908C84]/10 text-[#B8B4AC] border-[#908C84]/40',
+  blue: 'bg-[#60A5FA]/10 text-[#93C5FD] border-[#60A5FA]/40',
+  amber: 'bg-[#FFB82E]/10 text-[#FFC14D] border-[#FFB82E]/40',
+  purple: 'bg-[#A78BFA]/10 text-[#C4B5FD] border-[#A78BFA]/40',
+  red: 'bg-[#F87171]/10 text-[#FCA5A5] border-[#F87171]/40',
 };
+
+const STATUS_BADGES = {
+  PLANNING: { label: 'Planning', cls: BADGE.blue },
+  IN_PROGRESS: { label: 'In progress', cls: BADGE.green },
+  ON_HOLD: { label: 'On hold', cls: BADGE.amber },
+  COMPLETED: { label: 'Completed', cls: BADGE.purple },
+  CANCELLED: { label: 'Cancelled', cls: BADGE.red },
+};
+
+const capitalise = (text) => (text ? text.trim().charAt(0).toUpperCase() + text.trim().slice(1) : '');
+
+// Cards show whole rupees; tables keep paise
+const formatRupees = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
+const formatPaise = (n) => `₹${(Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const SectionHead = ({ title, subtitle, actionLabel, onAction, disabled, disabledTitle }) => (
+  <div className="flex items-start justify-between gap-4">
+    <div>
+      <h3 className="text-base font-semibold text-slate-900">{title}</h3>
+      <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>
+    </div>
+    {actionLabel && (
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onAction}
+        title={disabled ? disabledTitle : actionLabel}
+        className="px-3 py-1.5 rounded-lg text-xs bg-[#FFB82E]/10 text-[#FFC14D] border border-[#FFB82E]/30 hover:bg-[#FFB82E]/20 transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        <FaPlus className="text-[10px]" />
+        {actionLabel}
+      </button>
+    )}
+  </div>
+);
+
+// One-line summary card: label on the left, value on the right
+const MiniCard = ({ label, value, note, valueClass = 'text-slate-900' }) => (
+  <div className="px-4 py-3 rounded-xl border border-gray-200 bg-white flex items-center justify-between gap-3">
+    <span className="text-xs text-gray-400 truncate">{label}</span>
+    <span className="flex items-baseline gap-1.5 shrink-0">
+      <span className={`text-base font-semibold font-mono ${valueClass}`}>{value}</span>
+      {note && <span className="text-[11px] text-gray-400">{note}</span>}
+    </span>
+  </div>
+);
+
+const EmptyLine = ({ children }) => (
+  <p className="py-8 text-center text-sm text-gray-400 bg-white border border-gray-200 rounded-2xl">{children}</p>
+);
 
 const EXPENSE_CATEGORIES = [
   { value: 'TRANSPORT', label: 'Transport / Freight' },
@@ -50,9 +86,21 @@ const EXPENSE_CATEGORIES = [
   { value: 'OTHER', label: 'Other Expenses' },
 ];
 
+const CATEGORY_SHORT = {
+  TRANSPORT: 'Transport',
+  LABOUR: 'Labour',
+  MACHINERY_RENTAL: 'Machinery rental',
+  LOADING_UNLOADING: 'Loading',
+  SITE_EXPENSE: 'Site expense',
+  MISCELLANEOUS: 'Misc',
+  OTHER: 'Other',
+};
+const categoryLabel = (cat) => CATEGORY_SHORT[cat] || capitalise((cat || '').replace(/_/g, ' ').toLowerCase());
+
 const ProjectDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const toast = useToast();
   const { user } = useAuth();
   const canManageLabour = !user?.role || user?.role === 'ADMIN' || user?.role === 'SALES';
@@ -61,7 +109,6 @@ const ProjectDetails = () => {
   const [materials, setMaterials] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [labours, setLabours] = useState([]);
-  const [invoices, setInvoices] = useState([]);
   const [profitability, setProfitability] = useState(null);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -75,19 +122,30 @@ const ProjectDetails = () => {
   const [isStopModalOpen, setIsStopModalOpen] = useState(false);
   const [labourToStop, setLabourToStop] = useState(null);
   const [isStopping, setIsStopping] = useState(false);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [paymentLabour, setPaymentLabour] = useState(null);
+
+  const [activeTab, setActiveTab] = useState(location.state?.tab || 'overview');
+  const [materialView, setMaterialView] = useState('material');
+  const [expandedDates, setExpandedDates] = useState(() => new Set());
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   // Material Issue Modal State
   const [isMaterialModalOpen, setIsMaterialModalOpen] = useState(false);
   const [submittingMaterial, setSubmittingMaterial] = useState(false);
   const [materialModalError, setMaterialModalError] = useState(null);
 
-  const [issueForm, setIssueForm] = useState({
-    productId: '',
-    quantity: '',
-    issueDate: toApiDateFormat(new Date()),
-    notes: '',
-  });
-  const [selectedProduct, setSelectedProduct] = useState(null);
+  // Several materials can be issued together; they share one issue date
+  const newIssueLine = () => ({ key: `${Date.now()}-${Math.random()}`, productId: '', quantity: '' });
+  const [issueLines, setIssueLines] = useState(() => [newIssueLine()]);
+  const [issueDate, setIssueDate] = useState(() => toApiDateFormat(new Date()));
+
+  const openIssueModal = () => {
+    setIssueLines([newIssueLine()]);
+    setIssueDate(toApiDateFormat(new Date()));
+    setMaterialModalError(null);
+    setIsMaterialModalOpen(true);
+  };
 
   // Expense Modal State
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
@@ -108,11 +166,10 @@ const ProjectDetails = () => {
     setLoading(true);
     setError(null);
     try {
-      const [projRes, matRes, expRes, invRes, profRes, prodRes, labRes] = await Promise.all([
+      const [projRes, matRes, expRes, profRes, prodRes, labRes] = await Promise.all([
         axiosInstance.get(`/projects/${id}`),
         axiosInstance.get(`/projects/${id}/material-consumptions`),
         axiosInstance.get(`/projects/${id}/expenses`),
-        axiosInstance.get(`/projects/${id}/invoices`),
         axiosInstance.get(`/projects/${id}/profitability`),
         axiosInstance.get('/products'),
         axiosInstance.get(`/projects/${id}/labours`),
@@ -121,7 +178,6 @@ const ProjectDetails = () => {
       setProject(projRes.data.data);
       setMaterials(matRes.data.data || []);
       setExpenses(expRes.data.data || []);
-      setInvoices(invRes.data.data || []);
       setProfitability(profRes.data.data);
       setProducts(prodRes.data.data || []);
       setLabours(labRes.data?.data || []);
@@ -140,64 +196,59 @@ const ProjectDetails = () => {
   }, [id]);
 
   // Material Handlers
-  const handleProductChange = (e) => {
-    const pId = e.target.value;
-    const prod = products.find((p) => (p.id || p._id) === pId) || null;
-    setSelectedProduct(prod);
+  const findProduct = (pId) => products.find((p) => (p.id || p._id) === pId) || null;
 
-    setIssueForm((prev) => ({
-      ...prev,
-      productId: pId,
-    }));
+  const updateIssueLine = (key, changes) => {
+    setIssueLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...changes } : l)));
+    setMaterialModalError(null);
   };
 
   const handleIssueSubmit = async (e) => {
     e.preventDefault();
     setMaterialModalError(null);
 
-    if (!issueForm.productId) {
-      setMaterialModalError('Please select a product to issue.');
+    const lines = issueLines.filter((l) => l.productId);
+    if (lines.length === 0) {
+      setMaterialModalError('Choose at least one material.');
       return;
     }
-    const qty = Number(issueForm.quantity);
-    if (isNaN(qty) || qty <= 0) {
-      setMaterialModalError('Please enter a valid quantity greater than zero.');
-      return;
-    }
-    if (selectedProduct && qty > selectedProduct.currentStock) {
-      setMaterialModalError(`Insufficient stock. Available: ${selectedProduct.currentStock} ${selectedProduct.unit || 'units'}`);
-      return;
+    for (const l of lines) {
+      const prod = findProduct(l.productId);
+      const qty = Number(l.quantity);
+      if (!prod) continue;
+      if (isNaN(qty) || qty <= 0) {
+        setMaterialModalError(`Enter a quantity for ${prod.name}.`);
+        return;
+      }
+      if (qty > prod.currentStock) {
+        setMaterialModalError(`Not enough ${prod.name}. Only ${prod.currentStock} ${prod.unit || 'pcs'} in stock.`);
+        return;
+      }
     }
 
     setSubmittingMaterial(true);
-
-    const payload = {
-      project: id,
-      product: issueForm.productId,
-      quantity: qty,
-      issueDate: issueForm.issueDate ? toApiDateFormat(issueForm.issueDate) : undefined,
-      notes: issueForm.notes ? issueForm.notes.trim() : undefined,
-    };
-
+    // One request per material; rows that went through are dropped so a retry only sends the rest
+    let issued = 0;
     try {
-      await axiosInstance.post('/material-consumptions', payload);
-      toast.success('Material issued to project successfully!');
+      for (const l of lines) {
+        await axiosInstance.post('/material-consumptions', {
+          project: id,
+          product: l.productId,
+          quantity: Number(l.quantity),
+          issueDate: issueDate ? toApiDateFormat(issueDate) : undefined,
+        });
+        issued += 1;
+        setIssueLines((prev) => prev.filter((x) => x.key !== l.key));
+      }
+      toast.success(issued === 1 ? 'Material issued.' : `${issued} materials issued.`);
       setIsMaterialModalOpen(false);
-
-      setIssueForm({
-        productId: '',
-        quantity: '',
-        issueDate: toApiDateFormat(new Date()),
-        notes: '',
-      });
-      setSelectedProduct(null);
-
       fetchData();
     } catch (err) {
       console.error('Error issuing material:', err);
       const errMsg = getErrorMessage(err, 'Failed to issue material to project.');
-      setMaterialModalError(errMsg);
+      setMaterialModalError(issued > 0 ? `${issued} issued, then this failed: ${errMsg}` : errMsg);
       toast.error(errMsg);
+      if (issued > 0) fetchData();
     } finally {
       setSubmittingMaterial(false);
     }
@@ -236,7 +287,7 @@ const ProjectDetails = () => {
     };
 
     try {
-      await axiosInstance.post('/expenses', payload);
+      await axiosInstance.post('/project-expenses', payload);
       toast.success('Project expense logged successfully!');
       setIsExpenseModalOpen(false);
 
@@ -333,9 +384,9 @@ const ProjectDetails = () => {
     );
   }
 
-  const startDateStr = formatDateToIndian(project.startDate);
-  const endDateStr = formatDateToIndian(project.expectedEndDate, 'Ongoing');
-  const badgeStyle = STATUS_BADGES[project.status] || 'bg-gray-100 text-gray-800 border-gray-200';
+  const badge = STATUS_BADGES[project.status] || { label: project.status, cls: BADGE.grey };
+  const endKey = project.expectedEndDate ? toApiDateFormat(project.expectedEndDate) : '';
+  const isOverdue = project.status === 'IN_PROGRESS' && endKey && endKey < toApiDateFormat(new Date());
 
   // Calculate Material Consumption Totals (Fixed 18% Project GST)
   const totalActualCost = materials.reduce((sum, m) => sum + (m.actualCostTotal || 0), 0);
@@ -371,1222 +422,811 @@ const ProjectDetails = () => {
   }, {});
 
   // Calculate Project Labour Totals (Phase 10 — Derived directly from Labour records)
-  const totalLabourCount = labours.length;
   const activeLabourCount = labours.filter((l) => l.status === 'ACTIVE').length;
-  const stoppedLabourCount = labours.filter((l) => l.status === 'STOPPED').length;
   const totalLabourEarned = labours.reduce((sum, l) => sum + (Number(l.totalEarned) || 0), 0);
   const totalLabourPaid = labours.reduce((sum, l) => sum + (Number(l.totalPaid) || 0), 0);
   const totalLabourBalance = totalLabourEarned - totalLabourPaid;
 
+
   const isClosedProject = project.status === 'COMPLETED' || project.status === 'CANCELLED';
 
-  return (
-    <div className="max-w-5xl mx-auto py-6 px-4 space-y-6 animate-fadeIn pb-16">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <div className="text-xs text-gray-400 font-semibold mb-1 flex items-center space-x-1">
-            <Link to="/projects" className="hover:text-emerald-600">Projects</Link>
-            <span>&gt;</span>
-            <span className="text-emerald-600 font-bold">{project.projectCode}</span>
-          </div>
-          <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center text-lg shadow-sm">
-              <FaBuilding />
-            </div>
-            <div>
-              <h2 className="text-2xl font-extrabold text-slate-900">{project.name}</h2>
-              <span className="font-mono text-xs text-emerald-700 font-bold">{project.projectCode}</span>
-            </div>
-          </div>
-        </div>
+  // Labour cost = wages earned so far (same numbers as the Labour tab), so Overview
+  // is right even when the backend total is older
+  const budgetAmount = profitability
+    ? profitability.projectBudget !== undefined ? profitability.projectBudget : project?.budget || 0
+    : 0;
+  const materialCost = profitability?.totalMaterialCost || 0;
+  const expenseCost = profitability?.totalProjectExpenses || 0;
+  const totalSpent = roundToTwo(materialCost + expenseCost + totalLabourEarned);
+  const remaining = roundToTwo(budgetAmount - totalSpent);
+  const marginLeft = budgetAmount > 0 ? roundToTwo((remaining / budgetAmount) * 100) : 0;
 
-        <div className="flex items-center space-x-3 self-start sm:self-auto">
+  const budgetCards = profitability
+    ? [
+        { label: 'Budget', value: budgetAmount },
+        { label: 'Materials', value: materialCost },
+        { label: 'Expenses', value: expenseCost },
+        { label: 'Labour', value: totalLabourEarned },
+        { label: 'Total spent', value: totalSpent },
+        { label: 'Remaining', value: remaining, valueClass: remaining >= 0 ? 'text-[#4ADE80]' : 'text-rose-500' },
+      ]
+    : [];
+
+  const tabs = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'materials', label: 'Materials', count: materials.length },
+    { key: 'expenses', label: 'Expenses', count: expenses.length },
+    { key: 'labour', label: 'Labour', count: labours.length },
+  ];
+
+  const creatorName = project.creator?.name || 'System Admin';
+
+  return (
+    <div className="space-y-5 animate-fadeIn pb-16">
+      {/* Header: name + status, code underneath, Edit on the right */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex items-start gap-3">
           <button
             type="button"
             onClick={() => navigate('/projects')}
-            className="px-4 py-2 border border-gray-300 hover:bg-gray-100 text-gray-700 font-bold text-xs rounded-xl transition-all flex items-center space-x-2 bg-white"
+            title="Back to projects"
+            aria-label="Back to projects"
+            className="mt-0.5 w-9 h-9 shrink-0 rounded-lg border border-gray-200 text-gray-400 hover:text-slate-900 hover:bg-gray-100 flex items-center justify-center transition-colors cursor-pointer focus:outline-none"
           >
-            <FaArrowLeft />
-            <span>Back</span>
+            <FaArrowLeft className="text-xs" />
           </button>
-          <button
-            type="button"
-            onClick={() => navigate(`/projects/${project.id}/edit`)}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all flex items-center space-x-2"
-          >
-            <FaEdit />
-            <span>Edit Project</span>
-          </button>
-        </div>
-      </div>
-
-      {/* SECTION 1 — PROJECT INFORMATION SUMMARY CARD */}
-      <div className="bg-white p-6 border border-gray-200 rounded-2xl shadow-sm space-y-4">
-        <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-          <h3 className="text-sm font-extrabold text-slate-900 flex items-center space-x-2">
-            <FaBuilding className="text-emerald-600 text-xs" />
-            <span>Project Overview</span>
-          </h3>
-          <span className={`px-3 py-1 text-xs font-extrabold rounded-lg border ${badgeStyle}`}>
-            {project.status.replace('_', ' ')}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 text-xs">
-          {/* Site Location */}
-          <div className="space-y-1 md:col-span-2">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">CONSTRUCTION SITE LOCATION</span>
-            <div className="font-extrabold text-slate-900 flex items-center space-x-1.5">
-              <FaMapMarkerAlt className="text-emerald-600 text-xs flex-shrink-0" />
-              <span>{project.siteAddress}</span>
-            </div>
-          </div>
-
-          {/* Start Date */}
-          <div className="space-y-1">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">START DATE</span>
-            <div className="font-extrabold text-slate-900 flex items-center space-x-1.5">
-              <FaCalendarAlt className="text-emerald-600 text-xs" />
-              <span>{startDateStr}</span>
-            </div>
-          </div>
-
-          {/* Expected End Date */}
-          <div className="space-y-1">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">EXPECTED COMPLETION</span>
-            <div className="font-extrabold text-slate-900 flex items-center space-x-1.5">
-              <FaCalendarAlt className="text-gray-400 text-xs" />
-              <span>{endDateStr}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 text-xs pt-2 border-t border-gray-50">
-          {/* Target Budget */}
-          <div className="space-y-1">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">TARGET BUDGET</span>
-            <div className="font-black text-slate-900 text-sm flex items-center">
-              {project.budget !== undefined && project.budget !== null ? (
-                <>
-                  <FaRupeeSign className="text-xs text-gray-400 mr-0.5" />
-                  {Number(project.budget).toLocaleString('en-IN')}
-                </>
-              ) : (
-                <span className="text-gray-400 font-normal">Unspecified</span>
-              )}
-            </div>
-          </div>
-
-          {/* Created By */}
-          <div className="space-y-1">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">CREATED BY</span>
-            <div className="font-semibold text-slate-700">
-              {project.creator?.name || 'System Admin'} ({project.creator?.role || 'ADMIN'})
-            </div>
-          </div>
-
-          {/* Notes */}
-          <div className="space-y-1 md:col-span-2">
-            <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">NOTES / SCOPE</span>
-            <div className="font-medium text-gray-700 italic">
-              {project.notes ? project.notes : <span className="text-gray-300 font-normal">No additional notes</span>}
-            </div>
-          </div>
-        </div>
-      </div>
-
-
-      {/* SECTION 2.5 — FINANCIAL OVERVIEW & BUDGET KPI CARDS */}
-      {profitability && (
-        <div className="bg-white p-6 border border-gray-200 rounded-2xl shadow-sm space-y-4">
-          <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-            <h3 className="text-sm font-extrabold text-slate-900 flex items-center space-x-2">
-              <FaFileInvoiceDollar className="text-emerald-600 text-xs" />
-              <span>Project Financial Overview & Profitability</span>
-            </h3>
-            <span className={`px-2.5 py-0.5 rounded text-[11px] font-black ${
-              (profitability.remainingBudget !== undefined ? profitability.remainingBudget : profitability.projectProfit) >= 0
-                ? 'bg-emerald-100 text-emerald-800'
-                : 'bg-rose-100 text-rose-800'
-            }`}>
-              Remaining Margin: {profitability.projectMargin !== undefined ? profitability.projectMargin : (profitability.grossMargin || 0)}%
+          <div className="min-w-0">
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-2xl font-semibold text-slate-900">{project.name}</h1>
+            <span className={`px-2.5 py-1 rounded-md border text-[11px] font-medium inline-flex items-center gap-1.5 shrink-0 ${badge.cls}`}>
+              <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+              {badge.label}
             </span>
+            {isOverdue && (
+              <span className={`px-2.5 py-1 rounded-md border text-[11px] font-medium inline-flex items-center gap-1.5 shrink-0 ${BADGE.red}`}>
+                <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                Overdue
+              </span>
+            )}
           </div>
-
-          {/* 1. PROJECT BUDGET VS ACTUAL COST (GST-Exclusive) */}
-          <div className="space-y-2">
-            <div className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-              Project Budget vs Actual Cost (GST-Exclusive)
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
-              {/* Card 1: Project Budget — Excl. GST */}
-              <div className="p-3 bg-indigo-50/70 border border-indigo-200/80 rounded-xl space-y-1">
-                <span className="text-[10px] font-extrabold text-indigo-800 uppercase tracking-wider block">
-                  PROJECT BUDGET — EXCL. GST
-                </span>
-                <div className="text-base font-black text-indigo-950 font-mono">
-                  ₹{(profitability.projectBudget !== undefined ? profitability.projectBudget : (project?.budget || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </div>
-                <span className="text-[9px] text-indigo-600 font-medium block">Approved project budget</span>
-              </div>
-
-              {/* Card 2: Material Cost — Excl. GST */}
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-                <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider block">
-                  MATERIAL COST — EXCL. GST
-                </span>
-                <div className="text-base font-black text-slate-900 font-mono">
-                  ₹{(profitability.totalMaterialCost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </div>
-                <span className="text-[9px] text-slate-500 block">Cost of materials issued/consumed by the project, excluding GST</span>
-              </div>
-
-              {/* Card 3: Project Expenses */}
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-                <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider block">
-                  PROJECT EXPENSES
-                </span>
-                <div className="text-base font-black text-slate-900 font-mono">
-                  ₹{(profitability.totalProjectExpenses || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </div>
-                <span className="text-[9px] text-slate-500 block">Site, logistics, and other project expenses</span>
-              </div>
-
-              {/* Card 4: Labour Cost */}
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-                <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider block">
-                  LABOUR COST
-                </span>
-                <div className="text-base font-black text-slate-900 font-mono">
-                  ₹{(profitability.totalLabourCost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </div>
-                <span className="text-[9px] text-slate-500 block">Direct labour cost assigned to the project</span>
-              </div>
-
-              {/* Card 5: Total Project Cost — Excl. GST */}
-              <div className="p-3 bg-slate-100/80 border border-slate-300 rounded-xl space-y-1">
-                <span className="text-[10px] font-extrabold text-slate-800 uppercase tracking-wider block">
-                  TOTAL PROJECT COST — EXCL. GST
-                </span>
-                <div className="text-base font-black text-slate-900 font-mono">
-                  ₹{(profitability.actualProjectCost !== undefined ? profitability.actualProjectCost : (profitability.totalProjectCost || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </div>
-                <span className="text-[9px] text-slate-600 font-medium block">Materials + project expenses + labour</span>
-              </div>
-
-              {/* Card 6: Remaining Budget */}
-              <div className={`p-3 border rounded-xl space-y-1 ${
-                (profitability.remainingBudget !== undefined ? profitability.remainingBudget : profitability.projectProfit) >= 0
-                  ? 'bg-emerald-50 border-emerald-300'
-                  : 'bg-rose-50 border-rose-300'
-              }`}>
-                <span className={`text-[10px] font-extrabold uppercase tracking-wider block ${
-                  (profitability.remainingBudget !== undefined ? profitability.remainingBudget : profitability.projectProfit) >= 0
-                    ? 'text-emerald-800'
-                    : 'text-rose-800'
-                }`}>REMAINING BUDGET</span>
-                <div className={`text-base font-black font-mono ${
-                  (profitability.remainingBudget !== undefined ? profitability.remainingBudget : profitability.projectProfit) >= 0
-                    ? 'text-emerald-900'
-                    : 'text-rose-900'
-                }`}>
-                  ₹{(profitability.remainingBudget !== undefined ? profitability.remainingBudget : profitability.projectProfit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </div>
-                <span className="text-[9px] text-gray-500 font-medium block">Project budget minus total project cost excluding GST</span>
-              </div>
-            </div>
-          </div>
-
-          {/* 2. INVOICING & CASH-FLOW STATUS (Separated from Budget) */}
-          <div className="pt-2 border-t border-gray-100 space-y-2">
-            <div className="text-xs font-bold text-gray-400 uppercase tracking-wider">
-              Invoicing & Payment Collections (Cash-Flow — Output GST Included)
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="p-3 bg-emerald-50/50 border border-emerald-200/70 rounded-xl space-y-0.5">
-                <span className="text-[10px] font-extrabold text-emerald-800 uppercase tracking-wider">TOTAL INVOICED (INCL. GST)</span>
-                <div className="text-sm font-black text-emerald-900 font-mono">
-                  ₹{(profitability.totalInvoiced !== undefined ? profitability.totalInvoiced : (profitability.revenue || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </div>
-                <span className="text-[9px] text-emerald-600">Active customer bills (Output GST included)</span>
-              </div>
-
-              <div className="p-3 bg-blue-50/50 border border-blue-200/70 rounded-xl space-y-0.5">
-                <span className="text-[10px] font-extrabold text-blue-800 uppercase tracking-wider">TOTAL RECEIVED</span>
-                <div className="text-sm font-black text-blue-900 font-mono">
-                  ₹{(profitability.totalReceived || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </div>
-                <span className="text-[9px] text-blue-600">Collected payments</span>
-              </div>
-
-              <div className="p-3 bg-amber-50/50 border border-amber-200/70 rounded-xl space-y-0.5">
-                <span className="text-[10px] font-extrabold text-amber-800 uppercase tracking-wider">OUTSTANDING BALANCE</span>
-                <div className="text-sm font-black text-amber-900 font-mono">
-                  ₹{(profitability.outstanding || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </div>
-                <span className="text-[9px] text-amber-700">Invoiced balance pending</span>
-              </div>
-            </div>
+          <p className="text-sm text-gray-400 mt-0.5">{project.projectCode}</p>
           </div>
         </div>
-      )}
 
-      {/* SECTION 2.6 — GST SUMMARY (Fixed 18% Rule) */}
-      {profitability && (
-        <div className="bg-white p-6 border border-gray-200 rounded-2xl shadow-sm space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-gray-100 pb-3">
-            <div>
-              <h3 className="text-sm font-extrabold text-slate-900 flex items-center space-x-2">
-                <FaReceipt className="text-emerald-600 text-xs" />
-                <span>GST Summary</span>
-              </h3>
-              <p className="text-[11px] text-gray-400 mt-0.5">
-                Input Tax Credit (ITC) tracking — Fixed 18% business rule for all project materials.
+        <button
+          type="button"
+          onClick={() => setIsEditModalOpen(true)}
+          className="px-4 py-2 bg-white hover:bg-gray-100 border border-gray-200 text-slate-700 text-sm rounded-xl transition-all flex items-center gap-2 cursor-pointer shrink-0"
+        >
+          <FaEdit className="text-xs" />
+          Edit
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex items-center gap-1 border-b border-gray-200 overflow-x-auto hide-scrollbar">
+        {tabs.map((t) => {
+          const isActive = activeTab === t.key;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setActiveTab(t.key)}
+              className={`px-4 py-2 -mb-px border-b-2 text-sm whitespace-nowrap transition-colors cursor-pointer flex items-center gap-2 focus:outline-none focus-visible:outline-none ${
+                isActive ? 'border-[#FFB82E] text-[#FFC14D]' : 'border-transparent text-gray-400 hover:text-slate-900'
+              }`}
+            >
+              {t.label}
+              {t.count !== undefined && (
+                <span
+                  className={`px-1.5 min-w-[20px] text-center rounded-md text-[11px] ${
+                    isActive ? 'bg-[#FFB82E]/15 text-[#FFC14D]' : 'bg-gray-100 text-gray-400'
+                  }`}
+                >
+                  {t.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {activeTab === 'overview' && (
+        <>
+          {/* Project details: one row of icon + label + value, notes underneath */}
+          {(() => {
+            let timelineNote = null;
+            if (project.expectedEndDate && !isClosedProject) {
+              const end = new Date(project.expectedEndDate);
+              end.setHours(0, 0, 0, 0);
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              const days = Math.round((end - today) / 86400000);
+              if (days > 0) timelineNote = { text: `${days} ${days === 1 ? 'day' : 'days'} left`, cls: 'text-gray-400' };
+              else if (days === 0) timelineNote = { text: 'Ends today', cls: 'text-[#FFC14D]' };
+              else timelineNote = { text: `Overdue by ${-days} ${days === -1 ? 'day' : 'days'}`, cls: 'text-rose-500' };
+            }
+            const items = [
+              { icon: LuMapPin, label: 'Site', value: capitalise(project.siteAddress) || '-' },
+              {
+                icon: LuCalendarDays,
+                label: 'Timeline',
+                value: formatDateRange(project.startDate, project.expectedEndDate, 'Ongoing'),
+                note: timelineNote,
+              },
+              {
+                icon: LuWallet,
+                label: 'Budget',
+                value: project.budget !== undefined && project.budget !== null ? formatRupees(project.budget) : 'Not set',
+              },
+              { icon: LuUser, label: 'Created by', value: creatorName },
+            ];
+            return (
+              <div className="bg-white border border-gray-200 rounded-2xl">
+                <div className="grid grid-cols-2 lg:grid-cols-[1fr_1.35fr_1fr_1fr]">
+                  {items.map((it, i) => {
+                    const Icon = it.icon;
+                    return (
+                      <div
+                        key={it.label}
+                        className={`flex items-center gap-4 px-5 py-4 min-w-0 ${i > 0 ? 'lg:border-l border-gray-200' : ''} ${i % 2 === 1 ? 'border-l lg:border-l' : ''} ${i > 1 ? 'border-t lg:border-t-0' : ''}`}
+                      >
+                        <span className="w-12 h-12 shrink-0 rounded-xl bg-[#FFB82E]/10 text-[#FFC14D] flex items-center justify-center">
+                          <Icon className="text-[22px]" />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-sm text-gray-400 whitespace-nowrap">
+                            {it.label}
+                            {it.note && <span className={`ml-2 text-xs ${it.note.cls}`}>· {it.note.text}</span>}
+                          </p>
+                          <p className="text-base 2xl:text-lg font-medium text-slate-900 mt-0.5 leading-snug truncate" title={it.value}>{it.value}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {project.notes && (
+                  <div className="flex items-start gap-3 px-4 py-3 border-t border-gray-200 text-sm">
+                    <LuStickyNote className="text-gray-400 mt-0.5 shrink-0" />
+                    <p className="text-slate-700 break-words">{project.notes}</p>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Budget and costs */}
+          {profitability && (
+            <div className="bg-white p-5 border border-gray-200 rounded-2xl space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold text-slate-900">
+                  Budget and costs <span className="text-gray-400 font-normal">(excl. GST)</span>
+                </h3>
+                <span className={`px-2.5 py-1 rounded-md border text-[11px] font-medium ${remaining >= 0 ? BADGE.green : BADGE.red}`}>
+                  Margin left {marginLeft}%
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                {budgetCards.map((c) => (
+                  <div key={c.label} className="px-4 py-3 rounded-xl border border-gray-200 bg-gray-50">
+                    <p className="text-xs text-gray-400">{c.label}</p>
+                    <p className={`text-lg font-semibold font-mono mt-0.5 ${c.valueClass || 'text-slate-900'}`}>{formatRupees(c.value)}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* GST Summary (Fixed 18% Rule) */}
+          {profitability && (
+            <div className="bg-white p-5 border border-gray-200 rounded-2xl space-y-4">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">GST summary</h3>
+                <p className="text-xs text-gray-400 mt-0.5">Input tax credit on issued materials, at the fixed 18% rate.</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="px-4 py-3 rounded-xl border border-gray-200 bg-gray-50">
+                  <p className="text-xs text-gray-400">Input GST @ 18%</p>
+                  <p className="text-lg font-semibold font-mono mt-0.5 text-slate-900">{formatRupees(profitability.inputGstIssuedMaterials || 0)}</p>
+                </div>
+                <div className="px-4 py-3 rounded-xl border border-gray-200 bg-gray-50">
+                  <p className="text-xs text-gray-400">Issued material value (incl. GST)</p>
+                  <p className="text-lg font-semibold font-mono mt-0.5 text-slate-900">
+                    {formatRupees(profitability.issuedMaterialValueIncludingGST || 0)}
+                  </p>
+                </div>
+                <div className="px-4 py-3 rounded-xl border border-gray-200 bg-gray-50">
+                  <p className="text-xs text-gray-400">Input GST to claim</p>
+                  <p className="text-lg font-semibold font-mono mt-0.5 text-[#FFC14D]">
+                    {formatRupees(
+                      profitability.totalInputGstClaimable !== undefined
+                        ? profitability.totalInputGstClaimable
+                        : profitability.inputGstIssuedMaterials || 0
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-xs text-gray-400">
+                Only the material cost excluding GST is taken from the project budget. GST is tracked separately here.
               </p>
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {/* Card 1: Input GST @ 18% */}
-            <div className="p-4 bg-blue-50/60 border border-blue-200/80 rounded-xl space-y-1">
-              <span className="text-[10px] font-extrabold text-blue-800 uppercase tracking-wider block">
-                INPUT GST @ 18%
-              </span>
-              <div className="text-base font-black text-blue-900 font-mono">
-                ₹{(profitability.inputGstIssuedMaterials || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-              </div>
-              <span className="text-[9px] text-blue-600 font-medium block">
-                Fixed 18% GST on issued project materials
-              </span>
-            </div>
-
-            {/* Card 2: Issued Material Value — Incl. GST */}
-            <div className="p-4 bg-emerald-50/70 border border-emerald-200/80 rounded-xl space-y-1">
-              <span className="text-[10px] font-extrabold text-emerald-800 uppercase tracking-wider block">
-                ISSUED MATERIAL VALUE — INCL. GST
-              </span>
-              <div className="text-base font-black text-emerald-950 font-mono">
-                ₹{(profitability.issuedMaterialValueIncludingGST || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-              </div>
-              <span className="text-[9px] text-emerald-600 font-medium block">
-                Material cost plus 18% Input GST
-              </span>
-            </div>
-
-            {/* Card 3: Total Input GST to be Claimed — Issued Materials GST Only */}
-            <div className="p-4 bg-purple-50/70 border border-purple-200/80 rounded-xl space-y-1">
-              <span className="text-[10px] font-extrabold text-purple-800 uppercase tracking-wider block">
-                TOTAL INPUT GST TO BE CLAIMED — ISSUED MATERIALS GST ONLY
-              </span>
-              <div className="text-base font-black text-purple-950 font-mono">
-                ₹{(profitability.totalInputGstClaimable !== undefined ? profitability.totalInputGstClaimable : (profitability.inputGstIssuedMaterials || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-              </div>
-              <span className="text-[9px] text-purple-600 font-medium block">
-                Eligible Input Tax Credit (ITC) for this project
-              </span>
-            </div>
-          </div>
-
-          {/* Explanatory Note Alert */}
-          <div className="p-3 bg-gray-50 border border-gray-100 rounded-xl text-[11px] text-gray-500 flex items-start space-x-2">
-            <span className="text-emerald-600 font-bold text-xs mt-0.5">ℹ</span>
-            <span>
-              <strong>Notice:</strong> GST is calculated using the fixed 18% business rule on project materials and maintained separately from project budget calculations. Only the material cost excluding GST is deducted from the project budget.
-            </span>
-          </div>
-        </div>
+          )}
+        </>
       )}
 
-      {/* SECTION 3 — MATERIALS USED & CONSUMPTION LEDGER */}
-      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden space-y-4 p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-gray-100 pb-4">
-          <div>
-            <h3 className="text-base font-extrabold text-slate-900 flex items-center space-x-2">
-              <FaBoxOpen className="text-emerald-600" />
-              <span>Materials Consumption Ledger</span>
-            </h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Internal inventory stock issued from central warehouse to this construction site.
-            </p>
-          </div>
+      {/* MATERIALS */}
+      {activeTab === 'materials' && (() => {
+        // Each issue's money split, falling back to the fixed 18% rule for older records
+        const lineOf = (m) => {
+          const cost = m.actualCostTotal !== undefined ? Number(m.actualCostTotal) : Number(m.quantity) * Number(m.actualCostPrice || 0);
+          const gst = m.inputGst != null ? Number(m.inputGst) : roundToTwo(cost * PROJECT_GST_MULTIPLIER);
+          const value = m.issuedMaterialValueIncludingGST != null ? Number(m.issuedMaterialValueIncludingGST) : roundToTwo(cost + gst);
+          return { ...m, cost, gst, value, dateKey: toApiDateFormat(m.issueDate) || '' };
+        };
+        const lines = materials
+          .map(lineOf)
+          .sort((a, b) => (b.dateKey || '').localeCompare(a.dateKey || '') || String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
 
-          <button
-            type="button"
-            disabled={isClosedProject}
-            onClick={() => setIsMaterialModalOpen(true)}
-            title={isClosedProject ? `Cannot issue materials to a ${project.status} project` : 'Issue Material'}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-sm transition-all flex items-center justify-center space-x-2 disabled:opacity-40"
-          >
-            <FaPlus className="text-xs" />
-            <span>Issue Material to Project</span>
-          </button>
-        </div>
+        // By material: numbered in the order first issued, so new materials are added at the bottom
+        const byMaterial = [];
+        const matIndex = {};
+        [...lines].reverse().forEach((l) => {
+          const key = l.product?.id || l.product?._id || l.productId || (typeof l.product === 'string' ? l.product : '') || l.productName;
+          if (!matIndex[key]) {
+            matIndex[key] = { key, name: l.productName, sku: l.sku, unit: l.unit, qty: 0, cost: 0, gst: 0, value: 0, lastDate: l.issueDate, issues: [] };
+            byMaterial.push(matIndex[key]);
+          }
+          const g = matIndex[key];
+          g.qty += Number(l.quantity) || 0;
+          g.cost += l.cost;
+          g.gst += l.gst;
+          g.value += l.value;
+          g.lastDate = l.issueDate;
+          g.issues.push(l);
+        });
 
-        {/* Summary Metric Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-xl space-y-1">
-            <span className="text-[10px] font-extrabold text-slate-600 uppercase tracking-wider block">
-              MATERIAL COST — EXCL. GST
-            </span>
-            <div className="text-lg font-black text-slate-900 font-mono">
-              ₹{totalActualCost.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+        // By date: one heading per day
+        const byDate = [];
+        const dateIndex = {};
+        lines.forEach((l) => {
+          if (!dateIndex[l.dateKey]) {
+            dateIndex[l.dateKey] = { key: l.dateKey, date: l.issueDate, qty: 0, cost: 0, gst: 0, value: 0, items: [] };
+            byDate.push(dateIndex[l.dateKey]);
+          }
+          dateIndex[l.dateKey].qty += Number(l.quantity) || 0;
+          dateIndex[l.dateKey].cost += l.cost;
+          dateIndex[l.dateKey].gst += l.gst;
+          dateIndex[l.dateKey].value += l.value;
+          dateIndex[l.dateKey].items.push(l);
+        });
+
+        const toggleDate = (key) =>
+          setExpandedDates((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+          });
+
+        const qtyCell = (qty, unit) => (
+          <>
+            {Number(roundToTwo(qty))} <span className="text-gray-400">{unit}</span>
+          </>
+        );
+
+        return (
+          <div className="space-y-4">
+            <SectionHead
+              title="Materials issued"
+              subtitle="Stock sent from the store to this site."
+              actionLabel="Issue material"
+              onAction={openIssueModal}
+              disabled={isClosedProject}
+              disabledTitle={`Cannot issue materials to a ${badge.label.toLowerCase()} project`}
+            />
+
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <MiniCard label="Cost (excl. GST)" value={formatRupees(totalActualCost)} />
+              <MiniCard label="Input GST @ 18%" value={formatRupees(totalInputGst)} />
+              <MiniCard label="Value (incl. GST)" value={formatRupees(totalIssuedValue)} />
+              <MiniCard label="Materials" value={byMaterial.length} note={`(${materials.length} issues)`} />
             </div>
-            <span className="text-[10px] text-gray-400 block">Actual inventory procurement cost (Excl. GST)</span>
-          </div>
 
-          <div className="p-4 bg-blue-50/60 border border-blue-200/80 rounded-xl space-y-1">
-            <span className="text-[10px] font-extrabold text-blue-800 uppercase tracking-wider block">
-              INPUT GST @ 18%
-            </span>
-            <div className="text-lg font-black text-blue-900 font-mono">
-              ₹{totalInputGst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </div>
-            <span className="text-[10px] text-blue-600 block">Fixed 18% Input GST on issued stock</span>
-          </div>
-
-          <div className="p-4 bg-emerald-50/60 border border-emerald-200/80 rounded-xl space-y-1">
-            <span className="text-[10px] font-extrabold text-emerald-800 uppercase tracking-wider block">
-              ISSUED MATERIAL VALUE — INCL. GST
-            </span>
-            <div className="text-lg font-black text-emerald-950 font-mono">
-              ₹{totalIssuedValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </div>
-            <span className="text-[10px] text-emerald-600 block">Proportional material value including 18% GST</span>
-          </div>
-
-          <div className="p-4 bg-gray-50 border border-gray-200/80 rounded-xl space-y-1">
-            <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider block">
-              MATERIALS ISSUED
-            </span>
-            <div className="text-lg font-black text-slate-900 font-mono">
-              {materials.length} <span className="text-xs font-normal text-gray-500">batches</span>
-            </div>
-            <span className="text-[10px] text-gray-400 block">Stock transfers to site</span>
-          </div>
-        </div>
-
-        {/* Material History Table */}
-        {materials.length === 0 ? (
-          <div className="p-8 text-center border border-dashed border-gray-200 rounded-xl bg-gray-50/40 space-y-2">
-            <p className="text-xs font-bold text-gray-600">No material consumption recorded yet.</p>
-            <p className="text-[11px] text-gray-400 max-w-sm mx-auto">
-              Click &quot;Issue Material to Project&quot; to record stock transferred from central inventory.
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto border border-gray-200 rounded-xl">
-            <table className="w-full text-left text-xs text-gray-600 min-w-[900px]">
-              <thead className="bg-gray-50 font-extrabold text-gray-500 uppercase tracking-wider text-[10px]">
-                <tr>
-                  <th className="p-3">Issue Date</th>
-                  <th className="p-3">Material / Product</th>
-                  <th className="p-3">SKU</th>
-                  <th className="p-3 text-center">Quantity</th>
-                  <th className="p-3">Unit</th>
-                  <th className="p-3 text-right">Actual Unit Cost — Excl. GST (₹)</th>
-                  <th className="p-3 text-right">Input GST @ 18% (₹)</th>
-                  <th className="p-3 text-right">Actual Cost Total — Excl. GST (₹)</th>
-                  <th className="p-3 text-right">Issued Material Value — Incl. GST (₹)</th>
-                  <th className="p-3 text-right">Issued By</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 font-medium">
-                {materials.map((m) => {
-                  const dStr = formatDateToIndian(m.issueDate);
-                  const actTotal = m.actualCostTotal !== undefined ? Number(m.actualCostTotal) : (m.quantity * m.actualCostPrice);
-                  const lineGst = m.inputGst != null ? Number(m.inputGst) : Math.round(actTotal * 0.18 * 100) / 100;
-                  const issuedVal = m.issuedMaterialValueIncludingGST != null ? Number(m.issuedMaterialValueIncludingGST) : Math.round((actTotal + lineGst) * 100) / 100;
-
-                  return (
-                    <tr key={m.id} className="hover:bg-gray-50/50 transition-colors">
-                      <td className="p-3 text-gray-500 font-mono">{dStr}</td>
-                      <td className="p-3 font-extrabold text-slate-900">{m.productName}</td>
-                      <td className="p-3 text-[10px] font-mono text-gray-500">{m.sku}</td>
-                      <td className="p-3 text-center font-extrabold text-slate-900">{m.quantity}</td>
-                      <td className="p-3 text-gray-600 font-semibold">{m.unit}</td>
-                      <td className="p-3 text-right font-bold text-slate-700 font-mono">
-                        ₹{Number(m.actualCostPrice || 0).toFixed(2)}
-                      </td>
-                      <td className="p-3 text-right font-bold text-blue-700 font-mono">
-                        ₹{lineGst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="p-3 text-right font-black text-slate-900 font-mono">
-                        ₹{actTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="p-3 text-right font-black text-emerald-800 font-mono">
-                        ₹{issuedVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="p-3 text-right text-gray-500 text-[11px]">
-                        {m.issuedBy?.name || 'Warehouse Staff'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* SECTION 4 — PROJECT EXPENSES LEDGER */}
-      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden space-y-4 p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-gray-100 pb-4">
-          <div>
-            <h3 className="text-base font-extrabold text-slate-900 flex items-center space-x-2">
-              <FaReceipt className="text-blue-600" />
-              <span>Project Expenses Ledger</span>
-            </h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Non-inventory operational costs incurred by company for transport, labour, rental & site operations.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            disabled={isClosedProject}
-            onClick={() => setIsExpenseModalOpen(true)}
-            title={isClosedProject ? `Cannot add expenses to a ${project.status} project` : 'Add Expense'}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs rounded-xl shadow-sm transition-all flex items-center justify-center space-x-2 disabled:opacity-40"
-          >
-            <FaPlus className="text-xs" />
-            <span>Add Project Expense</span>
-          </button>
-        </div>
-
-        {/* Expense Summary Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="p-4 bg-blue-50/60 border border-blue-200/80 rounded-xl space-y-1">
-            <span className="text-[10px] font-extrabold text-blue-800 uppercase tracking-wider">TOTAL PROJECT EXPENSES</span>
-            <div className="text-lg font-black text-blue-900 font-mono">
-              ₹{totalExpenses.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </div>
-            <span className="text-[10px] text-blue-600">Total non-inventory operational expenditure</span>
-          </div>
-
-          <div className="p-4 bg-gray-50 border border-gray-200/80 rounded-xl space-y-1">
-            <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider">EXPENSE ENTRIES</span>
-            <div className="text-lg font-black text-slate-900 font-mono">
-              {expenses.length} <span className="text-xs font-normal text-gray-500">records</span>
-            </div>
-            <span className="text-[10px] text-gray-400">Total expense vouchers logged</span>
-          </div>
-        </div>
-
-        {/* Category Breakdown Pills */}
-        {expenses.length > 0 && (
-          <div className="p-3 bg-gray-50/80 border border-gray-100 rounded-xl space-y-2">
-            <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider flex items-center space-x-1">
-              <FaTag className="text-gray-400 text-[9px]" />
-              <span>Category Expense Totals</span>
-            </span>
-            <div className="flex flex-wrap gap-2 text-xs font-bold">
-              {Object.entries(categoryTotals).map(([cat, amt]) => (
-                <div key={cat} className="px-3 py-1 bg-white border border-gray-200 rounded-lg text-slate-800 flex items-center space-x-1.5 shadow-2xs">
-                  <span className="text-gray-500 text-[10px] uppercase font-bold">{cat.replace('_', ' ')}:</span>
-                  <span className="font-mono text-emerald-700 font-extrabold">₹{Number(amt).toLocaleString('en-IN')}</span>
+            {materials.length === 0 ? (
+              <EmptyLine>No materials issued yet.</EmptyLine>
+            ) : (
+              <>
+                {/* View switch */}
+                <div className="inline-flex p-1 rounded-xl border border-gray-200 bg-white">
+                  {[
+                    { key: 'material', label: 'By material' },
+                    { key: 'date', label: 'By date' },
+                  ].map((v) => (
+                    <button
+                      key={v.key}
+                      type="button"
+                      onClick={() => setMaterialView(v.key)}
+                      className={`px-3.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
+                        materialView === v.key ? 'bg-[#FFB82E]/15 text-[#FFC14D]' : 'text-gray-400 hover:text-slate-900'
+                      }`}
+                    >
+                      {v.label}
+                    </button>
+                  ))}
                 </div>
+
+                {materialView === 'material' ? (
+                  <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+                    <table className="w-full text-left text-xs text-gray-600">
+                      <thead className="bg-gray-50 text-gray-500 text-[10px]">
+                        <tr>
+                          <th className="p-3 pr-0 w-10">#</th>
+                          <th className="p-3">Material</th>
+                          <th className="p-3 text-right">Total qty</th>
+                          <th className="p-3 text-right">Cost excl. GST</th>
+                          <th className="p-3 text-right">GST 18%</th>
+                          <th className="p-3 text-right">Value incl. GST</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {byMaterial.map((g, idx) => (
+                          <tr key={g.key} className="hover:bg-[#FFB82E]/[0.05] transition-colors">
+                            <td className="p-3 pr-0 text-gray-400 font-mono">{idx + 1}</td>
+                            <td className="p-3">
+                              <div className="text-slate-900">{g.name}</div>
+                              {g.sku && <div className="text-[11px] text-gray-400">{g.sku}</div>}
+                            </td>
+                            <td className="p-3 text-right whitespace-nowrap text-slate-900">{qtyCell(g.qty, g.unit)}</td>
+                            <td className="p-3 text-right font-mono text-slate-900">{formatPaise(g.cost)}</td>
+                            <td className="p-3 text-right font-mono">{formatPaise(g.gst)}</td>
+                            <td className="p-3 text-right font-mono text-slate-900">{formatPaise(g.value)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+                    <table className="w-full text-left text-xs text-gray-600">
+                      <thead className="bg-gray-50 text-gray-500 text-[10px]">
+                        <tr>
+                          <th className="p-3">Date</th>
+                          <th className="p-3 text-right">Items</th>
+                          <th className="p-3 text-right">Total qty</th>
+                          <th className="p-3 text-right">Cost excl. GST</th>
+                          <th className="p-3 text-right">GST 18%</th>
+                          <th className="p-3 text-right">Value incl. GST</th>
+                          <th className="p-3 w-10"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {byDate.map((d) => {
+                          const open = expandedDates.has(d.key);
+                          // Same material issued twice on one day shows as one line
+                          const products = [];
+                          const pIndex = {};
+                          d.items.forEach((l) => {
+                            const k = l.productName;
+                            if (!pIndex[k]) {
+                              pIndex[k] = { key: k, name: l.productName, unit: l.unit, qty: 0 };
+                              products.push(pIndex[k]);
+                            }
+                            pIndex[k].qty += Number(l.quantity) || 0;
+                          });
+                          return (
+                            <React.Fragment key={d.key}>
+                              <tr
+                                onClick={() => toggleDate(d.key)}
+                                className={`cursor-pointer transition-colors ${open ? 'bg-[#FFB82E]/[0.05]' : 'hover:bg-[#FFB82E]/[0.05]'}`}
+                              >
+                                <td className="p-3 text-slate-900 whitespace-nowrap">{formatDateShortMonth(d.date, '-')}</td>
+                                <td className="p-3 text-right text-slate-900">{products.length}</td>
+                                <td className="p-3 text-right text-slate-900">{Number(roundToTwo(d.qty))}</td>
+                                <td className="p-3 text-right font-mono text-slate-900">{formatPaise(d.cost)}</td>
+                                <td className="p-3 text-right font-mono">{formatPaise(d.gst)}</td>
+                                <td className="p-3 text-right font-mono text-slate-900">{formatPaise(d.value)}</td>
+                                <td className="p-3 text-gray-400">
+                                  <LuChevronDown className={`transition-transform ${open ? 'rotate-180 text-[#FFC14D]' : ''}`} />
+                                </td>
+                              </tr>
+                              {open && (
+                                <tr>
+                                  <td colSpan={7} className="p-0 bg-gray-50/60">
+                                    {/* Long days scroll inside, about 5 products visible */}
+                                    <div className="max-h-[11rem] overflow-y-auto">
+                                      <table className="w-full text-[11px]">
+                                        <tbody className="divide-y divide-gray-100">
+                                          {products.map((p, i) => (
+                                            <tr key={p.key}>
+                                              <td className="py-2 pl-8 pr-2 w-10 text-gray-400">{i + 1}</td>
+                                              <td className="py-2 px-3 text-slate-700">{p.name}</td>
+                                              <td className="py-2 px-3 text-right whitespace-nowrap w-40">{qtyCell(p.qty, p.unit)}</td>
+                                              <td className="w-[45%]"></td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* EXPENSES */}
+      {activeTab === 'expenses' && (
+        <div className="space-y-4">
+          <SectionHead
+            title="Expenses"
+            subtitle="Transport, rental and other site costs."
+            actionLabel="Add expense"
+            onAction={() => setIsExpenseModalOpen(true)}
+            disabled={isClosedProject}
+            disabledTitle={`Cannot add expenses to a ${badge.label.toLowerCase()} project`}
+          />
+
+          <div className="grid grid-cols-2 gap-3">
+            <MiniCard label="Total expenses" value={formatRupees(totalExpenses)} />
+            <MiniCard label="Entries" value={expenses.length} />
+          </div>
+
+          {expenses.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(categoryTotals).map(([cat, amt]) => (
+                <span key={cat} className="px-2.5 py-1 rounded-md border border-gray-200 bg-gray-50 text-xs text-gray-500">
+                  {categoryLabel(cat)} <span className="font-mono text-slate-900 ml-1">{formatRupees(amt)}</span>
+                </span>
               ))}
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Expenses Table */}
-        {expenses.length === 0 ? (
-          <div className="p-8 text-center border border-dashed border-gray-200 rounded-xl bg-gray-50/40 space-y-2">
-            <p className="text-xs font-bold text-gray-600">No project expenses recorded yet.</p>
-            <p className="text-[11px] text-gray-400 max-w-sm mx-auto">
-              Click &quot;Add Project Expense&quot; to log transport, labour, or machinery rental costs.
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto border border-gray-200 rounded-xl">
-            <table className="w-full text-left text-xs text-gray-600 min-w-[750px]">
-              <thead className="bg-gray-50 font-extrabold text-gray-500 uppercase tracking-wider text-[10px]">
-                <tr>
-                  <th className="p-3">Expense Date</th>
-                  <th className="p-3">Category</th>
-                  <th className="p-3">Description</th>
-                  <th className="p-3">Vendor / Party</th>
-                  <th className="p-3">Bill No.</th>
-                  <th className="p-3 text-right">Amount (₹)</th>
-                  <th className="p-3 text-right">Created By</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 font-medium">
-                {expenses.map((e) => {
-                  const dStr = formatDateToIndian(e.expenseDate);
-                  return (
-                    <tr key={e.id} className="hover:bg-gray-50/50 transition-colors">
-                      <td className="p-3 text-gray-500 font-mono">{dStr}</td>
-                      <td className="p-3 font-extrabold">
-                        <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 text-[10px]">
-                          {e.category.replace('_', ' ')}
-                        </span>
+          {expenses.length === 0 ? (
+            <EmptyLine>No expenses recorded yet.</EmptyLine>
+          ) : (
+            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+              <table className="w-full text-left text-xs text-gray-600">
+                <thead className="bg-gray-50 text-gray-500 text-[10px]">
+                  <tr>
+                    <th className="p-3">Date</th>
+                    <th className="p-3">Category</th>
+                    <th className="p-3">Description</th>
+                    <th className="p-3">Vendor</th>
+                    <th className="p-3">Bill no.</th>
+                    <th className="p-3 text-right">Amount</th>
+                    <th className="p-3">Added by</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {expenses.map((e) => (
+                    <tr key={e.id} className="hover:bg-[#FFB82E]/[0.05] transition-colors">
+                      <td className="p-3 whitespace-nowrap">{formatDateShortMonth(e.expenseDate, '-')}</td>
+                      <td className="p-3">
+                        <span className={`px-2 py-0.5 rounded-md border text-[11px] whitespace-nowrap ${BADGE.grey}`}>{categoryLabel(e.category)}</span>
                       </td>
-                      <td className="p-3 text-slate-900 font-bold">{e.description}</td>
-                      <td className="p-3 text-gray-600 font-semibold">{e.vendorName || '-'}</td>
-                      <td className="p-3 font-mono text-gray-500 text-[11px]">{e.billNumber || '-'}</td>
-                      <td className="p-3 text-right font-black text-blue-900 text-sm">
-                        ₹{Number(e.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="p-3 text-right text-gray-500 text-[11px]">
-                        {e.createdBy?.name || 'Accounts Staff'}
-                      </td>
+                      <td className="p-3 text-slate-900">{e.description}</td>
+                      <td className="p-3">{e.vendorName || '-'}</td>
+                      <td className="p-3 text-gray-400">{e.billNumber || '-'}</td>
+                      <td className="p-3 text-right font-mono text-slate-900">{formatPaise(e.amount)}</td>
+                      <td className="p-3 text-gray-400">{e.createdBy?.name || 'Accounts staff'}</td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* SECTION 4.5 — PROJECT LABOUR & WORKFORCE LEDGER */}
-      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden space-y-4 p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-gray-100 pb-4">
-          <div>
-            <h3 className="text-base font-extrabold text-slate-900 flex items-center space-x-2">
-              <FaHardHat className="text-amber-500" />
-              <span>Project Labour & Workforce Ledger</span>
-            </h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Workforce deployed on this site, wage earnings, disbursements, and outstanding balances.
-            </p>
-          </div>
-
-          {canManageLabour && (
-            <button
-              type="button"
-              disabled={isClosedProject}
-              onClick={handleOpenAddLabour}
-              title={isClosedProject ? `Cannot assign labour to a ${project.status} project` : 'Assign Labour'}
-              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs rounded-xl shadow-sm transition-all flex items-center justify-center space-x-2 disabled:opacity-40"
-            >
-              <FaPlus className="text-xs" />
-              <span>Assign Labour</span>
-            </button>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
+      )}
 
-        {/* Project Labour Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {/* Card 1: Total Labour */}
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-            <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider block">
-              TOTAL LABOUR
-            </span>
-            <div className="text-base font-black text-slate-900 font-mono">
-              {totalLabourCount} <span className="text-xs font-normal text-gray-500">workers</span>
-            </div>
-            <span className="text-[9px] text-slate-500 block">Total assigned workforce</span>
+      {/* LABOUR */}
+      {activeTab === 'labour' && (
+        <div className="space-y-4">
+          <SectionHead
+            title="Labour"
+            subtitle="Workers on this site, what they earned and what is still owed."
+            actionLabel={canManageLabour ? 'Assign labour' : null}
+            onAction={handleOpenAddLabour}
+            disabled={isClosedProject}
+            disabledTitle={`Cannot assign labour to a ${badge.label.toLowerCase()} project`}
+          />
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <MiniCard label="Workers" value={labours.length} note={`(${activeLabourCount} active)`} />
+            <MiniCard label="Earned" value={formatRupees(totalLabourEarned)} />
+            <MiniCard label="Paid" value={formatRupees(totalLabourPaid)} valueClass="text-[#4ADE80]" />
+            <MiniCard
+              label={totalLabourBalance < 0 ? 'Overpaid' : 'To pay'}
+              value={formatRupees(Math.abs(totalLabourBalance))}
+              valueClass={totalLabourBalance < 0 ? 'text-rose-500' : totalLabourBalance === 0 ? 'text-slate-900' : 'text-[#FFC14D]'}
+            />
           </div>
 
-          {/* Card 2: Active Labour */}
-          <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl space-y-1">
-            <span className="text-[10px] font-extrabold text-emerald-800 uppercase tracking-wider block">
-              ACTIVE WORKERS
-            </span>
-            <div className="text-base font-black text-emerald-950 font-mono">
-              {activeLabourCount} <span className="text-xs font-normal text-emerald-700">active</span>
-            </div>
-            <span className="text-[9px] text-emerald-600 block">Currently working on site</span>
-          </div>
-
-          {/* Card 3: Stopped Labour */}
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-            <span className="text-[10px] font-extrabold text-slate-600 uppercase tracking-wider block">
-              STOPPED WORKERS
-            </span>
-            <div className="text-base font-black text-slate-700 font-mono">
-              {stoppedLabourCount} <span className="text-xs font-normal text-slate-400">stopped</span>
-            </div>
-            <span className="text-[9px] text-slate-400 block">Site work ended</span>
-          </div>
-
-          {/* Card 4: Total Earned */}
-          <div className="p-3 bg-indigo-50/70 border border-indigo-200/80 rounded-xl space-y-1">
-            <span className="text-[10px] font-extrabold text-indigo-800 uppercase tracking-wider block">
-              TOTAL EARNED (COST)
-            </span>
-            <div className="text-base font-black text-indigo-950 font-mono">
-              ₹{totalLabourEarned.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </div>
-            <span className="text-[9px] text-indigo-600 block">Calendar-day wage cost</span>
-          </div>
-
-          {/* Card 5: Total Paid */}
-          <div className="p-3 bg-blue-50/70 border border-blue-200/80 rounded-xl space-y-1">
-            <span className="text-[10px] font-extrabold text-blue-800 uppercase tracking-wider block">
-              TOTAL PAID
-            </span>
-            <div className="text-base font-black text-blue-900 font-mono">
-              ₹{totalLabourPaid.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </div>
-            <span className="text-[9px] text-blue-600 block">Disbursed to workers</span>
-          </div>
-
-          {/* Card 6: Balance */}
-          <div className={`p-3 border rounded-xl space-y-1 ${
-            totalLabourBalance < 0
-              ? 'bg-rose-50 border-rose-200'
-              : totalLabourBalance === 0
-              ? 'bg-slate-50 border-slate-200'
-              : 'bg-amber-50 border-amber-200'
-          }`}>
-            <span className={`text-[10px] font-extrabold uppercase tracking-wider block ${
-              totalLabourBalance < 0
-                ? 'text-rose-800'
-                : totalLabourBalance === 0
-                ? 'text-slate-700'
-                : 'text-amber-800'
-            }`}>
-              NET BALANCE
-            </span>
-            <div className={`text-base font-black font-mono ${
-              totalLabourBalance < 0
-                ? 'text-rose-700'
-                : totalLabourBalance === 0
-                ? 'text-slate-800'
-                : 'text-amber-900'
-            }`}>
-              {totalLabourBalance < 0 ? '-' : ''}₹{Math.abs(totalLabourBalance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </div>
-            <span className={`text-[9px] font-medium block ${
-              totalLabourBalance < 0
-                ? 'text-rose-600'
-                : totalLabourBalance === 0
-                ? 'text-slate-500'
-                : 'text-amber-700'
-            }`}>
-              {totalLabourBalance < 0 ? 'Overpaid to workers' : totalLabourBalance === 0 ? 'Fully settled' : 'Outstanding payable'}
-            </span>
-          </div>
-        </div>
-
-        {/* Project Labour Table or Empty State */}
-        {labours.length === 0 ? (
-          <div className="p-8 text-center border border-dashed border-gray-200 rounded-xl bg-gray-50/40 space-y-2">
-            <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center mx-auto text-base">
-              <FaHardHat />
-            </div>
-            <p className="text-xs font-bold text-gray-700">No labour assigned to this project.</p>
-            <p className="text-[11px] text-gray-400 max-w-sm mx-auto">
-              Deploy workforce to this project to track daily calendar-day wages, disbursements, and site labour costs.
-            </p>
-            {canManageLabour && !isClosedProject && (
-              <button
-                type="button"
-                onClick={handleOpenAddLabour}
-                className="mt-2 inline-flex items-center space-x-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-lg transition-colors"
-              >
-                <FaPlus className="text-[10px]" />
-                <span>Assign Labour</span>
-              </button>
-            )}
-          </div>
-        ) : (
-          <div className="overflow-x-auto border border-gray-200 rounded-xl">
-            <table className="w-full text-left text-xs text-gray-600 min-w-[850px]">
-              <thead className="bg-gray-50 font-extrabold text-gray-500 uppercase tracking-wider text-[10px]">
-                <tr>
-                  <th className="p-3">Labour Name</th>
-                  <th className="p-3">Mobile & Address</th>
-                  <th className="p-3 text-right">Daily Wage (₹)</th>
-                  <th className="p-3">Start / Stopped</th>
-                  <th className="p-3 text-center">Status</th>
-                  <th className="p-3 text-right">Total Earned (₹)</th>
-                  <th className="p-3 text-right">Total Paid (₹)</th>
-                  <th className="p-3 text-right">Balance (₹)</th>
-                  <th className="p-3 text-center">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 font-medium">
-                {labours.map((l) => {
-                  const startStr = formatDateToIndian(l.assignmentStartDate || l.startDate);
-                  const stoppedStr = l.stoppedAt ? formatDateToIndian(l.stoppedAt) : null;
-                  const isStopped = l.status === 'STOPPED';
-
-                  return (
-                    <tr key={l.id} className="hover:bg-gray-50/50 transition-colors">
-                      {/* Name */}
-                      <td className="p-3 font-extrabold text-slate-900">
-                        <button
-                          type="button"
-                          onClick={() => navigate(`/labour/${l.id}`)}
-                          className="hover:text-emerald-700 hover:underline text-left cursor-pointer transition-colors"
-                          title="View Labour Details"
-                        >
-                          {l.name}
-                        </button>
-                      </td>
-
-                      {/* Mobile & Address */}
-                      <td className="p-3 text-slate-700">
-                        <div className="flex flex-col">
-                          <span className="font-semibold text-slate-800">{l.mobile}</span>
-                          <span className="text-[11px] text-gray-400">{l.address || l.location}</span>
-                        </div>
-                      </td>
-
-                      {/* Daily Wage */}
-                      <td className="p-3 text-right font-bold text-slate-800 font-mono">
-                        ₹{Number(l.dailyWage || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </td>
-
-                      {/* Start / Stopped Date */}
-                      <td className="p-3 text-gray-600 font-mono text-[11px]">
-                        <div>Start: {startStr}</div>
-                        {stoppedStr && (
-                          <div className="text-gray-400 text-[10px]">End: {stoppedStr}</div>
-                        )}
-                      </td>
-
-                      {/* Status Badge */}
-                      <td className="p-3 text-center">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                            l.status === 'ACTIVE'
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              : l.status === 'STOPPED'
-                              ? 'bg-rose-50 text-rose-700 border-rose-200'
-                              : 'bg-slate-100 text-slate-700 border-slate-200'
-                          }`}
-                        >
-                          <span
-                            className={`w-1.5 h-1.5 rounded-full mr-1.5 ${
-                              l.status === 'ACTIVE'
-                                ? 'bg-emerald-500'
-                                : l.status === 'STOPPED'
-                                ? 'bg-rose-400'
-                                : 'bg-slate-400'
-                            }`}
-                          />
-                          {l.status}
-                        </span>
-                      </td>
-
-                      {/* Total Earned */}
-                      <td className="p-3 text-right font-black text-slate-900 font-mono">
-                        ₹{Number(l.totalEarned || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </td>
-
-                      {/* Total Paid */}
-                      <td className="p-3 text-right font-black text-blue-900 font-mono">
-                        ₹{Number(l.totalPaid || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </td>
-
-                      {/* Balance */}
-                      <td className="p-3 text-right">
-                        <div className="flex flex-col items-end">
-                          <span
-                            className={`font-black font-mono text-xs ${
-                              (l.balance ?? 0) < 0
-                                ? 'text-rose-600'
-                                : (l.balance ?? 0) === 0
-                                ? 'text-slate-500'
-                                : 'text-slate-900'
-                            }`}
-                          >
-                            {(l.balance ?? 0) < 0 ? '-' : ''}₹{Math.abs(Number(l.balance || 0)).toLocaleString('en-IN', {
-                              minimumFractionDigits: 2,
-                            })}
-                          </span>
-                          {(l.balance ?? 0) < 0 && (
-                            <span className="text-[10px] text-rose-500 font-semibold mt-0.5">
-                              Overpaid
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Actions: View, Edit, Stop */}
-                      <td className="p-3 text-center">
-                        <div className="inline-flex items-center space-x-1">
-                          {/* View Button */}
+          {labours.length === 0 ? (
+            <EmptyLine>No workers assigned yet.</EmptyLine>
+          ) : (
+            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+              <table className="w-full text-left text-xs text-gray-600">
+                <thead className="bg-gray-50 text-gray-500 text-[10px]">
+                  <tr>
+                    <th className="p-3">Worker</th>
+                    <th className="p-3 text-right">Daily wage</th>
+                    <th className="p-3">Worked</th>
+                    <th className="p-3">Status</th>
+                    <th className="p-3 text-right">Earned</th>
+                    <th className="p-3 text-right">Paid</th>
+                    <th className="p-3 text-right">Balance</th>
+                    <th className="p-3 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {labours.map((l) => {
+                    const isActive = l.status === 'ACTIVE';
+                    const balance = Number(l.balance || 0);
+                    return (
+                      <tr key={l.id} className="hover:bg-[#FFB82E]/[0.05] transition-colors">
+                        <td className="p-3">
                           <button
                             type="button"
-                            onClick={() => navigate(`/labour/${l.id}`)}
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
-                            title="View labour details"
+                            onClick={() =>
+                              navigate(`/labour/${l.id}`, {
+                                state: { backTo: `/projects/${id}`, backLabel: 'Back to project', backState: { tab: 'labour' } },
+                              })
+                            }
+                            className="text-sm text-slate-900 hover:text-[#FFC14D] text-left cursor-pointer transition-colors"
+                            title="Open profile"
                           >
-                            <FaEye className="text-xs" />
+                            {l.name}
                           </button>
-
-                          {/* Edit Button */}
-                          {canManageLabour && (
+                          {l.mobile && <div className="text-[11px] text-gray-400">{l.mobile}</div>}
+                        </td>
+                        <td className="p-3 text-right font-mono">{formatRupees(l.dailyWage)}</td>
+                        <td className="p-3 whitespace-nowrap">
+                          {formatDateRange(l.assignmentStartDate || l.startDate, l.stoppedAt, 'today')}
+                        </td>
+                        <td className="p-3">
+                          <span
+                            className={`px-2 py-0.5 rounded-md border text-[11px] inline-flex items-center gap-1.5 whitespace-nowrap ${
+                              isActive ? BADGE.green : BADGE.grey
+                            }`}
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                            {isActive ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
+                        <td className="p-3 text-right font-mono text-slate-900">{formatPaise(l.totalEarned)}</td>
+                        <td className="p-3 text-right font-mono">{formatPaise(l.totalPaid)}</td>
+                        <td className={`p-3 text-right font-mono ${balance < 0 ? 'text-rose-500' : balance === 0 ? 'text-gray-400' : 'text-slate-900'}`}>
+                          {balance < 0 ? '-' : ''}
+                          {formatPaise(Math.abs(balance))}
+                          {balance < 0 && <div className="text-[10px] text-rose-500">Overpaid</div>}
+                        </td>
+                        <td className="p-3">
+                          <div className="flex items-center justify-center gap-2">
                             <button
                               type="button"
-                              onClick={() => handleOpenEditLabour(l)}
-                              className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 transition-colors cursor-pointer"
-                              title="Edit labour details"
+                              onClick={() => {
+                                setPaymentLabour(l);
+                                setIsPaymentModalOpen(true);
+                              }}
+                              className="px-4 py-1.5 rounded-lg text-xs bg-[#FFB82E]/10 text-[#FFC14D] border border-[#FFB82E]/30 hover:bg-[#FFB82E]/20 transition-colors cursor-pointer whitespace-nowrap"
+                              title="Record payment"
                             >
-                              <FaEdit className="text-xs" />
+                              Pay
                             </button>
-                          )}
-
-                          {/* Stop Button */}
-                          {canManageLabour && (
-                            l.status === 'ACTIVE' && !isClosedProject ? (
+                            {canManageLabour && (
                               <button
                                 type="button"
+                                disabled={!isActive || isClosedProject}
                                 onClick={() => handleOpenStopLabour(l)}
-                                className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                                title="Stop labour"
+                                className="px-3 py-1.5 rounded-lg text-xs border transition-colors whitespace-nowrap border-rose-500/30 text-rose-500 hover:bg-rose-500/10 cursor-pointer disabled:border-gray-200 disabled:text-gray-500 disabled:bg-transparent disabled:cursor-not-allowed"
+                                title={!isActive ? 'Already stopped' : isClosedProject ? 'Project is closed' : 'Stop this worker'}
                               >
-                                <FaBan className="text-xs" />
+                                Stop
                               </button>
-                            ) : (
-                              <button
-                                type="button"
-                                disabled
-                                className="p-1.5 rounded-lg text-gray-300 cursor-not-allowed opacity-40"
-                                title={isClosedProject ? 'Project is completed/closed' : l.status === 'STOPPED' ? 'Labour is already stopped' : 'Worker is not active'}
-                              >
-                                <FaBan className="text-xs" />
-                              </button>
-                            )
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* SECTION 5 — PROJECT INVOICES LEDGER */}
-      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden space-y-4 p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-gray-100 pb-4">
-          <div>
-            <h3 className="text-base font-extrabold text-slate-900 flex items-center space-x-2">
-              <FaFileInvoiceDollar className="text-emerald-600" />
-              <span>Project Invoices & Billing</span>
-            </h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Customer invoices generated for materials consumed, site expenses & professional fees.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            disabled={project.status === 'CANCELLED'}
-            onClick={() => navigate(`/projects/${project.id}/invoices/new`)}
-            title={project.status === 'CANCELLED' ? 'Cannot generate invoice for a CANCELLED project' : 'Create Project Invoice'}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-sm transition-all flex items-center justify-center space-x-2 disabled:opacity-40"
-          >
-            <FaPlus className="text-xs" />
-            <span>Create Project Invoice</span>
-          </button>
-        </div>
-
-        {/* Invoice Summary Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="p-4 bg-emerald-50/60 border border-emerald-200/80 rounded-xl space-y-1">
-            <span className="text-[10px] font-extrabold text-emerald-800 uppercase tracking-wider">TOTAL BILLED</span>
-            <div className="text-lg font-black text-emerald-900 font-mono">
-              ₹{invoices.reduce((sum, i) => sum + (i.grandTotal || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-            <span className="text-[10px] text-emerald-600">Total customer invoices generated</span>
-          </div>
-
-          <div className="p-4 bg-blue-50/60 border border-blue-200/80 rounded-xl space-y-1">
-            <span className="text-[10px] font-extrabold text-blue-800 uppercase tracking-wider">TOTAL RECEIVED</span>
-            <div className="text-lg font-black text-blue-900 font-mono">
-              ₹{invoices.reduce((sum, i) => sum + (i.amountPaid || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </div>
-            <span className="text-[10px] text-blue-600">Total customer payments collected</span>
-          </div>
-
-          <div className="p-4 bg-amber-50/60 border border-amber-200/80 rounded-xl space-y-1">
-            <span className="text-[10px] font-extrabold text-amber-800 uppercase tracking-wider">OUTSTANDING BALANCE</span>
-            <div className="text-lg font-black text-amber-900 font-mono">
-              ₹{invoices.reduce((sum, i) => sum + (i.balanceDue || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </div>
-            <span className="text-[10px] text-amber-700">Unpaid customer balance</span>
-          </div>
-        </div>
-
-        {/* Invoices Table */}
-        {invoices.length === 0 ? (
-          <div className="p-8 text-center border border-dashed border-gray-200 rounded-xl bg-gray-50/40 space-y-2">
-            <p className="text-xs font-bold text-gray-600">No project invoices generated yet.</p>
-            <p className="text-[11px] text-gray-400 max-w-sm mx-auto">
-              Click &quot;Create Project Invoice&quot; to bill materials consumed and site expenses to the customer.
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto border border-gray-200 rounded-xl">
-            <table className="w-full text-left text-xs text-gray-600 min-w-[750px]">
-              <thead className="bg-gray-50 font-extrabold text-gray-500 uppercase tracking-wider text-[10px]">
-                <tr>
-                  <th className="p-3">Invoice No.</th>
-                  <th className="p-3">Invoice Date</th>
-                  <th className="p-3">Status</th>
-                  <th className="p-3 text-right">Grand Total (Incl. GST) (₹)</th>
-                  <th className="p-3 text-right">Paid (₹)</th>
-                  <th className="p-3 text-right">Outstanding (₹)</th>
-                  <th className="p-3 text-center">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 font-medium">
-                {invoices.map((inv) => {
-                  const dStr = formatDateToIndian(inv.invoiceDate);
-                  const isPaid = inv.status === 'PAID' || inv.balanceDue <= 0.005;
-                  return (
-                    <tr key={inv.id} className="hover:bg-gray-50/50 transition-colors">
-                      <td className="p-3 font-mono font-extrabold text-slate-900">{inv.invoiceNumber}</td>
-                      <td className="p-3 text-gray-500 font-mono">{dStr}</td>
-                      <td className="p-3 font-extrabold">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                          isPaid
-                            ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                            : inv.status === 'PARTIALLY_PAID'
-                            ? 'bg-blue-100 text-blue-800 border-blue-200'
-                            : 'bg-amber-100 text-amber-800 border-amber-200'
-                        }`}>
-                          {inv.status}
-                        </span>
-                      </td>
-                      <td className="p-3 text-right font-black text-slate-900 text-sm">
-                        ₹{Number(inv.grandTotal).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="p-3 text-right font-black text-emerald-700 text-sm">
-                        ₹{Number(inv.amountPaid || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="p-3 text-right font-black text-amber-900 text-sm">
-                        ₹{Number(inv.balanceDue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="p-3 text-center">
-                        <button
-                          type="button"
-                          onClick={() => navigate(`/project-invoices/${inv.id}`)}
-                          className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] rounded-lg transition-colors"
-                        >
-                          View Invoice
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-
-      {/* ISSUE MATERIAL MODAL */}
-      {isMaterialModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white border border-gray-200 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 relative max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <div>
-                <h3 className="text-base font-extrabold text-slate-900 flex items-center space-x-2">
-                  <FaBoxOpen className="text-emerald-600" />
-                  <span>ISSUE MATERIAL TO PROJECT</span>
-                </h3>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  Transfer stock from central inventory to <span className="font-bold text-slate-800">{project.name}</span>
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsMaterialModalOpen(false)}
-                className="text-gray-400 hover:text-gray-600 text-sm"
-              >
-                <FaTimes />
-              </button>
-            </div>
-
-            {materialModalError && (
-              <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs font-semibold flex items-center space-x-2">
-                <FaExclamationTriangle className="text-red-500 flex-shrink-0" />
-                <span>{materialModalError}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleIssueSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">
-                  Select Product / Material <span className="text-rose-500">*</span>
-                </label>
-                <select
-                  value={issueForm.productId}
-                  onChange={handleProductChange}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs font-bold focus:outline-none focus:border-emerald-500 bg-gray-50/50 text-slate-900"
-                  required
-                >
-                  <option value="">-- Choose Product from Inventory --</option>
-                  {products.map((p) => (
-                    <option key={p.id || p._id} value={p.id || p._id}>
-                      {p.name} (Stock: {p.currentStock} {p.unit || 'pcs'}) - Cost: ₹{p.costPrice || 0}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {selectedProduct && (
-                <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl text-xs space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-extrabold text-slate-900">{selectedProduct.name}</span>
-                    <span className="font-mono text-[11px] text-gray-400">SKU: {selectedProduct.sku}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-gray-500 text-[11px]">
-                    <span>Available Stock: <strong className="text-slate-900 font-bold">{selectedProduct.currentStock} {selectedProduct.unit || 'pcs'}</strong></span>
-                    <span>Actual Unit Cost (Excl. GST): <strong className="text-slate-900 font-bold">₹{selectedProduct.costPrice || 0}</strong></span>
-                  </div>
-                  <div className="flex items-center justify-between text-gray-500 text-[11px] pt-1 border-t border-slate-200/60">
-                    <span>Applicable GST Rate: <strong className="text-blue-700 font-bold">{selectedProduct.gstRate || 0}%</strong></span>
-                    <span className="text-[10px] text-gray-400 italic">Sourced from product master</span>
-                  </div>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">
-                    Quantity to Issue <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    min="0.0001"
-                    step="any"
-                    value={issueForm.quantity}
-                    onChange={(e) => setIssueForm((prev) => ({ ...prev, quantity: e.target.value }))}
-                    placeholder="e.g. 100"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs font-bold focus:outline-none focus:border-emerald-500 bg-gray-50/50"
-                    required
-                  />
-                  {selectedProduct && Number(issueForm.quantity) > selectedProduct.currentStock && (
-                    <p className="text-[10px] font-bold text-rose-600 mt-1">
-                      Insufficient stock. Available: {selectedProduct.currentStock} {selectedProduct.unit || 'pcs'}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">
-                    Actual Unit Cost (Excl. GST) (₹)
-                  </label>
-                  <input
-                    type="text"
-                    disabled
-                    value={selectedProduct ? `₹${Number(selectedProduct.costPrice || 0).toFixed(2)}` : '-'}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs font-bold bg-gray-100 text-gray-600 cursor-not-allowed"
-                  />
-                  <p className="text-[10px] text-gray-400 mt-1">Procurement cost basis from inventory</p>
-                </div>
-              </div>
-
-              {selectedProduct && Number(issueForm.quantity) > 0 && (() => {
-                const qty = Number(issueForm.quantity);
-                const unitCost = Number(selectedProduct.costPrice || 0);
-                const costTotal = roundToTwo(qty * unitCost);
-                const lineGst = roundToTwo(costTotal * PROJECT_GST_MULTIPLIER);
-                const issuedVal = roundToTwo(costTotal + lineGst);
-
-                return (
-                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1.5">
-                    <div className="flex items-center justify-between text-slate-800 font-bold">
-                      <span>Material Cost — Excl. GST:</span>
-                      <span className="font-mono text-sm font-black text-slate-900">
-                        ₹{costTotal.toFixed(2)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-gray-700 font-semibold text-[11px]">
-                      <span>GST Rate:</span>
-                      <span className="font-mono font-bold text-slate-800">{PROJECT_GST_RATE}% (Fixed)</span>
-                    </div>
-                    <div className="flex items-center justify-between text-blue-800 font-semibold text-[11px]">
-                      <span>Input GST @ {PROJECT_GST_RATE}%:</span>
-                      <span className="font-mono font-bold text-blue-900">
-                        ₹{lineGst.toFixed(2)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-emerald-800 font-bold text-[11px] pt-1 border-t border-slate-200/80">
-                      <span>Issued Material Value — Incl. GST:</span>
-                      <span className="font-mono font-black text-emerald-950">
-                        ₹{issuedVal.toFixed(2)}
-                      </span>
-                    </div>
-                    <div className="text-[10px] text-gray-400 italic pt-0.5">
-                      ℹ Only ₹{costTotal.toFixed(2)} (Excl. GST) will affect the project budget. Input GST is tracked separately for tax claims.
-                    </div>
-                  </div>
-                );
-              })()}
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-bold text-gray-700">Issue Date</label>
-                  {issueForm.issueDate && (
-                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                      {formatDateToIndian(issueForm.issueDate)}
-                    </span>
-                  )}
-                </div>
-                <input
-                  type="date"
-                  value={issueForm.issueDate}
-                  onChange={(e) => setIssueForm((prev) => ({ ...prev, issueDate: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs font-medium focus:outline-none focus:border-emerald-500 bg-gray-50/50"
-                />
-                <div className="mt-1 flex items-center justify-between text-[11px] text-gray-400">
-                  <span>Standard Indian format: <strong>DD/MM/YYYY</strong></span>
-                  {issueForm.issueDate && (
-                    <span className="text-slate-600 font-medium">
-                      Display: <strong className="text-emerald-700">{formatDateToIndian(issueForm.issueDate)}</strong>
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Issue Notes / Remarks</label>
-                <input
-                  type="text"
-                  value={issueForm.notes}
-                  onChange={(e) => setIssueForm((prev) => ({ ...prev, notes: e.target.value }))}
-                  placeholder="Optional site issuance remarks"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs font-medium focus:outline-none focus:border-emerald-500 bg-gray-50/50"
-                />
-              </div>
-
-              <div className="flex items-center justify-end space-x-3 pt-2 border-t border-gray-100">
-                <button
-                  type="button"
-                  disabled={submittingMaterial}
-                  onClick={() => setIsMaterialModalOpen(false)}
-                  className="px-4 py-2 border border-gray-300 hover:bg-gray-100 text-gray-700 font-bold text-xs rounded-xl transition-all disabled:opacity-50 bg-white"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submittingMaterial}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-md transition-all flex items-center space-x-1.5 disabled:opacity-50"
-                >
-                  {submittingMaterial ? (
-                    <>
-                      <FaSpinner className="animate-spin text-xs" />
-                      <span>Deducting Stock & Issuing...</span>
-                    </>
-                  ) : (
-                    <>
-                      <FaCheck className="text-xs" />
-                      <span>Confirm Stock Issue</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
+          )}
         </div>
       )}
+
+      {/* ISSUE MATERIAL MODAL */}
+      {isMaterialModalOpen && (() => {
+        const rows = issueLines.map((l) => {
+          const prod = findProduct(l.productId);
+          const qty = Number(l.quantity) || 0;
+          const cost = prod ? roundToTwo(qty * Number(prod.costPrice || 0)) : 0;
+          return { ...l, prod, qty, cost, overStock: prod && qty > prod.currentStock };
+        });
+        const totalCost = roundToTwo(rows.reduce((s, r) => s + r.cost, 0));
+        const totalGst = roundToTwo(totalCost * PROJECT_GST_MULTIPLIER);
+        const readyCount = rows.filter((r) => r.prod && r.qty > 0).length;
+        const anyOverStock = rows.some((r) => r.overStock);
+        const chosenIds = rows.map((r) => r.productId).filter(Boolean);
+        const inStock = products.filter((p) => Number(p.currentStock) > 0);
+        const canAddRow = inStock.some((p) => !chosenIds.includes(p.id || p._id));
+        const inputCls =
+          'w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-xs sm:text-sm bg-transparent text-slate-900 placeholder-gray-500 focus:outline-none focus:border-[#FFB82E]/60 transition-colors';
+        const labelCls = 'block text-xs text-gray-400 mb-1.5';
+
+        return (
+          <div className="fixed inset-0 z-50 overflow-y-auto hide-scrollbar bg-black/60 backdrop-blur-sm animate-fadeIn">
+           <div className="min-h-full flex items-center justify-center p-4">
+            <div className="bg-white border border-gray-200 rounded-2xl max-w-2xl w-full shadow-2xl relative">
+              {/* Header */}
+              <div className="flex items-start justify-between px-6 pt-5 pb-1">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900">Issue material</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    from the store to <span className="text-slate-700">{project.name}</span>
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsMaterialModalOpen(false)}
+                  disabled={submittingMaterial}
+                  className="w-8 h-8 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-400 hover:text-slate-900 flex items-center justify-center transition-colors cursor-pointer"
+                  aria-label="Close"
+                >
+                  <FaTimes className="text-xs" />
+                </button>
+              </div>
+
+              <form onSubmit={handleIssueSubmit} className="px-6 pt-4 pb-5 space-y-4">
+                {materialModalError && (
+                  <div className="p-3 bg-rose-500/10 border border-rose-500/30 text-rose-400 rounded-xl text-xs flex items-center gap-2">
+                    <FaExclamationTriangle className="flex-shrink-0" />
+                    <span>{materialModalError}</span>
+                  </div>
+                )}
+
+                <div className="w-full sm:w-48">
+                  <label className={labelCls}>Date</label>
+                  <IndianDateInput
+                    id="issue-material-date"
+                    name="issueDate"
+                    value={issueDate}
+                    onChange={setIssueDate}
+                    className="py-2.5 sm:text-sm"
+                  />
+                </div>
+
+                {inStock.length === 0 && (
+                  <p className="py-3 text-center text-sm text-gray-400">Nothing is in stock right now.</p>
+                )}
+
+                {/* Item rows */}
+                <div className={`space-y-2 ${inStock.length === 0 ? 'hidden' : ''}`}>
+                  <div className="hidden sm:grid grid-cols-[minmax(0,1fr)_120px_110px_32px] gap-2 text-xs text-gray-400 px-0.5">
+                    <span>Material</span>
+                    <span>Quantity</span>
+                    <span className="text-right">Cost</span>
+                    <span></span>
+                  </div>
+                  {rows.map((r) => (
+                    <div key={r.key}>
+                      <div className="grid grid-cols-[minmax(0,1fr)_120px_110px_32px] gap-2 items-center">
+                        <FilterSelect
+                          size="md"
+                          value={r.productId}
+                          placeholder="Choose from inventory"
+                          options={inStock
+                            .filter((p) => (p.id || p._id) === r.productId || !chosenIds.includes(p.id || p._id))
+                            .map((p) => ({
+                              value: p.id || p._id,
+                              label: p.name,
+                              hint: `${p.currentStock} ${p.unit || 'pcs'}`,
+                            }))}
+                          onChange={(v) => updateIssueLine(r.key, { productId: v })}
+                        />
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min="0.0001"
+                            step="any"
+                            value={r.quantity}
+                            onChange={(e) => updateIssueLine(r.key, { quantity: e.target.value })}
+                            placeholder="0"
+                            className={`${inputCls} pr-11 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${
+                              r.overStock ? 'border-rose-500/60' : ''
+                            }`}
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">{r.prod?.unit || 'pcs'}</span>
+                        </div>
+                        <span className="text-right font-mono text-xs sm:text-sm text-slate-900">{r.cost > 0 ? formatPaise(r.cost) : '-'}</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setIssueLines((prev) => (prev.length === 1 ? [newIssueLine()] : prev.filter((x) => x.key !== r.key)))
+                          }
+                          className="w-8 h-8 rounded-lg text-gray-400 hover:text-rose-400 hover:bg-rose-500/10 flex items-center justify-center transition-colors cursor-pointer"
+                          title="Remove"
+                        >
+                          <FaTimes className="text-xs" />
+                        </button>
+                      </div>
+                      {r.prod && (
+                        <p className={`text-[11px] mt-1 px-0.5 ${r.overStock ? 'text-rose-400' : 'text-gray-400'}`}>
+                          {r.overStock ? 'Not enough stock. ' : ''}
+                          {r.prod.currentStock} {r.prod.unit || 'pcs'} available · {formatPaise(r.prod.costPrice)} each
+                        </p>
+                      )}
+                    </div>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={() => setIssueLines((prev) => [...prev, newIssueLine()])}
+                    disabled={!canAddRow}
+                    title={canAddRow ? 'Add another material' : 'No other materials in stock'}
+                    className="text-xs text-[#FFC14D] hover:text-[#FFB82E] inline-flex items-center gap-1.5 pt-1 cursor-pointer disabled:opacity-40"
+                  >
+                    <FaPlus className="text-[10px]" />
+                    Add another material
+                  </button>
+                </div>
+
+                {/* Totals */}
+                {totalCost > 0 && (
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-xs space-y-1.5">
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Cost (excl. GST)</span>
+                      <span className="font-mono text-slate-900">{formatPaise(totalCost)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">GST {PROJECT_GST_RATE}%</span>
+                      <span className="font-mono text-slate-900">{formatPaise(totalGst)}</span>
+                    </div>
+                    <div className="flex justify-between pt-1.5 border-t border-gray-200">
+                      <span className="text-slate-900">Value (incl. GST)</span>
+                      <span className="font-mono text-[#FFC14D]">{formatPaise(totalCost + totalGst)}</span>
+                    </div>
+                    <p className="text-[11px] text-gray-400 pt-0.5">Only the cost excl. GST is taken from the project budget.</p>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
+                  <button
+                    type="button"
+                    disabled={submittingMaterial}
+                    onClick={() => setIsMaterialModalOpen(false)}
+                    className="px-4 py-2.5 rounded-xl text-sm text-gray-400 hover:text-slate-900 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submittingMaterial || readyCount === 0 || anyOverStock}
+                    className="px-6 py-2.5 rounded-xl bg-[#FFB82E] hover:bg-[#FFC14D] text-[#1A1B1E] font-medium text-sm transition-all inline-flex items-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {submittingMaterial && <FaSpinner className="animate-spin text-xs" />}
+                    {submittingMaterial ? 'Issuing...' : readyCount > 1 ? `Issue ${readyCount} materials` : 'Issue material'}
+                  </button>
+                </div>
+              </form>
+            </div>
+           </div>
+          </div>
+        );
+      })()}
 
       {/* ADD EXPENSE MODAL */}
       {isExpenseModalOpen && (
@@ -1596,7 +1236,7 @@ const ProjectDetails = () => {
               <div>
                 <h3 className="text-base font-extrabold text-slate-900 flex items-center space-x-2">
                   <FaReceipt className="text-blue-600" />
-                  <span>ADD PROJECT EXPENSE</span>
+                  <span>Add project expense</span>
                 </h3>
                 <p className="text-xs text-gray-400 mt-0.5">
                   Record operational cost for <span className="font-bold text-slate-800">{project.name}</span>
@@ -1787,6 +1427,31 @@ const ProjectDetails = () => {
         labour={activeLabour}
         defaultProjectId={project?.id || project?._id || ''}
         projectName={project?.name || ''}
+      />
+
+      {/* RECORD PAYMENT MODAL */}
+      <LabourPaymentModal
+        isOpen={isPaymentModalOpen}
+        onClose={() => {
+          setIsPaymentModalOpen(false);
+          setPaymentLabour(null);
+        }}
+        onSuccess={(message) => {
+          toast.success(message);
+          fetchData();
+        }}
+        labour={paymentLabour}
+      />
+
+      {/* EDIT PROJECT POPUP (same one the Projects list uses) */}
+      <ProjectFormModal
+        isOpen={isEditModalOpen}
+        project={project}
+        onClose={() => setIsEditModalOpen(false)}
+        onSuccess={() => {
+          setIsEditModalOpen(false);
+          fetchData();
+        }}
       />
 
       {/* STOP LABOUR CONFIRMATION MODAL */}

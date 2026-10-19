@@ -384,8 +384,58 @@ describe('Labour Payment API & Financial Calculation Tests (Phase 7)', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
 
+      // Deleted payments are kept for history, marked as deleted
       const check = await LabourPayment.findById(paymentToModifyId);
-      expect(check).toBeNull();
+      expect(check).not.toBeNull();
+      expect(check!.isDeleted).toBe(true);
+      expect(check!.deletedAt).toBeInstanceOf(Date);
+    });
+
+    it('should keep a deleted payment in the labour payment history, marked as deleted', async () => {
+      await request(app)
+        .delete(`/api/labour-payments/${paymentToModifyId}`)
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      const res = await request(app)
+        .get(`/api/labours/${activeLabourId}/payments`)
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(200);
+      const deleted = res.body.data.find((p: any) => p.id === paymentToModifyId);
+      expect(deleted).toBeDefined();
+      expect(deleted.isDeleted).toBe(true);
+      expect(deleted.amount).toBe(2000);
+    });
+
+    it('should leave deleted payments out of the general payments list', async () => {
+      await request(app)
+        .delete(`/api/labour-payments/${paymentToModifyId}`)
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      const res = await request(app)
+        .get('/api/labour-payments')
+        .query({ labourId: activeLabourId })
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.find((p: any) => p.id === paymentToModifyId)).toBeUndefined();
+    });
+
+    it('should not allow editing or re-deleting a deleted payment', async () => {
+      await request(app)
+        .delete(`/api/labour-payments/${paymentToModifyId}`)
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      const edit = await request(app)
+        .put(`/api/labour-payments/${paymentToModifyId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ amount: 999 });
+      expect(edit.status).toBe(400);
+
+      const again = await request(app)
+        .delete(`/api/labour-payments/${paymentToModifyId}`)
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(again.status).toBe(404);
     });
   });
 

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import axiosInstance from '../utils/api';
 import { useToast } from '../context/ToastContext';
 import { getErrorMessage } from '../utils/apiError';
@@ -9,7 +9,8 @@ import {
   FaFileImage, 
   FaArrowLeft, 
   FaTrash, 
-  FaSyncAlt, 
+  FaSyncAlt,
+  FaExternalLinkAlt, 
   FaExclamationTriangle,
   FaArrowRight,
   FaSpinner,
@@ -24,15 +25,19 @@ const ALLOWED_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/jpg', 'image
 const ALLOWED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png'];
 
 const STAGES = [
-  { id: 1, label: 'File Uploaded', threshold: 0 },
-  { id: 2, label: 'File Verified', threshold: 15 },
-  { id: 3, label: 'Reading Bill', threshold: 30 },
-  { id: 4, label: 'Extracting Data', threshold: 55 },
-  { id: 5, label: 'Finalizing', threshold: 90 },
+  { id: 1, label: 'File uploaded', threshold: 0 },
+  { id: 2, label: 'File checked', threshold: 15 },
+  { id: 3, label: 'Reading bill', threshold: 30 },
+  { id: 4, label: 'Picking out items', threshold: 55 },
+  { id: 5, label: 'Finishing', threshold: 90 },
 ];
+
+// After each failed read, Try again stays locked a little longer: 2s, 5s, 10s, then 20s
+const RETRY_WAIT_SECONDS = [2, 5, 10, 20];
 
 const PurchaseUpload = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const toast = useToast();
   const fileInputRef = useRef(null);
 
@@ -46,6 +51,17 @@ const PurchaseUpload = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [progressPercent, setProgressPercent] = useState(10);
   const progressTimerRef = useRef(null);
+
+  // Wait before the next try after a failed read
+  const [failedTries, setFailedTries] = useState(0);
+  const [retryWait, setRetryWait] = useState(0);
+  const [errorTitle, setErrorTitle] = useState('');
+
+  useEffect(() => {
+    if (retryWait <= 0) return undefined;
+    const t = setTimeout(() => setRetryWait((w) => w - 1), 1000);
+    return () => clearTimeout(t);
+  }, [retryWait]);
 
   // Clean up interval timer on unmount
   useEffect(() => {
@@ -106,16 +122,22 @@ const PurchaseUpload = () => {
     setValidationError(null);
     setIsReady(true);
 
-    // Create Image Preview URL if image type
-    if (file.type.startsWith('image/')) {
-      const url = URL.createObjectURL(file);
-      setFilePreviewUrl(url);
-    } else {
-      setFilePreviewUrl(null);
-    }
+    // Preview URL for both images and PDFs, so the bill can be checked before reading it
+    if (filePreviewUrl) URL.revokeObjectURL(filePreviewUrl);
+    setFilePreviewUrl(URL.createObjectURL(file));
 
     toast.success(`Selected file "${file.name}" successfully.`);
   };
+
+  // A bill dropped on the Add purchase page arrives in route state
+  useEffect(() => {
+    const droppedFile = location.state?.file;
+    if (droppedFile) {
+      processSelectedFile(droppedFile);
+      navigate(location.pathname, { replace: true, state: null });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Drag & Drop Event Handlers
   const handleDragEnter = (e) => {
@@ -196,8 +218,8 @@ const PurchaseUpload = () => {
   const handleProcessBill = async () => {
     console.log('PROCESS BILL CLICKED', selectedFile);
 
-    if (!selectedFile || isProcessing) {
-      console.log('Process bill aborted: missing file or already processing');
+    if (!selectedFile || isProcessing || retryWait > 0) {
+      console.log('Process bill aborted: missing file, already processing or still waiting');
       return;
     }
 
@@ -364,6 +386,9 @@ const PurchaseUpload = () => {
         warnings: validation.warnings || [],
       };
 
+      setFailedTries(0);
+      setRetryWait(0);
+
       // Short delay so user sees 100% completed state before navigation
       setTimeout(() => {
         toast.success('Bill extracted successfully!');
@@ -382,8 +407,15 @@ const PurchaseUpload = () => {
         err,
         'Bill extraction failed. Something went wrong while processing this bill. Please try again or enter details manually.'
       );
-      setValidationError(errorMsg);
-      toast.error(errorMsg);
+      const status = err?.response?.status;
+      const isBusy = status === 503 || status === 429 || /network busy/i.test(errorMsg);
+      setErrorTitle(isBusy ? 'Network busy' : "Couldn't read the bill");
+      setValidationError(
+        isBusy ? 'Please wait a moment and try again, or enter the bill manually.' : errorMsg
+      );
+      toast.error(isBusy ? 'Network busy. Please try again in a moment.' : errorMsg);
+      setRetryWait(RETRY_WAIT_SECONDS[Math.min(failedTries, RETRY_WAIT_SECONDS.length - 1)]);
+      setFailedTries((n) => n + 1);
     }
   };
 
@@ -392,7 +424,7 @@ const PurchaseUpload = () => {
   const formatFileSize = (bytes) => {
     if (!bytes) return '0 KB';
     if (bytes < 1024 * 1024) {
-      return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${Math.max(1, Math.round(bytes / 1024))} KB`;
     }
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
@@ -410,20 +442,13 @@ const PurchaseUpload = () => {
   const activeStageIndex = getActiveStageIndex();
 
   return (
-    <div className="max-w-4xl mx-auto py-6 px-4 space-y-6 animate-fadeIn">
+    <div className="space-y-5 animate-fadeIn">
       {/* Top Header & Breadcrumb */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <div className="text-xs text-gray-400 font-semibold mb-1 flex items-center space-x-1">
-            <span>Purchases</span>
-            <span>&gt;</span>
-            <span>Add Purchase</span>
-            <span>&gt;</span>
-            <span className="text-emerald-600 font-bold">Upload Bill</span>
-          </div>
-          <h2 className="text-2xl font-extrabold text-slate-900">Upload Purchase Bill</h2>
-          <p className="text-gray-500 text-xs mt-0.5">
-            Upload your supplier bill to prepare it for purchase entry.
+          <h2 className="text-2xl font-semibold text-slate-900">Upload bill</h2>
+          <p className="text-gray-400 text-sm mt-0.5">
+            AI reads the items, prices and GST from the bill. You check them before saving.
           </p>
         </div>
 
@@ -431,37 +456,40 @@ const PurchaseUpload = () => {
           type="button"
           disabled={isProcessing}
           onClick={() => navigate('/purchases/new')}
-          className="px-4 py-2 border border-gray-300 hover:bg-gray-100 text-gray-700 font-bold text-xs rounded-xl shadow-sm transition-all self-start sm:self-auto flex items-center space-x-2 bg-white disabled:opacity-50"
+          className="px-4 py-2 border border-gray-200 hover:bg-gray-100 text-slate-700 text-sm rounded-xl transition-colors self-start sm:self-auto flex items-center gap-2 bg-white cursor-pointer disabled:opacity-50"
         >
           <FaArrowLeft className="text-xs" />
-          <span>Back to Add Purchase</span>
+          <span>Back</span>
         </button>
       </div>
 
       {/* Inline Error Alert Banner */}
       {validationError && (
-        <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-2xl text-xs font-semibold flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-sm">
-          <div className="flex items-center space-x-3">
-            <FaExclamationTriangle className="text-red-500 text-base flex-shrink-0" />
+        <div className="px-4 py-3 bg-white border border-rose-500/40 rounded-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="w-9 h-9 rounded-lg bg-rose-500/10 text-rose-400 flex items-center justify-center shrink-0">
+              <FaExclamationTriangle className="text-sm" />
+            </span>
             <div>
-              <div className="font-extrabold text-red-800">Unable to extract bill</div>
-              <div className="text-red-700">{validationError}</div>
+              <div className="text-sm font-medium text-slate-900">{errorTitle || "Couldn't read the bill"}</div>
+              <div className="text-xs text-gray-400 mt-0.5">{validationError}</div>
             </div>
           </div>
-          <div className="flex items-center space-x-2 self-end sm:self-auto">
+          <div className="flex items-center gap-2 self-end sm:self-auto">
             <button
               type="button"
               onClick={handleProcessBill}
-              className="px-3 py-1.5 bg-red-600 text-white text-xs font-bold rounded-lg hover:bg-red-700 transition-all"
+              disabled={retryWait > 0 || !selectedFile}
+              className="px-4 py-2 bg-[#FFB82E] hover:bg-[#FFC14D] text-[#1A1B1E] text-sm font-medium rounded-xl transition-colors cursor-pointer disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed min-w-[130px]"
             >
-              Try Again
+              {retryWait > 0 ? `Try again in ${retryWait}s` : 'Try again'}
             </button>
             <button
               type="button"
               onClick={() => navigate('/purchases/new/manual')}
-              className="px-3 py-1.5 border border-red-300 text-red-700 text-xs font-bold rounded-lg hover:bg-red-100 transition-all bg-white"
+              className="px-4 py-2 border border-gray-200 text-slate-700 text-sm rounded-xl hover:bg-gray-100 transition-colors cursor-pointer"
             >
-              Enter Manually
+              Enter manually
             </button>
           </div>
         </div>
@@ -478,42 +506,43 @@ const PurchaseUpload = () => {
       />
 
       {/* MAIN UPLOAD CARD */}
-      <div className="bg-white border border-gray-200 rounded-2xl p-6 sm:p-8 shadow-sm space-y-6">
-        <div>
-          <h3 className="text-lg font-extrabold text-slate-900">Upload Supplier Bill</h3>
-          <p className="text-xs text-gray-500 mt-1">
-            Upload the supplier invoice or bill. You can upload a PDF or image.
-          </p>
-        </div>
+      <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4">
 
         {/* 1. SELECTED FILE HEADER CARD (ALWAYS VISIBLE WHEN FILE IS SELECTED) */}
         {selectedFile && (
           <div className="border border-gray-200 bg-gray-50/40 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-xl bg-red-100 text-rose-600 flex items-center justify-center text-xl flex-shrink-0">
+              <div className="w-10 h-10 rounded-xl bg-[#FFB82E]/10 text-[#FFC14D] flex items-center justify-center text-xl flex-shrink-0">
                 {selectedFile.type === 'application/pdf' || selectedFile.name.toLowerCase().endsWith('.pdf') ? (
-                  <FaFilePdf className="text-rose-600" />
+                  <FaFilePdf className="text-[#FFC14D]" />
                 ) : (
-                  <FaFileImage className="text-emerald-600" />
+                  <FaFileImage className="text-[#FFC14D]" />
                 )}
               </div>
 
               <div>
-                <h4 className="text-xs font-bold text-slate-900 truncate max-w-xs sm:max-w-md">
+                <h4 className="text-sm font-medium text-slate-900 truncate max-w-xs sm:max-w-md">
                   {selectedFile.name}
                 </h4>
-                <div className="text-[11px] text-gray-400 font-medium mt-0.5 space-x-1">
-                  <span className="uppercase font-bold text-gray-600">
-                    {selectedFile.name.split('.').pop()}
-                  </span>
-                  <span>•</span>
-                  <span>{formatFileSize(selectedFile.size)}</span>
+                <div className="text-xs text-gray-400 mt-0.5">
+                  {selectedFile.name.split('.').pop().toUpperCase()} · {formatFileSize(selectedFile.size)}
                 </div>
               </div>
             </div>
 
-            {/* Replace & Remove Action Buttons */}
+            {/* View, Replace & Remove Action Buttons */}
             <div className="flex items-center space-x-2 self-end sm:self-auto">
+              {filePreviewUrl && (
+                <a
+                  href={filePreviewUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 border border-[#FFB82E]/50 text-[#FFC14D] hover:bg-[#FFB82E]/10 text-xs rounded-xl transition-colors flex items-center gap-1.5"
+                >
+                  <FaExternalLinkAlt className="text-[10px]" />
+                  <span>View full bill</span>
+                </a>
+              )}
               <button
                 type="button"
                 disabled={isProcessing}
@@ -521,7 +550,7 @@ const PurchaseUpload = () => {
                 className="px-3 py-1.5 border border-gray-300 text-gray-700 hover:bg-gray-100 font-bold text-xs rounded-xl transition-all flex items-center space-x-1.5 bg-white disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <FaSyncAlt className="text-[10px]" />
-                <span>Replace File</span>
+                <span>Replace file</span>
               </button>
 
               <button
@@ -539,24 +568,13 @@ const PurchaseUpload = () => {
 
         {/* 2. DEDICATED PROCESSING CARD (REPLACES PREVIEW WHEN EXTRACTING IS ACTIVE) */}
         {isProcessing ? (
-          <div className="bg-emerald-50/20 border border-emerald-200 rounded-3xl p-8 sm:p-12 text-center space-y-6">
+          <div className="border border-[#FFB82E]/30 bg-[#FFB82E]/[0.04] rounded-2xl px-6 py-5 text-center h-[calc(100vh-360px)] min-h-[220px] flex flex-col items-center justify-center gap-4 overflow-hidden">
             {/* Centered Document / Extraction Illustration */}
-            <div className="relative w-28 h-20 mx-auto flex items-center justify-center">
-              <div className="w-16 h-16 rounded-2xl bg-white border border-emerald-200 text-emerald-600 flex items-center justify-center text-3xl shadow-sm z-10">
-                <FaCloudUploadAlt />
-              </div>
-              <div className="w-12 h-14 bg-white border border-gray-200 rounded-lg p-1.5 shadow-sm text-gray-400 absolute right-1 top-2 transform rotate-6 z-0 flex flex-col justify-between">
-                <FaFileAlt className="text-gray-300 text-sm mx-auto" />
-                <div className="space-y-1">
-                  <div className="h-0.5 bg-gray-200 rounded w-full"></div>
-                  <div className="h-0.5 bg-gray-200 rounded w-3/4"></div>
-                </div>
-              </div>
-            </div>
+            <div className="w-12 h-12 shrink-0 rounded-full border-4 border-[#FFB82E]/20 border-t-[#FFB82E] animate-spin" />
 
             {/* Heading & Subtitle */}
             <div className="space-y-1">
-              <h4 className="text-xl font-extrabold text-slate-900">Extracting bill...</h4>
+              <h4 className="text-xl font-semibold text-slate-900">Reading the bill...</h4>
               <p className="text-xs font-semibold text-gray-500 max-w-md mx-auto">
                 Please wait while we extract the purchase details from your bill.
               </p>
@@ -564,7 +582,7 @@ const PurchaseUpload = () => {
 
             {/* Percentage Display & Reassuring Note */}
             <div>
-              <div className="text-3xl font-black text-emerald-600 tracking-tight">
+              <div className="text-3xl font-semibold text-[#FFC14D]">
                 {progressPercent}%
               </div>
               <p className="text-xs text-gray-400 font-medium mt-1">
@@ -575,13 +593,13 @@ const PurchaseUpload = () => {
             {/* Smooth Progress Bar */}
             <div className="w-full max-w-xl mx-auto bg-gray-200 rounded-full h-2.5 overflow-hidden">
               <div
-                className="bg-emerald-500 h-full transition-all duration-300 ease-out rounded-full"
+                className="bg-[#FFB82E] h-full transition-all duration-300 ease-out rounded-full"
                 style={{ width: `${progressPercent}%` }}
               ></div>
             </div>
 
             {/* 5-Stage Processing Progress Indicator Timeline */}
-            <div className="w-full max-w-2xl mx-auto pt-4 relative">
+            <div className="w-full max-w-2xl mx-auto pt-2 relative">
               <div className="absolute top-4 left-6 right-6 h-0.5 bg-gray-200 -z-0"></div>
 
               <div className="grid grid-cols-5 gap-2 relative z-10 text-center">
@@ -592,12 +610,12 @@ const PurchaseUpload = () => {
                   return (
                     <div key={stg.id} className="flex flex-col items-center space-y-2">
                       {isDone ? (
-                        <div className="w-7 h-7 bg-emerald-600 text-white rounded-full flex items-center justify-center text-xs shadow-sm">
+                        <div className="w-7 h-7 bg-[#FFB82E] text-[#1A1B1E] rounded-full flex items-center justify-center text-xs shadow-sm">
                           <FaCheck className="text-[11px]" />
                         </div>
                       ) : isActive ? (
-                        <div className="w-7 h-7 rounded-full border-2 border-emerald-600 bg-emerald-100 flex items-center justify-center">
-                          <div className="w-3 h-3 bg-emerald-600 rounded-full animate-pulse"></div>
+                        <div className="w-7 h-7 rounded-full border-2 border-[#FFB82E] bg-[#FFB82E]/15 flex items-center justify-center">
+                          <div className="w-3 h-3 bg-[#FFB82E] rounded-full animate-pulse"></div>
                         </div>
                       ) : (
                         <div className="w-7 h-7 bg-gray-200 text-gray-400 rounded-full flex items-center justify-center text-[10px] font-bold">
@@ -608,7 +626,7 @@ const PurchaseUpload = () => {
                       <span
                         className={`text-[11px] font-bold ${
                           isDone
-                            ? 'text-emerald-700'
+                            ? 'text-[#FFC14D]'
                             : isActive
                             ? 'text-slate-900 font-extrabold'
                             : 'text-gray-400'
@@ -632,20 +650,17 @@ const PurchaseUpload = () => {
             onDrop={handleDrop}
             className={`border-2 border-dashed rounded-3xl p-8 sm:p-12 text-center transition-all duration-300 cursor-pointer flex flex-col items-center justify-center space-y-4 ${
               isDragging
-                ? 'border-emerald-500 bg-emerald-50/70 scale-[1.01]'
-                : 'border-emerald-200 hover:border-emerald-400 bg-emerald-50/30 hover:bg-emerald-50/50'
+                ? 'border-[#FFB82E] bg-[#FFB82E]/10'
+                : 'border-gray-200 hover:border-[#FFB82E]/60 hover:bg-[#FFB82E]/[0.04]'
             }`}
           >
-            <div className="w-16 h-16 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center text-3xl shadow-inner">
+            <div className="w-16 h-16 rounded-full bg-[#FFB82E] text-[#1A1B1E] flex items-center justify-center text-2xl">
               <FaCloudUploadAlt />
             </div>
 
-            <div className="space-y-1">
-              <h4 className="text-base font-extrabold text-slate-900">Upload your purchase bill</h4>
-              <p className="text-xs font-semibold text-gray-500">Drag & drop your file here</p>
-            </div>
+            <h4 className="text-base font-medium text-slate-900">Drag the bill here</h4>
 
-            <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">OR</span>
+            <span className="text-xs text-gray-400">or</span>
 
             <button
               type="button"
@@ -654,49 +669,45 @@ const PurchaseUpload = () => {
                 e.stopPropagation();
                 handleBrowseClick();
               }}
-              className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-md transition-all inline-flex items-center space-x-2"
+              className="px-5 py-2.5 border border-[#FFB82E]/60 text-[#FFC14D] hover:bg-[#FFB82E]/10 text-sm font-medium rounded-xl transition-colors inline-flex items-center gap-2 cursor-pointer"
             >
               <FaCloudUploadAlt className="text-sm" />
-              <span>Browse Files</span>
+              <span>Choose file</span>
             </button>
 
-            <div className="pt-2 text-[11px] text-gray-400 font-medium">
-              PDF, JPG, JPEG or PNG • Maximum 10 MB
+            <div className="pt-1 text-xs text-gray-400">
+              PDF, JPG or PNG, up to 10 MB
             </div>
           </div>
         ) : (
           /* FILE PREVIEW CARD (WHEN FILE IS SELECTED & NOT PROCESSING) */
           <div className="space-y-4">
-            {filePreviewUrl && (
-              <div className="flex flex-col items-center justify-center p-3 bg-gray-50/50 border border-gray-200 rounded-2xl max-h-72 overflow-hidden">
-                <img
-                  src={filePreviewUrl}
-                  alt="Supplier Bill Preview"
-                  className="max-h-64 object-contain rounded-lg shadow-sm"
-                />
-              </div>
-            )}
-
-            {(!filePreviewUrl && (selectedFile.type === 'application/pdf' || selectedFile.name.toLowerCase().endsWith('.pdf'))) && (
-              <div className="p-8 bg-gray-50/50 border border-gray-200 rounded-2xl text-center space-y-2">
-                <FaFilePdf className="text-rose-500 text-4xl mx-auto" />
-                <p className="text-xs font-bold text-slate-800">PDF Document Selected</p>
-                <p className="text-[11px] text-gray-400">
-                  Document verified and ready for automated processing.
-                </p>
-              </div>
-            )}
+            {filePreviewUrl &&
+              (selectedFile.type === 'application/pdf' || selectedFile.name.toLowerCase().endsWith('.pdf') ? (
+                // Top of the bill only, enough to check it is the right one; full bill opens in a new tab
+                <div className={`relative ${validationError ? 'h-[calc(100vh-440px)]' : 'h-[calc(100vh-360px)]'} min-h-[220px] rounded-2xl border border-gray-200 overflow-hidden bg-white`}>
+                  <iframe
+                    src={`${filePreviewUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+                    title="Bill preview"
+                    className="w-full h-full"
+                  />
+                </div>
+              ) : (
+                <div className={`flex items-center justify-center p-3 bg-gray-50/50 border border-gray-200 rounded-2xl ${validationError ? 'h-[calc(100vh-440px)]' : 'h-[calc(100vh-360px)]'} min-h-[220px] overflow-hidden`}>
+                  <img src={filePreviewUrl} alt="Bill preview" className="max-h-full object-contain rounded-lg" />
+                </div>
+              ))}
           </div>
         )}
       </div>
 
       {/* BOTTOM ACTION BAR */}
-      <div className="bg-white p-4 border border-gray-200 rounded-2xl shadow-sm flex items-center justify-between">
+      <div className="bg-white p-4 border border-gray-200 rounded-2xl flex items-center justify-between">
         <button
           type="button"
           disabled={isProcessing}
           onClick={() => navigate('/purchases/new')}
-          className="px-5 py-2.5 border border-gray-300 hover:bg-gray-50 text-gray-700 font-bold text-xs rounded-xl transition-all disabled:opacity-50"
+          className="px-5 py-2.5 border border-gray-200 hover:bg-gray-100 text-slate-700 text-sm rounded-xl transition-colors cursor-pointer disabled:opacity-50"
         >
           Cancel
         </button>
@@ -704,17 +715,17 @@ const PurchaseUpload = () => {
         <button
           type="button"
           onClick={handleProcessBill}
-          disabled={!selectedFile || isProcessing}
-          className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-md transition-all flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={!selectedFile || isProcessing || retryWait > 0}
+          className="px-6 py-2.5 bg-[#FFB82E] hover:bg-[#FFC14D] text-[#1A1B1E] font-medium text-sm rounded-xl transition-colors flex items-center gap-2 cursor-pointer disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
         >
           {isProcessing ? (
             <>
-              <span>Processing...</span>
+              <span>Reading...</span>
               <FaSpinner className="animate-spin text-xs" />
             </>
           ) : (
             <>
-              <span>Process Bill</span>
+              <span>{retryWait > 0 ? `Wait ${retryWait}s` : 'Read bill'}</span>
               <FaArrowRight className="text-xs" />
             </>
           )}

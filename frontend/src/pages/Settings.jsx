@@ -98,8 +98,8 @@ const Settings = () => {
     <div className="space-y-6 max-w-3xl mx-auto">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-bold text-gray-800">Business Settings & Invoice Branding</h2>
-        <p className="text-gray-500 text-sm">Configure company profile, tax identifiers, contact details, and billing address for printed tax invoices.</p>
+        <h2 className="text-2xl font-bold text-gray-800">Settings</h2>
+        <p className="text-gray-500 text-sm">Company details printed on your invoices.</p>
       </div>
 
       {/* Success Notification Banner */}

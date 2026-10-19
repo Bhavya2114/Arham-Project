@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { getLabours, stopLabour } from '../utils/labourService';
+import { getLabours } from '../utils/labourService';
+import FilterSelect from '../components/FilterSelect';
 import LabourFormModal from '../components/LabourFormModal';
 import LabourPaymentModal from '../components/LabourPaymentModal';
 import LabourPaymentHistoryModal from '../components/LabourPaymentHistoryModal';
-import ConfirmationModal from '../components/ConfirmationModal';
 import axiosInstance from '../utils/api';
 import { getErrorMessage } from '../utils/apiError';
 import { formatDateShortMonth } from '../utils/dateUtils';
@@ -17,9 +17,6 @@ import {
   FaFilter,
   FaUndo,
   FaPlus,
-  FaEye,
-  FaEdit,
-  FaBan,
   FaMapMarkerAlt,
   FaPhoneAlt,
   FaCalendarAlt,
@@ -28,8 +25,6 @@ import {
   FaExclamationTriangle,
   FaCheckCircle,
   FaTimesCircle,
-  FaMoneyBillWave,
-  FaHistory,
   FaTimes,
 } from 'react-icons/fa';
 
@@ -69,10 +64,6 @@ const Labour = () => {
   const [modalMode, setModalMode] = useState('create'); // 'create' | 'edit'
   const [activeLabour, setActiveLabour] = useState(null);
 
-  // Modal States for Stop Labour (Phase 5)
-  const [isStopModalOpen, setIsStopModalOpen] = useState(false);
-  const [labourToStop, setLabourToStop] = useState(null);
-  const [isStopping, setIsStopping] = useState(false);
 
   // Modal States for Payments (Phase 7)
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -119,7 +110,6 @@ const Labour = () => {
       const params = { signal: controller.signal };
       if (debouncedSearch.trim()) params.search = debouncedSearch.trim();
       if (projectFilter) params.projectId = projectFilter;
-      if (statusFilter) params.status = statusFilter;
       if (locationFilter) params.location = locationFilter;
 
       const data = await getLabours(params);
@@ -129,14 +119,16 @@ const Labour = () => {
         setLabours(data);
 
         // Track and accumulate known locations for dropdown
+        // "kota" and "Kota" are the same place, so keep one spelling per address
         setAvailableLocations((prev) => {
-          const set = new Set(prev);
+          const byKey = new Map(prev.map((loc) => [loc.toLowerCase(), loc]));
           data.forEach((l) => {
-            if (l.location && l.location.trim()) {
-              set.add(l.location.trim());
+            const loc = l.location && l.location.trim();
+            if (loc && !byKey.has(loc.toLowerCase())) {
+              byKey.set(loc.toLowerCase(), loc.charAt(0).toUpperCase() + loc.slice(1));
             }
           });
-          return Array.from(set).sort((a, b) =>
+          return Array.from(byKey.values()).sort((a, b) =>
             a.localeCompare(b, undefined, { sensitivity: 'base' })
           );
         });
@@ -159,34 +151,58 @@ const Labour = () => {
         setLoading(false);
       }
     }
-  }, [debouncedSearch, projectFilter, statusFilter, locationFilter]);
+  }, [debouncedSearch, projectFilter, locationFilter]);
 
   useEffect(() => {
     fetchLabourData();
   }, [fetchLabourData]);
 
   // Combined location filter fallback (case-insensitive and trimmed)
-  const displayedLabours = useMemo(() => {
-    if (!locationFilter) return labours;
-    return labours.filter(
+  const baseLabours = useMemo(() => {
+    let list = labours;
+    // Inactive workers are not on any project, so a project filter only shows active ones
+    if (projectFilter) list = list.filter((l) => l.status === 'ACTIVE');
+    if (!locationFilter) return list;
+    return list.filter(
       (l) => l.location && l.location.trim().toLowerCase() === locationFilter.trim().toLowerCase()
     );
-  }, [labours, locationFilter]);
+  }, [labours, projectFilter, locationFilter]);
+
+  // Status is filtered here (not by the API) so the summary cards keep showing both counts
+  const displayedLabours = useMemo(() => {
+    if (statusFilter === 'ACTIVE') return baseLabours.filter((l) => l.status === 'ACTIVE');
+    if (statusFilter === 'INACTIVE') return baseLabours.filter((l) => l.status !== 'ACTIVE');
+    return baseLabours;
+  }, [baseLabours, statusFilter]);
+
+  // Clicking a summary card filters by it; clicking the selected card again clears it
+  const toggleStatusFilter = (value) => setStatusFilter((cur) => (cur === value ? '' : value));
+  const cardRing = (selected) =>
+    selected ? 'ring-2 ring-[#FFB82E]/60 border-transparent' : 'hover:border-[#FFB82E]/40';
 
   // Derive Summary Metrics for currently filtered / displayed dataset
   const summaryMetrics = useMemo(() => {
-    const total = displayedLabours.length;
-    const active = displayedLabours.filter((l) => l.status === 'ACTIVE').length;
-    const inactive = displayedLabours.filter((l) => l.status !== 'ACTIVE').length;
+    const total = baseLabours.length;
+    const active = baseLabours.filter((l) => l.status === 'ACTIVE').length;
+    const inactive = baseLabours.filter((l) => l.status !== 'ACTIVE').length;
 
     // Projected Monthly Wages for Active Labours ONLY: sum(activeDailyWage * 30 days)
-    const activeDailyTotal = displayedLabours
+    const activeDailyTotal = baseLabours
       .filter((l) => l.status === 'ACTIVE')
       .reduce((acc, l) => acc + (Number(l.dailyWage) || 0), 0);
     const projectedMonthly = activeDailyTotal * 30;
 
     return { total, active, inactive, projectedMonthly };
-  }, [displayedLabours]);
+  }, [baseLabours]);
+
+  // Wages earned but not yet paid, for the workers in the current filters
+  const pendingWages = useMemo(() => {
+    const owed = baseLabours.filter((l) => Number(l.balance) > 0);
+    return {
+      amount: owed.reduce((acc, l) => acc + Number(l.balance), 0),
+      workers: owed.length,
+    };
+  }, [baseLabours]);
 
   // Reset all filters
   const handleResetFilters = () => {
@@ -215,36 +231,6 @@ const Labour = () => {
     fetchLabourData();
   };
 
-  // Stop Labour Handlers (Phase 5)
-  const handleOpenStopConfirm = (labour) => {
-    if (!labour || labour.status === 'STOPPED') return;
-    setLabourToStop(labour);
-    setIsStopModalOpen(true);
-  };
-
-  const handleCloseStopConfirm = () => {
-    if (isStopping) return;
-    setIsStopModalOpen(false);
-    setLabourToStop(null);
-  };
-
-  const handleConfirmStop = async () => {
-    if (!labourToStop?.id) return;
-    setIsStopping(true);
-    try {
-      await stopLabour(labourToStop.id);
-      toast.success('Labour stopped successfully');
-      setIsStopModalOpen(false);
-      setLabourToStop(null);
-      fetchLabourData();
-    } catch (err) {
-      console.error('Error stopping labour:', err);
-      toast.error(getErrorMessage(err, 'Failed to stop labour'));
-    } finally {
-      setIsStopping(false);
-    }
-  };
-
   // Payment Handlers (Phase 7)
   const handleOpenPayment = (labour) => {
     setPaymentLabour(labour);
@@ -269,38 +255,41 @@ const Labour = () => {
 
   return (
     <div className="space-y-6 animate-fadeIn pb-12">
-      {/* 1. Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      {/* 1. Page Header: title + what is owed, like the Projects header */}
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
         <div>
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-lg shadow-sm">
-              <FaHardHat />
-            </div>
-            <div>
-              <h2 className="text-2xl font-black text-slate-900 tracking-tight">Labour</h2>
-              <p className="text-gray-500 text-xs mt-0.5">
-                Manage labour workers, track their wages and project assignment
-              </p>
-            </div>
-          </div>
+          <h2 className="text-2xl font-bold text-slate-900">Labour</h2>
+          <p className="text-gray-500 text-sm mt-1">
+            {pendingWages.amount > 0 ? (
+              <>
+                <span className="text-[#FFC14D]">₹{Math.round(pendingWages.amount).toLocaleString('en-IN')} still to pay</span>
+                {' to '}
+                {pendingWages.workers} {pendingWages.workers === 1 ? 'worker' : 'workers'}
+              </>
+            ) : (
+              'All wages are paid'
+            )}
+          </p>
         </div>
 
-        {/* Add Labour Button */}
         <button
           type="button"
           onClick={handleOpenAdd}
-          className="flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold px-4 py-2.5 rounded-xl shadow-sm transition-all text-xs self-start sm:self-auto cursor-pointer"
-          title="Add Labour"
+          className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2.5 rounded-xl shadow-sm transition-all text-sm whitespace-nowrap self-start sm:self-auto cursor-pointer"
         >
           <FaPlus className="text-xs" />
-          <span>Add Labour</span>
+          <span>Add labour</span>
         </button>
       </div>
 
       {/* 2. Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-        {/* Card 1: TOTAL LABOUR */}
-        <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
+        {/* Card 1: TOTAL LABOUR (click to filter) */}
+        <button
+          type="button"
+          onClick={() => setStatusFilter('')}
+          className={`text-left bg-white border border-gray-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all relative overflow-hidden cursor-pointer ${cardRing(statusFilter === '')}`}
+        >
           <div className="flex items-center justify-between">
             <div>
               <p className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
@@ -317,10 +306,14 @@ const Labour = () => {
               <FaHardHat />
             </div>
           </div>
-        </div>
+        </button>
 
-        {/* Card 2: ACTIVE LABOUR */}
-        <div className="bg-white border border-emerald-200/80 rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
+        {/* Card 2: ACTIVE LABOUR (click to filter) */}
+        <button
+          type="button"
+          onClick={() => toggleStatusFilter('ACTIVE')}
+          className={`text-left bg-white border border-emerald-200/80 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all relative overflow-hidden cursor-pointer ${cardRing(statusFilter === 'ACTIVE')}`}
+        >
           <div className="flex items-center justify-between">
             <div>
               <p className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-700">
@@ -338,10 +331,14 @@ const Labour = () => {
               <FaUsers />
             </div>
           </div>
-        </div>
+        </button>
 
-        {/* Card 3: INACTIVE LABOUR */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
+        {/* Card 3: INACTIVE LABOUR (click to filter) */}
+        <button
+          type="button"
+          onClick={() => toggleStatusFilter('INACTIVE')}
+          className={`text-left bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all relative overflow-hidden cursor-pointer ${cardRing(statusFilter === 'INACTIVE')}`}
+        >
           <div className="flex items-center justify-between">
             <div>
               <p className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
@@ -358,7 +355,7 @@ const Labour = () => {
               <FaUserClock />
             </div>
           </div>
-        </div>
+        </button>
 
         {/* Card 4: PROJECTED MONTHLY WAGES */}
         <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
@@ -382,10 +379,10 @@ const Labour = () => {
       </div>
 
       {/* 3. Filters & Search Toolbar */}
-      <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-center">
+      <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+        <div className="flex flex-wrap items-center gap-3">
           {/* Search Box */}
-          <div className="relative sm:col-span-2">
+          <div className="relative w-full sm:w-auto sm:flex-1 sm:max-w-sm">
             <FaSearch className="absolute left-3.5 top-3.5 text-gray-400 text-xs pointer-events-none" />
             <input
               type="text"
@@ -410,76 +407,46 @@ const Labour = () => {
           </div>
 
           {/* Project Filter */}
-          <div>
-            <select
+          <div className="w-full sm:w-56">
+            <FilterSelect
               value={projectFilter}
-              onChange={(e) => setProjectFilter(e.target.value)}
-              className="w-full py-2.5 px-3 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-emerald-500 bg-gray-50/50 text-slate-800 font-semibold transition-all cursor-pointer"
-            >
-              <option value="">All Projects</option>
-              {projects.map((proj) => (
-                <option key={proj.id} value={proj.id}>
-                  {proj.name} ({proj.projectCode})
-                </option>
-              ))}
-            </select>
+              onChange={setProjectFilter}
+              placeholder="All projects"
+              options={projects
+                // Only ongoing projects have workers on site, so others would always show 0
+                .filter((proj) => proj.status === 'IN_PROGRESS')
+                .map((proj) => ({ value: proj.id, label: proj.name, hint: proj.projectCode }))}
+            />
           </div>
 
           {/* Address Filter */}
-          <div>
-            <select
+          <div className="w-full sm:w-44">
+            <FilterSelect
               value={locationFilter}
-              onChange={(e) => setLocationFilter(e.target.value)}
-              className="w-full py-2.5 px-3 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-emerald-500 bg-gray-50/50 text-slate-800 font-semibold transition-all cursor-pointer"
-            >
-              <option value="">All Addresses</option>
-              {availableLocations.map((loc) => (
-                <option key={loc} value={loc}>
-                  {loc}
-                </option>
-              ))}
-            </select>
+              onChange={setLocationFilter}
+              placeholder="All addresses"
+              options={availableLocations.map((loc) => ({ value: loc, label: loc }))}
+            />
           </div>
 
-          {/* Status Filter */}
-          <div>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full py-2.5 px-3 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-emerald-500 bg-gray-50/50 text-slate-800 font-semibold transition-all cursor-pointer"
-            >
-              <option value="">All Statuses</option>
-              <option value="ACTIVE">Active / Working</option>
-              <option value="INACTIVE">Inactive</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Toolbar Bottom: Counter + Active Filter Badges + Reset Action */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pt-2 border-t border-gray-100 text-xs gap-2">
-          <div className="flex items-center space-x-2 text-gray-500 font-medium">
-            <FaFilter className="text-gray-400 text-[11px]" />
-            <span>
-              Showing <strong className="text-slate-800 font-bold">{displayedLabours.length}</strong>{' '}
-              {displayedLabours.length === 1 ? 'Worker' : 'Workers'}
+          {/* Counter + Reset, on the same row as the filters */}
+          <div className="flex items-center gap-2 text-sm text-gray-500 whitespace-nowrap ml-auto">
+            <span className="px-3 py-2 rounded-xl bg-gray-50 border border-gray-200">
+              <strong className="text-slate-800 font-semibold">{displayedLabours.length}</strong>{' '}
+              {displayedLabours.length === 1 ? 'worker' : 'workers'}
             </span>
             {activeFilterCount > 0 && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                {activeFilterCount} {activeFilterCount === 1 ? 'filter applied' : 'filters applied'}
-              </span>
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-rose-600 bg-rose-50 hover:bg-rose-100 transition-all cursor-pointer"
+                title={`${activeFilterCount} ${activeFilterCount === 1 ? 'filter' : 'filters'} applied`}
+              >
+                <FaUndo className="text-[10px]" />
+                <span>Reset</span>
+              </button>
             )}
           </div>
-
-          {activeFilterCount > 0 && (
-            <button
-              type="button"
-              onClick={handleResetFilters}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-rose-600 bg-rose-50 hover:bg-rose-100 font-bold transition-all text-xs cursor-pointer self-start sm:self-auto"
-            >
-              <FaUndo className="text-[10px]" />
-              <span>Reset Filters</span>
-            </button>
-          )}
         </div>
       </div>
 
@@ -549,27 +516,25 @@ const Labour = () => {
             )}
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-gray-600 min-w-[1100px]">
-              <thead className="bg-slate-50/80 border-b border-gray-200 text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">
+          <div className="overflow-x-auto hide-scrollbar">
+            <table className="w-full text-left text-sm text-gray-600">
+              <thead className="bg-slate-50/80 border-b border-gray-200 text-[10px] font-extrabold text-slate-500 uppercase tracking-wide">
                 <tr>
-                  <th className="px-5 py-3.5 text-center w-12">#</th>
-                  <th className="px-5 py-3.5">Labour Name</th>
-                  <th className="px-5 py-3.5">Mobile</th>
-                  <th className="px-5 py-3.5">Address</th>
-                  <th className="px-5 py-3.5">Project</th>
-                  <th className="px-5 py-3.5 text-right">Daily Wage</th>
-                  <th className="px-5 py-3.5">Start Date</th>
-                  <th className="px-5 py-3.5 text-center">Status</th>
-                  <th className="px-5 py-3.5 text-right">Total Earned</th>
-                  <th className="px-5 py-3.5 text-right">Total Paid</th>
-                  <th className="px-5 py-3.5 text-right">Balance</th>
-                  <th className="px-5 py-3.5 text-center w-36">Actions</th>
+                  <th className="px-2.5 py-3 text-center w-8">#</th>
+                  <th className="px-2.5 py-3">Name</th>
+                  <th className="px-2.5 py-3">Address</th>
+                  <th className="px-2.5 py-3">Project</th>
+                  <th className="px-2.5 py-3 text-right">Daily Wage</th>
+                  <th className="px-2.5 py-3">Start Date</th>
+                  <th className="px-2.5 py-3 text-center">Status</th>
+                  <th className="px-2.5 py-3 text-right">Total Earned</th>
+                  <th className="px-2.5 py-3 text-right">Total Paid</th>
+                  <th className="px-2.5 py-3 text-right">Balance</th>
+                  <th className="px-2.5 py-3 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 font-medium">
                 {displayedLabours.map((labour, index) => {
-                  const isStopped = labour.status === 'STOPPED';
 
                   return (
                     <tr
@@ -577,38 +542,35 @@ const Labour = () => {
                       className="hover:bg-slate-50/60 transition-colors group"
                     >
                       {/* # Index */}
-                      <td className="px-5 py-4 text-center font-mono text-xs text-gray-400 font-semibold">
+                      <td className="px-2.5 py-3.5 text-center font-mono text-xs text-gray-400 font-semibold">
                         {index + 1}
                       </td>
 
                       {/* Labour Name */}
-                      <td className="px-5 py-4">
+                      <td className="px-2.5 py-3.5">
                         <Link
                           to={`/labour/${labour.id}`}
                           className="font-extrabold text-slate-900 block tracking-tight hover:text-emerald-700 hover:underline transition-colors"
                         >
                           {labour.name}
                         </Link>
-                      </td>
-
-                      {/* Mobile */}
-                      <td className="px-5 py-4">
-                        <div className="flex items-center space-x-1.5 text-xs text-slate-700 font-semibold">
+                        {/* Mobile */}
+                        <div className="flex items-center space-x-1.5 text-xs text-slate-700 font-semibold mt-0.5 whitespace-nowrap">
                           <FaPhoneAlt className="text-gray-400 text-[10px]" />
                           <span>{labour.mobile}</span>
                         </div>
                       </td>
 
                       {/* Address */}
-                      <td className="px-5 py-4">
-                        <div className="flex items-center space-x-1.5 text-xs text-slate-600 font-medium">
-                          <FaMapMarkerAlt className="text-gray-400 text-[11px]" />
-                          <span>{labour.address || labour.location}</span>
+                      <td className="px-2.5 py-3.5">
+                        <div className="flex items-start space-x-1.5 text-xs text-slate-600 font-medium">
+                          <FaMapMarkerAlt className="text-gray-400 text-[11px] flex-shrink-0 mt-0.5" />
+                          <span className="break-words">{labour.address || labour.location}</span>
                         </div>
                       </td>
 
                       {/* Project */}
-                      <td className="px-5 py-4">
+                      <td className="px-2.5 py-3.5">
                         {labour.project ? (
                           <div className="flex items-center space-x-1.5 text-xs">
                             <FaBuilding className="text-emerald-600 text-[11px] flex-shrink-0" />
@@ -631,29 +593,29 @@ const Labour = () => {
                       </td>
 
                       {/* Daily Wage */}
-                      <td className="px-5 py-4 text-right">
-                        <span className="font-black text-slate-900 font-mono text-xs">
+                      <td className="px-2.5 py-3.5 text-right">
+                        <span className="font-black text-slate-900 font-mono text-xs whitespace-nowrap">
                           ₹{Number(labour.dailyWage || 0).toLocaleString('en-IN')}
                         </span>
                       </td>
 
                       {/* Start Date */}
-                      <td className="px-5 py-4 text-xs text-slate-600 font-medium">
-                        <div className="flex items-center space-x-1.5">
+                      <td className="px-2.5 py-3.5 text-xs text-slate-600 font-medium">
+                        <div className="flex items-center space-x-1.5 whitespace-nowrap">
                           <FaCalendarAlt className="text-gray-400 text-[10px]" />
                           <span>{labour.startDate ? formatDateShortMonth(labour.startDate, '-') : '-'}</span>
                         </div>
                       </td>
 
                       {/* Status */}
-                      <td className="px-5 py-4 text-center">
+                      <td className="px-2.5 py-3.5 text-center">
                         {labour.status === 'ACTIVE' ? (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>
                             ACTIVE
                           </span>
                         ) : (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-slate-100 text-slate-700 border border-slate-200">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-slate-100 text-slate-700 border border-slate-200">
                             <span className="w-1.5 h-1.5 rounded-full bg-slate-400 mr-1.5"></span>
                             INACTIVE
                           </span>
@@ -661,7 +623,7 @@ const Labour = () => {
                       </td>
 
                       {/* Total Earned (Calculated in Phase 6) */}
-                      <td className="px-5 py-4 text-right">
+                      <td className="px-2.5 py-3.5 text-right">
                         <div className="flex flex-col items-end">
                           <span className="font-black text-slate-900 font-mono text-xs">
                             ₹{Number(labour.totalEarned || 0).toLocaleString('en-IN', {
@@ -676,7 +638,7 @@ const Labour = () => {
                       </td>
 
                       {/* Total Paid (Phase 7) */}
-                      <td className="px-5 py-4 text-right">
+                      <td className="px-2.5 py-3.5 text-right">
                         <div className="flex flex-col items-end">
                           <button
                             type="button"
@@ -693,7 +655,7 @@ const Labour = () => {
                       </td>
 
                       {/* Balance (Phase 7) */}
-                      <td className="px-5 py-4 text-right">
+                      <td className="px-2.5 py-3.5 text-right">
                         <div className="flex flex-col items-end">
                           <span
                             className={`font-black font-mono text-xs ${
@@ -717,70 +679,16 @@ const Labour = () => {
                         </div>
                       </td>
 
-                      {/* Actions: Pay, History, View, Edit, Stop */}
-                      <td className="px-5 py-4 text-center">
-                        <div className="inline-flex items-center space-x-1">
-                          {/* Pay Button (Phase 7) */}
-                          <button
-                            type="button"
-                            onClick={() => handleOpenPayment(labour)}
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 transition-colors cursor-pointer"
-                            title="Record Payment"
-                          >
-                            <FaMoneyBillWave className="text-xs" />
-                          </button>
-
-                          {/* Payment History Button (Phase 7) */}
-                          <button
-                            type="button"
-                            onClick={() => handleOpenHistory(labour)}
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors cursor-pointer"
-                            title="Payment History"
-                          >
-                            <FaHistory className="text-xs" />
-                          </button>
-
-                          {/* View Button */}
-                          <button
-                            type="button"
-                            onClick={() => navigate(`/labour/${labour.id}`)}
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
-                            title="View labour details"
-                          >
-                            <FaEye className="text-xs" />
-                          </button>
-
-                          {/* Edit Button */}
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEdit(labour)}
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 transition-colors cursor-pointer"
-                            title="Edit labour details"
-                          >
-                            <FaEdit className="text-xs" />
-                          </button>
-
-                          {/* Stop Button */}
-                          {labour.status === 'ACTIVE' ? (
-                            <button
-                              type="button"
-                              onClick={() => handleOpenStopConfirm(labour)}
-                              className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                              title="Stop active labour"
-                            >
-                              <FaBan className="text-xs" />
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              disabled
-                              className="p-1.5 rounded-lg text-gray-200 cursor-not-allowed opacity-30"
-                              title="Worker is not currently active on a project"
-                            >
-                              <FaBan className="text-xs" />
-                            </button>
-                          )}
-                        </div>
+                      {/* Actions: Pay only. Stop and Edit live on the worker's profile, so they can't be clicked by mistake here */}
+                      <td className="px-2.5 py-3.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenPayment(labour)}
+                          className="px-4 py-1.5 rounded-lg text-xs bg-[#FFB82E]/10 text-[#FFC14D] border border-[#FFB82E]/30 hover:bg-[#FFB82E]/20 transition-colors cursor-pointer whitespace-nowrap"
+                          title="Record payment"
+                        >
+                          Pay
+                        </button>
                       </td>
                     </tr>
                   );
@@ -801,34 +709,6 @@ const Labour = () => {
         onSuccess={handleModalSuccess}
         mode={modalMode}
         labour={activeLabour}
-      />
-
-      {/* 6. Stop Labour Confirmation Modal */}
-      <ConfirmationModal
-        isOpen={isStopModalOpen}
-        onClose={handleCloseStopConfirm}
-        onConfirm={handleConfirmStop}
-        title="Stop Labour"
-        confirmText="Stop Labour"
-        cancelText="Cancel"
-        isDanger={true}
-        isLoading={isStopping}
-        message={
-          <div className="space-y-3">
-            <p className="text-gray-800 text-sm font-medium">
-              Are you sure you want to stop <span className="font-bold text-gray-900">{labourToStop?.name}</span>?
-            </p>
-            <p className="text-xs text-gray-500 font-normal">
-              Once stopped, this labour will no longer be considered active.
-            </p>
-            <div className="bg-white p-2.5 rounded-lg border border-gray-200 flex items-center justify-between text-xs">
-              <span className="text-gray-500 font-medium">Stop Date:</span>
-              <span className="font-bold text-gray-800">
-                {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-              </span>
-            </div>
-          </div>
-        }
       />
 
       {/* 7. Record Payment Modal (Phase 7) */}
