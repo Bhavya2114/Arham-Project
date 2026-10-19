@@ -1,83 +1,115 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axiosInstance from '../utils/api';
-import { 
+import {
   FaSearch,
   FaTable,
   FaThLarge,
   FaTimes,
   FaExternalLinkAlt,
-  FaBuilding,
-  FaChartLine,
+  FaArrowUp,
+  FaArrowDown,
+  FaUser,
+  FaHashtag,
+  FaMapMarkerAlt,
+  FaCalendarAlt,
 } from 'react-icons/fa';
-import { formatDateToIndian } from '../utils/dateUtils';
+import { parseDateParts, formatDateRange } from '../utils/dateUtils';
 
+// Rectangular outlined badges, same colours as the Projects page
 const STATUS_BADGES = {
-  PLANNING: 'bg-blue-100 text-blue-800 border-blue-200',
-  IN_PROGRESS: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-  ACTIVE: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-  ON_HOLD: 'bg-amber-100 text-amber-800 border-amber-200',
-  COMPLETED: 'bg-purple-100 text-purple-800 border-purple-200',
-  CANCELLED: 'bg-rose-100 text-rose-800 border-rose-200',
+  PLANNING: { label: 'Planning', cls: 'bg-[#60A5FA]/10 text-[#93C5FD] border-[#60A5FA]/40' },
+  IN_PROGRESS: { label: 'Ongoing', cls: 'bg-[#22C55E]/10 text-[#4ADE80] border-[#22C55E]/40' },
+  ACTIVE: { label: 'Ongoing', cls: 'bg-[#22C55E]/10 text-[#4ADE80] border-[#22C55E]/40' },
+  ON_HOLD: { label: 'On hold', cls: 'bg-[#FFB82E]/10 text-[#FFC14D] border-[#FFB82E]/40' },
+  COMPLETED: { label: 'Completed', cls: 'bg-[#A78BFA]/10 text-[#C4B5FD] border-[#A78BFA]/40' },
+  CANCELLED: { label: 'Cancelled', cls: 'bg-[#F87171]/10 text-[#FCA5A5] border-[#F87171]/40' },
 };
 
-const formatIndianCurrency = (val, showDecimals = false) => {
-  const num = Number(val) || 0;
-  if (showDecimals) {
-    return num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
-  return num.toLocaleString('en-IN', { maximumFractionDigits: 0 });
-};
-
-const getCardStatusBadge = (status) => {
-  if (status === 'COMPLETED') {
-    return {
-      label: 'Completed',
-      className: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    };
-  }
-  if (status === 'IN_PROGRESS' || status === 'ACTIVE') {
-    return {
-      label: 'Ongoing',
-      className: 'bg-blue-50 text-blue-700 border-blue-200',
-    };
-  }
-  if (status === 'PLANNING') {
-    return {
-      label: 'Planning',
-      className: 'bg-sky-50 text-sky-700 border-sky-200',
-    };
-  }
-  if (status === 'ON_HOLD') {
-    return {
-      label: 'On Hold',
-      className: 'bg-amber-50 text-amber-700 border-amber-200',
-    };
-  }
-  return {
-    label: (status || 'N/A').replace('_', ' '),
-    className: 'bg-slate-50 text-slate-700 border-slate-200',
+const getStatusBadge = (status) =>
+  STATUS_BADGES[status] || {
+    label: status ? status.charAt(0) + status.slice(1).toLowerCase().replace('_', ' ') : 'N/A',
+    cls: 'bg-[#908C84]/10 text-[#B8B4AC] border-[#908C84]/40',
   };
+
+const StatusBadge = ({ status }) => {
+  const badge = getStatusBadge(status);
+  return (
+    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap px-2 py-0.5 text-[11px] font-medium rounded-md border ${badge.cls}`}>
+      <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+      {badge.label}
+    </span>
+  );
 };
+
+const capitalise = (text) => (text ? text.trim().charAt(0).toUpperCase() + text.trim().slice(1) : '');
+
+// Whole rupees everywhere on this page
+const formatRupees = (val) => `₹${Math.round(Number(val) || 0).toLocaleString('en-IN')}`;
+
+// Normalise the old and new field names coming from the API
+const getFigures = (p) => {
+  const budget = Number(p.projectBudget !== undefined ? p.projectBudget : (p.revenue || 0)) || 0;
+  const cost = Number(p.actualProjectCost !== undefined ? p.actualProjectCost : (p.totalProjectCost || 0)) || 0;
+  const profit = Number(p.projectProfit !== undefined ? p.projectProfit : (p.grossProfit || 0)) || 0;
+  const margin = Math.round(Number(p.projectMargin !== undefined ? p.projectMargin : (p.grossMargin || 0)) || 0);
+  const budgetUsed = budget > 0 ? Math.round((cost / budget) * 100) : 0;
+  return { budget, cost, profit, margin, budgetUsed };
+};
+
+const marginBadgeCls = (margin) => {
+  if (margin < 0) return 'bg-[#F87171]/10 text-[#FCA5A5] border-[#F87171]/40';
+  if (margin < 25) return 'bg-[#FFB82E]/10 text-[#FFC14D] border-[#FFB82E]/40';
+  return 'bg-[#22C55E]/10 text-[#4ADE80] border-[#22C55E]/40';
+};
+
+const MarginBadge = ({ margin }) => (
+  <span className={`px-1.5 py-0.5 rounded-md border text-[11px] font-semibold whitespace-nowrap ${marginBadgeCls(margin)}`}>
+    {margin}%
+  </span>
+);
+
+const budgetBarCls = (used) => {
+  if (used > 100) return 'bg-[#F87171]';
+  if (used > 80) return 'bg-[#FFB82E]';
+  return 'bg-slate-400';
+};
+
+const profitCls = (profit) => (profit >= 0 ? 'text-[#4ADE80]' : 'text-[#FCA5A5]');
+
+const SORT_OPTIONS = [
+  { field: 'profit', label: 'Profit' },
+  { field: 'margin', label: 'Margin' },
+  { field: 'budgetUsed', label: 'Budget used' },
+];
 
 const Reports = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('projects'); // 'projects'
 
-  // Data States
   const [projectsProfitability, setProjectsProfitability] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Projects Profitability interactive states
-  const [viewMode, setViewMode] = useState('cards'); // 'cards' (default) | 'table'
+  const [viewMode, setViewMode] = useState('cards'); // 'cards' | 'table'
   const [filterStatus, setFilterStatus] = useState('ALL'); // 'ALL' | 'ONGOING' | 'COMPLETED'
   const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState(null); // null keeps the API order
+  const [sortAsc, setSortAsc] = useState(true);
   const [selectedProject, setSelectedProject] = useState(null);
 
   useEffect(() => {
     fetchReportData();
   }, []);
+
+  // Esc closes the project pop-up
+  useEffect(() => {
+    if (!selectedProject) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setSelectedProject(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedProject]);
 
   const fetchReportData = async () => {
     setLoading(true);
@@ -93,18 +125,23 @@ const Reports = () => {
     }
   };
 
-  // KPI aggregates for Projects Profitability
-  const totalProjectsCount = projectsProfitability.length;
-  const totalProfitSum = projectsProfitability.reduce((sum, p) => {
-    const profit = p.projectProfit !== undefined ? p.projectProfit : (p.grossProfit || 0);
-    return sum + Number(profit || 0);
-  }, 0);
-  // Filter counts
+  // Summary figures across all projects
+  const totals = projectsProfitability.reduce(
+    (acc, p) => {
+      const f = getFigures(p);
+      acc.budget += f.budget;
+      acc.cost += f.cost;
+      acc.profit += f.profit;
+      return acc;
+    },
+    { budget: 0, cost: 0, profit: 0 }
+  );
+  const averageMargin = totals.budget > 0 ? Math.round((totals.profit / totals.budget) * 100) : 0;
+
   const allCount = projectsProfitability.length;
   const ongoingCount = projectsProfitability.filter(p => p.status !== 'COMPLETED' && p.status !== 'CANCELLED').length;
   const completedCount = projectsProfitability.filter(p => p.status === 'COMPLETED').length;
 
-  // Filtered projects
   const filteredProjects = projectsProfitability.filter((p) => {
     if (filterStatus === 'ONGOING' && (p.status === 'COMPLETED' || p.status === 'CANCELLED')) {
       return false;
@@ -124,119 +161,139 @@ const Reports = () => {
     return true;
   });
 
-  return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Reports</h1>
-          <p className="text-slate-500 text-xs sm:text-sm mt-0.5">How each project is doing on budget and cost.</p>
-        </div>
-      </div>
+  const sortedProjects = sortBy
+    ? [...filteredProjects].sort((a, b) => {
+        const diff = getFigures(a)[sortBy] - getFigures(b)[sortBy];
+        return sortAsc ? diff : -diff;
+      })
+    : filteredProjects;
 
-      {/* Report Tabs Row */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-2 overflow-x-auto">
-          <button
-            onClick={() => setActiveTab('projects')}
-            className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap ${
-              activeTab === 'projects'
-                ? 'bg-slate-900 text-white shadow-sm'
-                : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200/80'
-            }`}
-          >
-            Projects Profitability
-          </button>
-        </div>
+  // Totals row for the table follows the current filter and search
+  const listTotals = sortedProjects.reduce(
+    (acc, p) => {
+      const f = getFigures(p);
+      acc.budget += f.budget;
+      acc.materials += Number(p.totalMaterialCost) || 0;
+      acc.expenses += Number(p.totalProjectExpenses) || 0;
+      acc.labour += Number(p.totalLabourCost) || 0;
+      acc.cost += f.cost;
+      acc.profit += f.profit;
+      return acc;
+    },
+    { budget: 0, materials: 0, expenses: 0, labour: 0, cost: 0, profit: 0 }
+  );
+  const listMargin = listTotals.budget > 0 ? Math.round((listTotals.profit / listTotals.budget) * 100) : 0;
+
+  // First click sorts weakest first; clicking again reverses
+  const handleSort = (field) => {
+    if (sortBy === field) {
+      setSortAsc(!sortAsc);
+    } else {
+      setSortBy(field);
+      setSortAsc(field !== 'budgetUsed');
+    }
+  };
+
+  const filterBtnCls = (active) =>
+    `px-3 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap ${
+      active
+        ? 'bg-slate-200 text-slate-900 border border-slate-300'
+        : 'bg-white hover:bg-slate-100 text-slate-600 border border-transparent'
+    }`;
+
+  const summaryCards = [
+    { label: 'Total projects', value: allCount, cls: 'text-slate-900' },
+    { label: 'Total budget', value: formatRupees(totals.budget), cls: 'text-slate-900' },
+    { label: 'Total cost', value: formatRupees(totals.cost), cls: 'text-slate-900' },
+    { label: 'Total profit', value: formatRupees(totals.profit), cls: profitCls(totals.profit) },
+    { label: 'Average margin', value: `${averageMargin}%`, cls: profitCls(averageMargin) },
+  ];
+
+  return (
+    <div className="flex flex-col gap-4 lg:h-[calc(100vh-3rem)]">
+      {/* Page Header */}
+      <div className="shrink-0">
+        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Reports</h1>
+        <p className="text-slate-500 text-xs sm:text-sm mt-0.5">How each project is doing on budget and cost.</p>
       </div>
 
       {error && (
-        <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-2xl text-sm font-medium">
+        <div className="shrink-0 p-4 bg-red-50 border border-red-200 text-red-700 rounded-2xl text-sm font-medium">
           {error}
         </div>
       )}
 
       {loading ? (
         <div className="flex flex-col items-center justify-center py-16 space-y-3 bg-white border border-gray-200 rounded-2xl">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-emerald-600"></div>
-          <p className="text-sm text-gray-400">Generating report analytics...</p>
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#FFB82E]"></div>
+          <p className="text-sm text-gray-400">Loading report...</p>
         </div>
       ) : (
-        <div className="space-y-5">
-          {/* Four KPI Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* 1. Total Projects */}
-            <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-sm space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Total projects</span>
-                <FaBuilding className="text-slate-300 text-xs" />
+        <>
+          {/* Summary cards */}
+          <div className="shrink-0 grid grid-cols-2 lg:grid-cols-5 gap-3">
+            {summaryCards.map((c, i) => (
+              <div
+                key={c.label}
+                className={`bg-white border border-slate-200/90 rounded-2xl px-4 py-3.5 ${i === 0 ? 'col-span-2 lg:col-span-1' : ''}`}
+              >
+                <span className="text-xs font-medium text-slate-400 block">{c.label}</span>
+                <p className={`text-xl font-bold mt-1 ${c.cls}`}>{c.value}</p>
               </div>
-              <p className="text-3xl font-extrabold text-slate-900">{totalProjectsCount}</p>
-            </div>
-
-            {/* 2. Total Profit */}
-            <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-sm space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Total profit</span>
-                <FaChartLine className="text-emerald-400 text-xs" />
-              </div>
-              <p className="text-2xl font-extrabold text-emerald-700">₹{formatIndianCurrency(totalProfitSum)}</p>
-            </div>
-
+            ))}
           </div>
 
-          {/* Filter & Action Row */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-            {/* Left Filter Buttons */}
-            <div className="flex items-center gap-1.5 overflow-x-auto">
-              <button
-                onClick={() => setFilterStatus('ALL')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                  filterStatus === 'ALL'
-                    ? 'bg-slate-200 text-slate-900 border border-slate-300 shadow-xs'
-                    : 'bg-white hover:bg-slate-100 text-slate-600 border border-transparent'
-                }`}
-              >
-                All · {allCount}
-              </button>
-              <button
-                onClick={() => setFilterStatus('ONGOING')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                  filterStatus === 'ONGOING'
-                    ? 'bg-slate-200 text-slate-900 border border-slate-300 shadow-xs'
-                    : 'bg-white hover:bg-slate-100 text-slate-600 border border-transparent'
-                }`}
-              >
-                Ongoing · {ongoingCount}
-              </button>
-              <button
-                onClick={() => setFilterStatus('COMPLETED')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                  filterStatus === 'COMPLETED'
-                    ? 'bg-slate-200 text-slate-900 border border-slate-300 shadow-xs'
-                    : 'bg-white hover:bg-slate-100 text-slate-600 border border-transparent'
-                }`}
-              >
-                Completed · {completedCount}
-              </button>
+          {/* Filters, sort, search and view toggle */}
+          <div className="shrink-0 flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-1.5 overflow-x-auto">
+                <button onClick={() => setFilterStatus('ALL')} className={filterBtnCls(filterStatus === 'ALL')}>
+                  All · {allCount}
+                </button>
+                <button onClick={() => setFilterStatus('ONGOING')} className={filterBtnCls(filterStatus === 'ONGOING')}>
+                  Ongoing · {ongoingCount}
+                </button>
+                <button onClick={() => setFilterStatus('COMPLETED')} className={filterBtnCls(filterStatus === 'COMPLETED')}>
+                  Completed · {completedCount}
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1.5 text-xs">
+                <span className="text-gray-400 mr-1">Sort by</span>
+                {SORT_OPTIONS.map(({ field, label }) => (
+                  <button
+                    key={field}
+                    type="button"
+                    onClick={() => handleSort(field)}
+                    className={`px-3 py-1.5 rounded-xl border transition-colors inline-flex items-center gap-1.5 whitespace-nowrap ${
+                      sortBy === field
+                        ? 'bg-[#FFB82E]/10 border-[#FFB82E]/40 text-[#FFC14D]'
+                        : 'bg-white border-gray-200 text-gray-500 hover:text-gray-800'
+                    }`}
+                    title={sortBy === field ? 'Click to reverse order' : `Sort by ${label.toLowerCase()}`}
+                  >
+                    {label}
+                    {sortBy === field && (sortAsc ? <FaArrowUp className="text-[9px]" /> : <FaArrowDown className="text-[9px]" />)}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* Right Controls: Search + View Toggle */}
             <div className="flex items-center gap-2">
-              <div className="relative">
+              <div className="relative flex-1 xl:flex-none">
                 <input
                   type="text"
                   placeholder="Search project or client"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-48 sm:w-60 pl-3 pr-8 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-slate-400 shadow-xs"
+                  className="w-full xl:w-60 pl-3 pr-8 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-slate-400"
                 />
                 <FaSearch className="absolute right-2.5 top-2.5 text-slate-300 text-xs pointer-events-none" />
               </div>
 
               <button
                 onClick={() => setViewMode(viewMode === 'cards' ? 'table' : 'cards')}
-                className="px-3.5 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 shadow-xs transition-colors flex items-center space-x-1.5 whitespace-nowrap"
+                className="px-3.5 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 transition-colors flex items-center space-x-1.5 whitespace-nowrap"
               >
                 {viewMode === 'cards' ? (
                   <>
@@ -253,128 +310,116 @@ const Reports = () => {
             </div>
           </div>
 
-          {/* CARD VIEW (DEFAULT) */}
+          {/* CARD VIEW: only this box scrolls */}
           {viewMode === 'cards' && (
-            filteredProjects.length === 0 ? (
+            sortedProjects.length === 0 ? (
               <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center text-slate-400 text-xs">
-                No projects found matching the selected filter or search term.
+                No projects match this filter or search.
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                {filteredProjects.map((p) => {
-                  const profit = p.projectProfit !== undefined ? p.projectProfit : (p.grossProfit || 0);
-                  const margin = p.projectMargin !== undefined ? p.projectMargin : (p.grossMargin || 0);
-                  const budget = p.projectBudget !== undefined ? p.projectBudget : (p.revenue || 0);
-                  const cost = p.actualProjectCost !== undefined ? p.actualProjectCost : (p.totalProjectCost || 0);
-                  const budgetUsedPercent = budget > 0 ? Math.round((cost / budget) * 100) : 0;
-                  const statusBadge = getCardStatusBadge(p.status);
-                  const isSelected = selectedProject?.projectId === p.projectId;
+              <div className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto custom-table-scrollbar lg:pr-1">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                  {sortedProjects.map((p) => {
+                    const { budget, cost, profit, margin, budgetUsed } = getFigures(p);
+                    const isSelected = selectedProject?.projectId === p.projectId;
+                    const isOngoing = p.status !== 'COMPLETED' && p.status !== 'CANCELLED';
+                    const isOverBudget = cost > budget;
+                    const noCosts = cost === 0;
 
-                  return (
-                    <div
-                      key={p.projectId}
-                      className={`bg-white rounded-2xl p-5 shadow-sm transition-all flex flex-col justify-between ${
-                        isSelected
-                          ? 'border-2 border-emerald-500 shadow-md ring-2 ring-emerald-50'
-                          : 'border border-slate-200 hover:border-slate-300 hover:shadow-md'
-                      }`}
-                    >
-                      {/* Card Header: Project Name & Status */}
-                      <div>
-                        <div className="flex items-start justify-between gap-2">
-                          <h3 className="font-bold text-slate-900 text-base leading-tight truncate">
-                            {p.projectName}
-                          </h3>
-                          <span className={`px-2.5 py-0.5 text-[11px] font-semibold rounded-full border whitespace-nowrap ${statusBadge.className}`}>
-                            {statusBadge.label}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-400 font-medium truncate mt-0.5">
-                          {p.customerName} · {p.projectCode}
-                        </p>
-
-                        {/* Project Profit Section */}
-                        <div className="mt-4">
-                          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                            Project profit
-                          </span>
-                          <div className="flex items-baseline space-x-2 mt-0.5">
-                            <span className={`text-2xl font-black ${profit >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
-                              ₹{formatIndianCurrency(profit)}
-                            </span>
-                            {margin > 0 && margin < 100 && (
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                                margin < 25
-                                  ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                  : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                              }`}>
-                                {margin}%
-                              </span>
-                            )}
+                    return (
+                      <button
+                        type="button"
+                        key={p.projectId}
+                        onClick={() => setSelectedProject(p)}
+                        title="View details"
+                        className={`text-left bg-white rounded-2xl p-4 transition-all cursor-pointer flex flex-col justify-start gap-3 ${
+                          isSelected
+                            ? 'border border-[#FFB82E]/60 ring-1 ring-[#FFB82E]/30'
+                            : 'border border-slate-200 hover:border-[#FFB82E]/40'
+                        }`}
+                      >
+                        <div className="w-full">
+                          <div className="flex items-start justify-between gap-2">
+                            <h3 className="font-bold text-slate-900 text-base leading-tight truncate">
+                              {capitalise(p.projectName)}
+                            </h3>
+                            <StatusBadge status={p.status} />
                           </div>
-                        </div>
-
-                        {/* Budget Used & Progress Bar */}
-                        <div className="mt-4 space-y-1.5">
-                          <div className="flex justify-between items-center text-xs text-slate-500 font-medium">
-                            <span>Budget used</span>
-                            <span className="font-semibold text-slate-700">{budgetUsedPercent}%</span>
-                          </div>
-                          <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                            <div
-                              className={`h-full rounded-full transition-all duration-300 ${
-                                budgetUsedPercent > 80 ? 'bg-amber-500' : 'bg-slate-400'
-                              }`}
-                              style={{ width: `${Math.min(100, Math.max(0, budgetUsedPercent))}%` }}
-                            ></div>
-                          </div>
-                        </div>
-
-                        {/* Compact Financial Summary Lines */}
-                        <div className="mt-3.5 space-y-1 text-xs text-slate-500">
-                          <p className="truncate">
-                            Budget: ₹{formatIndianCurrency(budget)} · Cost: ₹{formatIndianCurrency(cost)}
+                          <p className="text-xs text-slate-400 font-medium truncate mt-0.5">
+                            {p.customerName} · {p.projectCode}
                           </p>
                         </div>
-                      </div>
 
-                      {/* View Details Button */}
-                      <div className="mt-5 pt-3 border-t border-slate-100">
-                        <button
-                          onClick={() => setSelectedProject(p)}
-                          className="w-full py-2 px-3 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 transition-colors shadow-xs text-center"
-                        >
-                          View details
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+                        {/* Ongoing work leads with budget left; finished work with final profit */}
+                        {isOngoing ? (
+                          <div className="w-full">
+                            <span className="text-xs font-medium text-slate-400 block">
+                              {isOverBudget ? 'Over budget' : 'Budget left'}
+                            </span>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className={`text-2xl font-bold ${isOverBudget ? 'text-[#FCA5A5]' : 'text-slate-900'}`}>
+                                {formatRupees(Math.abs(budget - cost))}
+                              </span>
+                              {noCosts && <span className="text-[11px] text-slate-400">No costs yet</span>}
+                            </div>
+                            <div className="flex justify-between items-center text-xs text-slate-500 font-medium mt-2.5">
+                              <span>Budget used</span>
+                              <span className={`font-semibold ${isOverBudget ? 'text-[#FCA5A5]' : 'text-slate-700'}`}>{budgetUsed}%</span>
+                            </div>
+                            <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden mt-1.5">
+                              <div
+                                className={`h-full rounded-full transition-all duration-300 ${budgetBarCls(budgetUsed)}`}
+                                style={{ width: `${Math.min(100, Math.max(0, budgetUsed))}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="w-full">
+                            <span className="text-xs font-medium text-slate-400 block">Project profit</span>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className={`text-2xl font-bold ${profitCls(profit)}`}>{formatRupees(profit)}</span>
+                              {noCosts
+                                ? <span className="text-[11px] text-slate-400">No costs yet</span>
+                                : <MarginBadge margin={margin} />}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Pinned to the bottom so every card lines up */}
+                        <div className="w-full mt-auto pt-2.5 border-t border-slate-100 grid grid-cols-2 gap-2">
+                          <div>
+                            <span className="text-[11px] text-slate-400 block">Budget</span>
+                            <span className="text-sm font-semibold text-slate-900">{formatRupees(budget)}</span>
+                          </div>
+                          <div>
+                            <span className="text-[11px] text-slate-400 block">{isOngoing ? 'Cost so far' : 'Final cost'}</span>
+                            <span className="text-sm font-semibold text-slate-900">{formatRupees(cost)}</span>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )
           )}
 
-          {/* TABLE VIEW (ALTERNATIVE) */}
+          {/* TABLE VIEW: only this box scrolls */}
           {viewMode === 'table' && (
-            <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden space-y-4">
-              <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
-                <div>
-                  <h3 className="font-extrabold text-slate-900 text-base">Construction Projects Profitability Directory</h3>
-                  <p className="text-xs text-gray-500">Executive comparison of Project Budget, actual costs (materials + expenses), project profit and margins.</p>
-                </div>
-                <span className="text-xs font-bold bg-purple-100 text-purple-800 px-3 py-1 rounded-full">
-                  {projectsProfitability.length} Projects
-                </span>
+            <div className="lg:flex-1 lg:min-h-0 flex flex-col bg-white border border-gray-200 rounded-2xl overflow-hidden">
+              <div className="shrink-0 px-5 py-3 border-b border-gray-100 flex justify-between items-center">
+                <h3 className="font-bold text-slate-900 text-base">Projects</h3>
+                <span className="text-xs text-slate-400">{sortedProjects.length} shown</span>
               </div>
 
-              {filteredProjects.length === 0 ? (
+              {sortedProjects.length === 0 ? (
                 <div className="p-8 text-center text-gray-400 text-xs">
-                  No project profitability records found.
+                  No projects match this filter or search.
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs text-gray-600 min-w-[1150px]">
-                    <thead className="bg-gray-50 border-b border-gray-200 text-[10px] font-extrabold text-gray-500 uppercase tracking-wider">
+                <div className="flex-1 min-h-0 overflow-auto custom-table-scrollbar">
+                  <table className="w-full text-left text-xs text-gray-600 min-w-[1050px]">
+                    <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
                       <tr>
                         <th className="px-4 py-3">Project</th>
                         <th className="px-4 py-3">Code</th>
@@ -385,205 +430,308 @@ const Reports = () => {
                         <th className="px-4 py-3 text-right">Labour</th>
                         <th className="px-4 py-3 text-right">Total cost</th>
                         <th className="px-4 py-3 text-right">Profit</th>
-                        <th className="px-4 py-3 text-right">Margin %</th>
+                        <th className="px-4 py-3 text-right">Margin</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 font-medium">
-                      {filteredProjects.map((p) => {
-                        const profit = p.projectProfit !== undefined ? p.projectProfit : p.grossProfit;
-                        const margin = p.projectMargin !== undefined ? p.projectMargin : (p.grossMargin || 0);
-                        const isPositive = profit >= 0;
+                      {sortedProjects.map((p) => {
+                        const { budget, cost, profit, margin } = getFigures(p);
 
                         return (
-                          <tr key={p.projectId} className="hover:bg-gray-50/60 transition-colors">
+                          <tr
+                            key={p.projectId}
+                            onClick={() => setSelectedProject(p)}
+                            className="hover:bg-[#FFB82E]/[0.05] transition-colors cursor-pointer"
+                          >
                             <td className="px-4 py-3">
-                              <span className="font-extrabold text-slate-900 block">{p.projectName}</span>
-                              <span className="text-[10px] text-gray-400 font-semibold">{p.customerName}</span>
+                              <span className="font-semibold text-slate-900 block">{capitalise(p.projectName)}</span>
+                              <span className="text-[11px] text-gray-400">{p.customerName}</span>
                             </td>
-                            <td className="px-4 py-3 font-mono text-emerald-700 font-bold">{p.projectCode}</td>
+                            <td className="px-4 py-3 font-mono text-slate-500">{p.projectCode}</td>
                             <td className="px-4 py-3 text-center">
-                              <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded border whitespace-nowrap ${STATUS_BADGES[p.status] || 'bg-gray-100 text-gray-800 border-gray-200'}`}>
-                                {p.status ? p.status.replace('_', ' ') : 'N/A'}
-                              </span>
+                              <StatusBadge status={p.status} />
                             </td>
-                            <td className="px-4 py-3 text-right font-black text-indigo-950">
-                              ₹{(p.projectBudget !== undefined ? p.projectBudget : (p.revenue || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="px-4 py-3 text-right font-medium text-slate-600">
-                              ₹{(p.totalMaterialCost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="px-4 py-3 text-right font-medium text-slate-600">
-                              ₹{(p.totalProjectExpenses || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="px-4 py-3 text-right font-medium text-slate-600">
-                              ₹{(p.totalLabourCost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="px-4 py-3 text-right font-bold text-slate-800">
-                              ₹{(p.actualProjectCost !== undefined ? p.actualProjectCost : (p.totalProjectCost || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className={`px-4 py-3 text-right font-black ${isPositive ? 'text-emerald-700' : 'text-rose-600'}`}>
-                              ₹{profit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="px-4 py-3 text-right font-black font-mono">
-                              <span className={`px-2 py-0.5 rounded text-[10px] ${isPositive ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'}`}>
-                                {margin}%
-                              </span>
+                            <td className="px-4 py-3 text-right font-semibold text-slate-900">{formatRupees(budget)}</td>
+                            <td className="px-4 py-3 text-right text-slate-600">{formatRupees(p.totalMaterialCost)}</td>
+                            <td className="px-4 py-3 text-right text-slate-600">{formatRupees(p.totalProjectExpenses)}</td>
+                            <td className="px-4 py-3 text-right text-slate-600">{formatRupees(p.totalLabourCost)}</td>
+                            <td className="px-4 py-3 text-right font-semibold text-slate-800">{formatRupees(cost)}</td>
+                            <td className={`px-4 py-3 text-right font-bold ${profitCls(profit)}`}>{formatRupees(profit)}</td>
+                            <td className="px-4 py-3 text-right">
+                              <MarginBadge margin={margin} />
                             </td>
                           </tr>
                         );
                       })}
                     </tbody>
+                    <tfoot className="sticky bottom-0 bg-gray-50 border-t border-gray-200 font-bold text-slate-900">
+                      <tr>
+                        <td className="px-4 py-3" colSpan={3}>Total</td>
+                        <td className="px-4 py-3 text-right">{formatRupees(listTotals.budget)}</td>
+                        <td className="px-4 py-3 text-right">{formatRupees(listTotals.materials)}</td>
+                        <td className="px-4 py-3 text-right">{formatRupees(listTotals.expenses)}</td>
+                        <td className="px-4 py-3 text-right">{formatRupees(listTotals.labour)}</td>
+                        <td className="px-4 py-3 text-right">{formatRupees(listTotals.cost)}</td>
+                        <td className={`px-4 py-3 text-right ${profitCls(listTotals.profit)}`}>{formatRupees(listTotals.profit)}</td>
+                        <td className="px-4 py-3 text-right">
+                          <MarginBadge margin={listMargin} />
+                        </td>
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
               )}
             </div>
           )}
-        </div>
+        </>
       )}
 
-      {/* PROJECT DETAILS SLIDE-OVER DRAWER */}
-      {selectedProject && (
-        <div className="fixed inset-0 z-50 overflow-hidden">
-          {/* Backdrop overlay */}
-          <div
-            className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs transition-opacity"
-            onClick={() => setSelectedProject(null)}
-          />
+      {/* PROJECT DETAILS POP-UP */}
+      {selectedProject && (() => {
+        const p = selectedProject;
+        const { budget, cost, profit, margin, budgetUsed } = getFigures(p);
+        const isOngoing = p.status !== 'COMPLETED' && p.status !== 'CANCELLED';
+        const isOverBudget = cost > budget;
+        const noCosts = cost === 0;
 
-          <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
-            <div className="w-screen max-w-md sm:max-w-lg bg-white shadow-2xl flex flex-col border-l border-slate-200">
-              {/* Drawer Header */}
-              <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
-                <div>
+        const toDate = (val) => {
+          const parts = parseDateParts(val);
+          return parts ? new Date(Number(parts.year), Number(parts.month) - 1, Number(parts.day)) : null;
+        };
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const start = toDate(p.startDate);
+        const end = toDate(p.expectedEndDate);
+
+        // Days left or overdue, only for ongoing work with an end date
+        let timelineNote = null;
+        if (isOngoing && end) {
+          const days = Math.round((end - today) / 86400000);
+          if (days < 0) timelineNote = { text: `${-days} ${days === -1 ? 'day' : 'days'} overdue`, late: true };
+          else if (days === 0) timelineNote = { text: 'Due today', late: false };
+          else timelineNote = { text: `${days} ${days === 1 ? 'day' : 'days'} left`, late: false };
+        }
+
+        // Share of the schedule already gone, to compare with budget used
+        let timeUsed = null;
+        if (isOngoing && start && end && end > start) {
+          timeUsed = Math.round(Math.min(1, Math.max(0, (today - start) / (end - start))) * 100);
+        }
+        let paceNote = null;
+        if (timelineNote?.late) {
+          // Past the end date, comparing pace with time no longer makes sense
+          paceNote = isOverBudget
+            ? { text: 'Past end date and over budget', cls: 'text-[#FCA5A5]' }
+            : { text: `Past end date, ${formatRupees(budget - cost)} still unspent`, cls: 'text-[#FFC14D]' };
+        } else if (timeUsed !== null && !noCosts) {
+          if (budgetUsed > timeUsed + 10) paceNote = { text: 'Money is going faster than time', cls: 'text-[#FFC14D]' };
+          else if (budgetUsed < timeUsed - 10) paceNote = { text: 'Money is going slower than time', cls: 'text-[#4ADE80]' };
+          else paceNote = { text: 'Spending is on track with time', cls: 'text-slate-400' };
+        }
+
+        const costParts = [
+          { label: 'Materials', note: 'excl. GST', value: Number(p.totalMaterialCost) || 0, color: 'bg-[#FFB82E]' },
+          { label: 'Labour', note: 'wages earned', value: Number(p.totalLabourCost) || 0, color: 'bg-[#60A5FA]' },
+          { label: 'Other expenses', note: '', value: Number(p.totalProjectExpenses) || 0, color: 'bg-[#A78BFA]' },
+        ];
+
+        const metaItems = [
+          { icon: FaUser, text: p.customerName || 'No client', title: 'Client' },
+          { icon: FaHashtag, text: p.projectCode, title: 'Project code' },
+          p.siteAddress && { icon: FaMapMarkerAlt, text: capitalise(p.siteAddress), title: 'Site' },
+        ].filter(Boolean);
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm modal-fade"
+              onClick={() => setSelectedProject(null)}
+            />
+
+            <div className="relative w-full max-w-3xl max-h-[90vh] bg-white rounded-2xl shadow-2xl flex flex-col border border-slate-200 modal-pop">
+              {/* Header: name, status, then labelled details */}
+              <div className="px-6 py-5 border-b border-slate-100 flex items-start justify-between gap-3">
+                <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <h2 className="text-lg font-bold text-slate-900">{selectedProject.projectName}</h2>
-                    <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-full border ${getCardStatusBadge(selectedProject.status).className}`}>
-                      {getCardStatusBadge(selectedProject.status).label}
+                    <h2 className="text-lg font-bold text-slate-900 truncate">{capitalise(p.projectName)}</h2>
+                    <StatusBadge status={p.status} />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-2 text-xs text-slate-500">
+                    {metaItems.map(({ icon: Icon, text, title }) => (
+                      <span key={title} className="inline-flex items-center gap-1.5" title={title}>
+                        <Icon className="text-slate-400 text-[11px]" />
+                        {text}
+                      </span>
+                    ))}
+                    <span className="inline-flex items-center gap-1.5" title="Dates">
+                      <FaCalendarAlt className="text-slate-400 text-[11px]" />
+                      {formatDateRange(p.startDate, p.expectedEndDate, 'No end date', 'No dates set')}
+                      {timelineNote && (
+                        <span className={timelineNote.late ? 'text-[#FCA5A5] font-semibold' : 'text-slate-400'}>
+                          · {timelineNote.text}
+                        </span>
+                      )}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-400 font-medium mt-0.5">
-                    {selectedProject.customerName} · <span className="font-mono text-emerald-700 font-bold">{selectedProject.projectCode}</span>
-                  </p>
                 </div>
                 <button
                   onClick={() => setSelectedProject(null)}
                   className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors"
+                  title="Close (Esc)"
                 >
                   <FaTimes className="text-sm" />
                 </button>
               </div>
 
-              {/* Drawer Content */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-5">
-                {/* Profit Highlight Banner */}
-                <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-4 flex items-center justify-between">
-                  <div>
-                    <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">Project profit</span>
-                    <p className="text-2xl font-black text-emerald-700 mt-0.5">
-                      ₹{formatIndianCurrency(selectedProject.projectProfit !== undefined ? selectedProject.projectProfit : (selectedProject.grossProfit || 0), true)}
-                    </p>
+              {/* Content: two equal-height boxes */}
+              <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 md:grid-cols-[1fr_1.3fr] gap-4 custom-table-scrollbar">
+                <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 flex flex-col gap-4">
+                  {isOngoing ? (
+                    <>
+                      <div>
+                        <span className="text-xs font-medium text-slate-400 block">{isOverBudget ? 'Over budget' : 'Budget left'}</span>
+                        <p className={`text-2xl font-bold mt-0.5 ${isOverBudget ? 'text-[#FCA5A5]' : 'text-slate-900'}`}>
+                          {formatRupees(Math.abs(budget - cost))}
+                        </p>
+                      </div>
+                      <div className="space-y-3">
+                        {timeUsed !== null && (
+                          <div className="space-y-1.5">
+                            <div className="flex justify-between text-xs text-slate-500">
+                              <span>Time used</span>
+                              <span className="font-semibold text-slate-700">{timeUsed}%</span>
+                            </div>
+                            <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                              <div className="h-full rounded-full bg-[#60A5FA]" style={{ width: `${timeUsed}%` }}></div>
+                            </div>
+                          </div>
+                        )}
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between text-xs text-slate-500">
+                            <span>Budget used</span>
+                            <span className={`font-semibold ${isOverBudget ? 'text-[#FCA5A5]' : 'text-slate-700'}`}>{budgetUsed}%</span>
+                          </div>
+                          <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${budgetBarCls(budgetUsed)}`}
+                              style={{ width: `${Math.min(100, Math.max(0, budgetUsed))}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                        {paceNote && <p className={`text-xs font-medium ${paceNote.cls}`}>{paceNote.text}</p>}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <span className="text-xs font-medium text-slate-400 block">Project profit</span>
+                        <p className="mt-0.5 flex items-baseline gap-2">
+                          <span className={`text-2xl font-bold ${profitCls(profit)}`}>{formatRupees(profit)}</span>
+                          <span className="text-xs text-slate-400">
+                            {noCosts ? 'No costs yet' : `· ${margin}% margin`}
+                          </span>
+                        </p>
+                      </div>
+                      {!noCosts && budget > 0 && (
+                        <div className="space-y-2">
+                          {/* How the budget split between cost and profit */}
+                          <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden flex">
+                            <div className="h-full bg-slate-400" style={{ width: `${Math.min(100, budgetUsed)}%` }}></div>
+                            {!isOverBudget && <div className="h-full bg-[#22C55E]" style={{ width: `${100 - budgetUsed}%` }}></div>}
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="inline-flex items-center text-slate-500">
+                              <span className="w-2 h-2 rounded-sm mr-1.5 bg-slate-400"></span>Spent {budgetUsed}%
+                            </span>
+                            {!isOverBudget && (
+                              <span className="inline-flex items-center text-slate-500">
+                                <span className="w-2 h-2 rounded-sm mr-1.5 bg-[#22C55E]"></span>Kept {100 - budgetUsed}%
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      <div className="space-y-1">
+                        {!noCosts && (
+                          <p className={`text-xs font-medium ${isOverBudget ? 'text-[#FCA5A5]' : 'text-[#4ADE80]'}`}>
+                            {isOverBudget
+                              ? `Finished ${formatRupees(cost - budget)} over budget`
+                              : `Finished ${formatRupees(budget - cost)} under budget`}
+                          </p>
+                        )}
+                        {start && end && end > start && (
+                          <p className="text-xs text-slate-400">
+                            Ran {Math.round((end - start) / 86400000)} days ({formatDateRange(p.startDate, p.expectedEndDate)})
+                          </p>
+                        )}
+                      </div>
+                    </>
+                  )}
+                  <div className="mt-auto grid grid-cols-2 gap-2 pt-3 border-t border-slate-100">
+                    <div>
+                      <span className="text-[11px] text-slate-400 block">Budget</span>
+                      <span className="text-sm font-semibold text-slate-900">{formatRupees(budget)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[11px] text-slate-400 block">{isOngoing ? 'Cost so far' : 'Final cost'}</span>
+                      <span className="text-sm font-semibold text-slate-900">{formatRupees(cost)}</span>
+                    </div>
                   </div>
-                  <span className="px-3 py-1 bg-white text-emerald-800 rounded-full border border-emerald-200 text-xs font-bold shadow-xs">
-                    Margin: {selectedProject.projectMargin !== undefined ? selectedProject.projectMargin : (selectedProject.grossMargin || 0)}%
-                  </span>
                 </div>
 
-                {/* Section 1: PROJECT DETAILS */}
-                <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 space-y-3">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Project details</span>
-                  <div className="space-y-2 text-xs divide-y divide-slate-100">
-                    <div className="flex justify-between items-center pt-1.5 first:pt-0">
-                      <span className="text-slate-500 font-medium">Project Name:</span>
-                      <span className="font-bold text-slate-900">{selectedProject.projectName}</span>
+                {/* Where the money went: one stacked bar */}
+                <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 flex flex-col gap-4">
+                  <span className="text-xs font-semibold text-slate-400">Where the money went</span>
+                  {noCosts ? (
+                    <div className="flex-1 flex flex-col items-center justify-center text-center gap-1 py-6">
+                      <span className="text-sm font-semibold text-slate-600">No costs recorded yet</span>
+                      <span className="text-xs text-slate-400">Materials, labour and expenses will show here once they're added.</span>
                     </div>
-                    <div className="flex justify-between items-center pt-1.5">
-                      <span className="text-slate-500 font-medium">Project Code:</span>
-                      <span className="font-mono font-bold text-slate-900">{selectedProject.projectCode}</span>
-                    </div>
-                    <div className="flex justify-between items-center pt-1.5">
-                      <span className="text-slate-500 font-medium">Client:</span>
-                      <span className="font-semibold text-slate-900">{selectedProject.customerName || 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between items-center pt-1.5">
-                      <span className="text-slate-500 font-medium">Status:</span>
-                      <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded border ${STATUS_BADGES[selectedProject.status] || 'bg-gray-100 text-gray-800 border-gray-200'}`}>
-                        {selectedProject.status ? selectedProject.status.replace('_', ' ') : 'N/A'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center pt-1.5">
-                      <span className="text-slate-500 font-medium">Start Date:</span>
-                      <span className="text-slate-700 font-medium">
-                        {selectedProject.startDate ? formatDateToIndian(selectedProject.startDate) : 'N/A'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center pt-1.5">
-                      <span className="text-slate-500 font-medium">End Date:</span>
-                      <span className="text-slate-700 font-medium">
-                        {selectedProject.expectedEndDate ? formatDateToIndian(selectedProject.expectedEndDate) : 'N/A'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center pt-1.5">
-                      <span className="text-slate-500 font-medium">Location:</span>
-                      <span className="text-slate-700 font-medium truncate max-w-[200px] text-right">
-                        {selectedProject.siteAddress || 'N/A'}
-                      </span>
-                    </div>
-                  </div>
+                  ) : (
+                    <>
+                      <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden flex">
+                        {costParts.map((c) => (
+                          <div key={c.label} className={c.color} style={{ width: `${(c.value / cost) * 100}%` }} title={c.label}></div>
+                        ))}
+                      </div>
+                      <div className="space-y-2.5">
+                        {costParts.map((c) => (
+                          <div key={c.label} className="flex justify-between items-center text-xs">
+                            <span className="text-slate-600 font-medium inline-flex items-center">
+                              <span className={`w-2 h-2 rounded-sm mr-2 ${c.color}`}></span>
+                              {c.label}
+                              {c.note && <span className="text-slate-400 font-normal ml-1">({c.note})</span>}
+                            </span>
+                            <span className="text-slate-900 font-semibold">
+                              {formatRupees(c.value)}
+                              <span className="text-slate-400 font-normal ml-1.5 inline-block w-8 text-right">{Math.round((c.value / cost) * 100)}%</span>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-auto flex justify-between items-center pt-3 border-t border-slate-100 text-sm">
+                        <span className="text-slate-900 font-bold">Actual cost <span className="text-xs text-slate-400 font-normal">(excl. GST)</span></span>
+                        <span className="font-bold text-slate-900">{formatRupees(cost)}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
-
-                {/* Section 2: COSTS */}
-                <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 space-y-3">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Costs</span>
-                  <div className="space-y-2 text-xs divide-y divide-slate-100">
-                    <div className="flex justify-between items-center pt-1.5 first:pt-0">
-                      <span className="text-slate-500 font-medium">Project Budget (Excl. GST):</span>
-                      <span className="font-bold text-slate-900">
-                        ₹{formatIndianCurrency(selectedProject.projectBudget !== undefined ? selectedProject.projectBudget : (selectedProject.revenue || 0), true)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center pt-1.5">
-                      <span className="text-slate-500 font-medium">Material Cost (Excl. GST):</span>
-                      <span className="font-semibold text-slate-700">
-                        ₹{formatIndianCurrency(selectedProject.totalMaterialCost || 0, true)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center pt-1.5">
-                      <span className="text-slate-500 font-medium">Other Expenses:</span>
-                      <span className="font-semibold text-slate-700">
-                        ₹{formatIndianCurrency(selectedProject.totalProjectExpenses || 0, true)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center pt-1.5">
-                      <span className="text-slate-500 font-medium">Labour (wages earned):</span>
-                      <span className="font-semibold text-slate-700">
-                        ₹{formatIndianCurrency(selectedProject.totalLabourCost || 0, true)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center pt-1.5">
-                      <span className="text-slate-900 font-bold">Actual Cost (Excl. GST):</span>
-                      <span className="font-extrabold text-slate-900">
-                        ₹{formatIndianCurrency(selectedProject.actualProjectCost !== undefined ? selectedProject.actualProjectCost : (selectedProject.totalProjectCost || 0), true)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
               </div>
 
-              {/* Drawer Footer Actions */}
-              <div className="p-5 border-t border-slate-200 bg-white">
+              {/* Footer */}
+              <div className="px-6 py-4 border-t border-slate-200 flex justify-end">
                 <button
-                  onClick={() => navigate(`/projects/${selectedProject.projectId}`)}
-                  className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center space-x-2"
+                  onClick={() => navigate(`/projects/${p.projectId}`)}
+                  className="py-2 px-5 bg-[#FFB82E] hover:bg-[#F2A516] text-[#1A1B1E] rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2"
                 >
                   <FaExternalLinkAlt className="text-xs" />
-                  <span>Open Project</span>
+                  <span>Open project</span>
                 </button>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };
