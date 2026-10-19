@@ -51,10 +51,19 @@ const Dashboard = () => {
       if (sumRes.status === 'fulfilled') setSummary(sumRes.value.data.data);
       if (projRes.status === 'fulfilled') setProjects(projRes.value.data.data || []);
       if (labourRes.status === 'fulfilled') setLabours(labourRes.value || []);
-      const failed = [sumRes, projRes, labourRes].filter((r) => r.status === 'rejected');
+      const parts = [['totals', sumRes], ['projects', projRes], ['workers', labourRes]];
+      const failed = parts.filter(([, r]) => r.status === 'rejected');
       if (failed.length) {
-        failed.forEach((r) => console.error('Error fetching dashboard:', r.reason));
-        setError('Could not load the dashboard.');
+        failed.forEach(([, r]) => console.error('Error fetching dashboard:', r.reason));
+        // Name the part that failed and the server's reason, so a problem can be traced
+        const detail = failed
+          .map(([name, r]) => {
+            const res = r.reason?.response;
+            const why = res ? `${res.status}${res.data?.message ? ` ${res.data.message}` : ''}` : 'no response from server';
+            return `${name} (${why})`;
+          })
+          .join(', ');
+        setError(`Could not load ${detail}.`);
       } else {
         setError(null);
       }
