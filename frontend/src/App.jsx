@@ -12,7 +12,6 @@ import PurchaseUpload from "./pages/PurchaseUpload";
 import ReviewPurchase from "./pages/ReviewPurchase";
 import Purchases from "./pages/Purchases";
 import Reports from "./pages/Reports";
-import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import Projects from "./pages/Projects";
 import AddProject from "./pages/AddProject";
@@ -63,7 +62,6 @@ const App = () => (
             <Route path="/purchases" element={<Purchases />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/reports/*" element={<Reports />} />
-            <Route path="/settings" element={<Settings />} />
           </Route>
 
           <Route path="/logout" element={<Logout />} />

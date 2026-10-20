@@ -17,7 +17,6 @@ const Header = ({ onMenuToggle }) => {
     if (path === '/purchases') return 'Purchase History';
     if (path === '/suppliers') return 'Suppliers Directory';
     if (path.startsWith('/reports')) return 'Reports & Financial Analytics';
-    if (path === '/settings') return 'Settings';
     return 'Inventory Management System';
   };
 

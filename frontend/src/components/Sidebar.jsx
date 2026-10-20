@@ -9,7 +9,6 @@ import {
   LuUsers,
   LuTruck,
   LuBarChart3,
-  LuSettings2,
   LuChevronDown,
   LuChevronRight,
   LuX,
@@ -129,8 +128,6 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
 
           {navItemsAfterPurchases.map(renderItem)}
 
-          <div className="px-3 pt-5 pb-1.5 text-[10.5px] tracking-[0.14em] text-[#75716A]">ACCOUNT</div>
-          {renderItem({ to: '/settings', label: 'Settings', icon: LuSettings2, match: (p) => p === '/settings' })}
         </nav>
 
         {/* Signed-in user */}
