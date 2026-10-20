@@ -1,10 +1,11 @@
 import { z } from 'zod';
 
 export const createSupplierSchema = z.object({
-  name: z.string().min(1, 'Supplier name is required').trim(),
+  name: z.string().trim().min(1, 'Supplier name is required'),
   companyName: z.string().trim().optional(),
-  mobile: z.string().min(1, 'Mobile number is required').trim(),
-  email: z.string().email('Invalid email format').trim().optional().or(z.literal('')),
+  contactPerson: z.string().trim().optional().or(z.literal('')),
+  mobile: z.string().trim().optional().or(z.literal('')),
+  email: z.string().trim().email('Invalid email format').optional().or(z.literal('')),
   gstNumber: z.string().trim().optional().or(z.literal('')),
   address: z.string().trim().optional(),
 });

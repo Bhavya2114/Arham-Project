@@ -5,6 +5,7 @@ import { getAuthToken } from '../helpers/auth.helper';
 describe('Suppliers API integration tests', () => {
   let adminToken: string;
   let createdSupplierId: string;
+  const uniq = Date.now().toString();
 
   beforeAll(async () => {
     adminToken = await getAuthToken('ADMIN');
@@ -27,6 +28,19 @@ describe('Suppliers API integration tests', () => {
     expect(res.body.data).toHaveProperty('id');
     expect(res.body.data.name).toBe('Apex Wholesale Corp');
     createdSupplierId = res.body.data.id;
+  });
+
+  it('should create a supplier without a phone number', async () => {
+    const res = await request(app)
+      .post('/api/suppliers')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: `No Phone Traders ${uniq}`, gstNumber: `27NP${uniq}` });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.mobile).toBe('');
+    expect(res.body.data.billCount).toBe(0);
+    // Test data is not cleared between runs, so remove it
+    await request(app).delete(`/api/suppliers/${res.body.data.id}`).set('Authorization', `Bearer ${adminToken}`);
   });
 
   it('should list all suppliers', async () => {

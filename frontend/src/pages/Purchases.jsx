@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import axiosInstance from '../utils/api';
 import { FaPlus, FaSearch, FaTruck, FaTimes, FaExclamationTriangle, FaArrowDown, FaArrowUp, FaUndo } from 'react-icons/fa';
 import FilterSelect from '../components/FilterSelect';
@@ -13,11 +13,13 @@ const getPurchaseTotal = (p) => (p.totalAmount !== undefined && p.totalAmount !=
 const getSupplierKey = (p) => p.supplier?.id || p.supplier?._id || p.supplierId || p.supplier?.name || NO_SUPPLIER;
 
 const Purchases = () => {
+  // The Suppliers page opens this list already filtered to one supplier
+  const location = useLocation();
   const [purchases, setPurchases] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [supplierFilter, setSupplierFilter] = useState('');
+  const [supplierFilter, setSupplierFilter] = useState(location.state?.supplierId || '');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [sortBy, setSortBy] = useState('date');

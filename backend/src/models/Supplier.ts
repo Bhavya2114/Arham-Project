@@ -3,7 +3,8 @@ import mongoose, { Schema, Document } from 'mongoose';
 export interface ISupplier extends Document {
   name: string;
   companyName?: string;
-  mobile: string;
+  contactPerson?: string;
+  mobile?: string;
   email?: string;
   gstNumber?: string;
   address?: string;
@@ -15,7 +16,9 @@ const supplierSchema = new Schema<ISupplier>(
   {
     name: { type: String, required: true, trim: true },
     companyName: { type: String, trim: true },
-    mobile: { type: String, required: true, trim: true },
+    contactPerson: { type: String, trim: true },
+    // Optional: suppliers created from a bill often have no phone number
+    mobile: { type: String, trim: true },
     email: { type: String, trim: true, lowercase: true },
     gstNumber: { type: String, trim: true, uppercase: true },
     address: { type: String, trim: true },

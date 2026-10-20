@@ -202,7 +202,7 @@ export const createPurchase = async (
       supplier = await Supplier.create({
         name: supNameClean,
         gstNumber: supGstClean || undefined,
-        mobile: input.newSupplier.mobile || (input.newSupplier as any).phone || '0000000000',
+        mobile: input.newSupplier.mobile || (input.newSupplier as any).phone || undefined,
         email: input.newSupplier.email || undefined,
         address: input.newSupplier.address || undefined,
         companyName: input.newSupplier.companyName || supNameClean,
