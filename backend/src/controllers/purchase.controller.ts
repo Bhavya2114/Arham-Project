@@ -320,3 +320,21 @@ export const extractPurchaseBill = async (req: Request, res: Response, next: Nex
     next(error);
   }
 };
+
+export const getPurchaseDeletePreview = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const preview = await purchaseService.getPurchaseDeletePreview(req.params.id as string);
+    res.status(200).json(successResponse('Delete preview', preview));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deletePurchase = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const result = await purchaseService.deletePurchase(req.params.id as string);
+    res.status(200).json(successResponse('Bill deleted', result));
+  } catch (error) {
+    next(error);
+  }
+};

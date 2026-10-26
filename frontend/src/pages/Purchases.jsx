@@ -1,15 +1,20 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import axiosInstance from '../utils/api';
-import { FaPlus, FaSearch, FaTruck, FaTimes, FaExclamationTriangle, FaArrowDown, FaArrowUp, FaUndo } from 'react-icons/fa';
+import { FaPlus, FaSearch, FaTruck, FaTimes, FaExclamationTriangle, FaArrowDown, FaArrowUp, FaUndo, FaTrashAlt } from 'react-icons/fa';
 import FilterSelect from '../components/FilterSelect';
 import IndianDateInput from '../components/IndianDateInput';
+import ConfirmationModal from '../components/ConfirmationModal';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { formatDateShortMonth, toApiDateFormat } from '../utils/dateUtils';
 
 const NO_SUPPLIER = '__none__';
 
 const getPurchaseDateKey = (p) => toApiDateFormat(p.purchaseDate || p.invoiceDate);
 const getPurchaseTotal = (p) => (p.totalAmount !== undefined && p.totalAmount !== null ? p.totalAmount : (p.grandTotal || 0));
+// The bill number as printed (purchaseNumber can carry a suffix when two suppliers share a number)
+const getBillNo = (p) => p.invoiceNumber || p.purchaseNumber || '';
 const getSupplierKey = (p) => p.supplier?.id || p.supplier?._id || p.supplierId || p.supplier?.name || NO_SUPPLIER;
 
 const Purchases = () => {
@@ -28,6 +33,15 @@ const Purchases = () => {
   // Details Modal
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [activePurchase, setActivePurchase] = useState(null);
+
+  // Delete bill (admin only): the confirm box first shows what comes back out of stock and projects
+  const { user } = useAuth();
+  const toast = useToast();
+  const isAdmin = user?.role === 'ADMIN';
+  const [deletePreview, setDeletePreview] = useState(null);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const fetchPurchases = async () => {
     setLoading(true);
@@ -70,11 +84,43 @@ const Purchases = () => {
   useEffect(() => {
     if (!isDetailOpen) return undefined;
     const onKey = (e) => {
-      if (e.key === 'Escape') setIsDetailOpen(false);
+      if (e.key === 'Escape' && !isDeleteOpen) setIsDetailOpen(false);
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [isDetailOpen]);
+  }, [isDetailOpen, isDeleteOpen]);
+
+  const openDeleteBill = async () => {
+    if (!activePurchase) return;
+    setIsLoadingPreview(true);
+    try {
+      const res = await axiosInstance.get(`/purchases/${activePurchase.id}/delete-preview`);
+      setDeletePreview(res.data.data || { stockRemoved: [], projectRemoved: [] });
+      setIsDeleteOpen(true);
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Couldn't check this bill. Please try again.");
+    } finally {
+      setIsLoadingPreview(false);
+    }
+  };
+
+  const handleConfirmDeleteBill = async () => {
+    if (!activePurchase) return;
+    setIsDeleting(true);
+    try {
+      await axiosInstance.delete(`/purchases/${activePurchase.id}`);
+      toast.success(`Bill ${getBillNo(activePurchase)} deleted`);
+      setIsDeleteOpen(false);
+      setIsDetailOpen(false);
+      setActivePurchase(null);
+      setDeletePreview(null);
+      fetchPurchases();
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Couldn't delete the bill. Please try again.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const openDetails = (purchase) => {
     setActivePurchase(purchase);
@@ -115,7 +161,7 @@ const Purchases = () => {
 
   const filteredPurchases = purchases
     .filter((p) => {
-      const num = p.purchaseNumber || '';
+      const num = getBillNo(p);
       const supName = p.supplier?.name || '';
       const notes = p.notes || '';
       const term = searchTerm.toLowerCase();
@@ -337,7 +383,7 @@ const Purchases = () => {
                     title="Open bill"
                     className="hover:bg-[#FFB82E]/[0.04] transition-colors cursor-pointer"
                   >
-                    <td className="px-6 py-4 font-semibold text-slate-900">{p.purchaseNumber}</td>
+                    <td className="px-6 py-4 font-semibold text-slate-900">{getBillNo(p)}</td>
                     <td className="px-6 py-4 text-slate-900">
                       {p.supplier?.name || <span className="text-gray-400">Unknown supplier</span>}
                     </td>
@@ -406,7 +452,7 @@ const Purchases = () => {
           <div
             className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn"
             onClick={(e) => {
-              if (e.target === e.currentTarget) setIsDetailOpen(false);
+              if (e.target === e.currentTarget && !isDeleteOpen) setIsDetailOpen(false);
             }}
           >
             <div className="bg-white border border-gray-200 rounded-2xl max-w-6xl w-full h-[85vh] shadow-2xl flex flex-col overflow-hidden">
@@ -414,7 +460,7 @@ const Purchases = () => {
               <div className="px-6 py-4 border-b border-gray-100 flex items-start justify-between gap-4 shrink-0">
                 <div className="min-w-0">
                   <h3 className="text-lg font-semibold text-slate-900">
-                    Bill {bp.invoiceNumber || bp.purchaseNumber}
+                    Bill {getBillNo(bp)}
                     <span className="text-sm font-normal text-gray-400 ml-2.5">{formatDateShortMonth(billDate, '')}</span>
                   </h3>
                   <p className="text-xs text-gray-400 mt-0.5 truncate">
@@ -422,6 +468,18 @@ const Purchases = () => {
                     {bp.supplier?.gstNumber && <span> · GSTIN {bp.supplier.gstNumber}</span>}
                   </p>
                 </div>
+                <div className="flex items-center gap-2 shrink-0">
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={openDeleteBill}
+                    disabled={isLoadingPreview}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-red-600 hover:bg-red-700 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-60"
+                  >
+                    <FaTrashAlt className="text-[10px]" />
+                    <span>{isLoadingPreview ? 'Checking...' : 'Delete bill'}</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setIsDetailOpen(false)}
@@ -431,6 +489,7 @@ const Purchases = () => {
                 >
                   <FaTimes />
                 </button>
+                </div>
               </div>
 
               <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px]">
@@ -515,6 +574,51 @@ const Purchases = () => {
           </div>
         );
       })()}
+
+      <ConfirmationModal
+        isOpen={isDeleteOpen}
+        onClose={() => !isDeleting && setIsDeleteOpen(false)}
+        onConfirm={handleConfirmDeleteBill}
+        title="Delete bill"
+        confirmText="Delete bill"
+        cancelText="Cancel"
+        isDanger={true}
+        isLoading={isDeleting}
+        message={
+          <div className="space-y-3 font-normal">
+            <p className="text-gray-800 text-sm">
+              Delete bill <span className="font-semibold text-gray-900">{activePurchase && getBillNo(activePurchase)}</span>
+              {activePurchase?.supplier?.name ? ` from ${activePurchase.supplier.name}` : ''}? The whole bill is erased and can't be undone.
+            </p>
+            {deletePreview?.stockRemoved?.length > 0 && (
+              <div>
+                <div className="text-xs text-gray-500 mb-1">Taken out of stock</div>
+                <ul className="text-xs text-gray-700 space-y-0.5 max-h-32 overflow-y-auto">
+                  {deletePreview.stockRemoved.map((r) => (
+                    <li key={r.productId} className="flex justify-between gap-3">
+                      <span className="truncate">{r.productName}</span>
+                      <span className="shrink-0">{r.quantity}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {deletePreview?.projectRemoved?.length > 0 && (
+              <div>
+                <div className="text-xs text-red-500 mb-1">Already used, taken back from projects</div>
+                <ul className="text-xs text-gray-700 space-y-0.5 max-h-32 overflow-y-auto">
+                  {deletePreview.projectRemoved.map((r, i) => (
+                    <li key={`${r.projectId}-${r.productId}-${i}`} className="flex justify-between gap-3">
+                      <span className="truncate">{r.productName} · {r.projectName}</span>
+                      <span className="shrink-0">{r.quantity}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        }
+      />
     </div>
   );
 };
