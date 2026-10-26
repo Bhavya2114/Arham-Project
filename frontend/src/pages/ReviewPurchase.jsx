@@ -2,7 +2,6 @@ import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import axiosInstance from '../utils/api';
 import { useToast } from '../context/ToastContext';
-import { getErrorMessage } from '../utils/apiError';
 import {
   FaArrowLeft,
   FaCheck,
@@ -15,6 +14,50 @@ import { formatDateShortMonth, toApiDateFormat } from '../utils/dateUtils';
 
 const formatMoney = (n) =>
   toSafeNumber(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// Plain reason for a failed Confirm purchase. Saving never talks to the bill reader,
+// so these messages never say "network busy". Pressing Confirm again is safe: the backend
+// refuses a bill that is already saved for the same supplier.
+const confirmErrorMessage = (err) => {
+  const response = err?.response;
+  if (!response) {
+    if (err?.code === 'ERR_NETWORK' || err?.message === 'Network Error' || err?.request) {
+      return "Couldn't reach the server. Check your internet and press Confirm purchase again (if it was already saved, you'll be told).";
+    }
+    return err?.message || 'The purchase was not saved. Please try again.';
+  }
+
+  const data = response.data || {};
+  if (Array.isArray(data.details) && data.details.length > 0) {
+    const lines = data.details.map((d) => {
+      const match = /^items\.(\d+)\.?(.*)$/.exec(d.path || '');
+      return match ? `Item ${Number(match[1]) + 1}: ${d.message}` : d.message;
+    });
+    return `Please fix this and try again: ${[...new Set(lines)].join('; ')}`;
+  }
+
+  const serverMsg = typeof data.message === 'string' ? data.message : '';
+  const isRawDbError = /E11000|Mongo|CastError/i.test(serverMsg);
+  if (serverMsg && !isRawDbError && serverMsg !== 'Internal server error' && serverMsg !== 'Validation failed') {
+    return serverMsg;
+  }
+
+  switch (response.status) {
+    case 401:
+      return 'Your session has expired. Please log in again.';
+    case 403:
+      return 'Your account is not allowed to record purchases.';
+    case 409:
+      return 'This bill is already recorded. You can find it in Purchases.';
+    case 502:
+    case 503:
+      return 'The server is starting up, so the purchase was not saved. Wait a few seconds and press Confirm purchase again.';
+    case 504:
+      return "The server took too long to answer. Press Confirm purchase again (if it was already saved, you'll be told).";
+    default:
+      return 'The server could not save this purchase, so nothing was changed. Please try again.';
+  }
+};
 
 const ReviewPurchase = () => {
   const navigate = useNavigate();
@@ -286,18 +329,7 @@ const ReviewPurchase = () => {
       console.error('RESPONSE DATA:', err?.response?.data);
       console.error('RESPONSE HEADERS:', err?.response?.headers);
 
-      let detailedMsg = getErrorMessage(err, 'Failed to confirm purchase.');
-      if (err?.response?.data) {
-        const responseData = err.response.data;
-        if (responseData.details && Array.isArray(responseData.details)) {
-          detailedMsg = `Validation failed: ${responseData.details.map((d) => `${d.path}: ${d.message}`).join(' | ')}`;
-        } else if (responseData.errors) {
-          detailedMsg = `Validation failed: ${JSON.stringify(responseData.errors)}`;
-        } else if (responseData.message) {
-          detailedMsg = responseData.message;
-        }
-      }
-
+      const detailedMsg = confirmErrorMessage(err);
       setApiError(detailedMsg);
       toast.error(detailedMsg);
     } finally {
