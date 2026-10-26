@@ -5,6 +5,8 @@ import {
   getPurchaseById,
   createPurchase,
   extractPurchaseBill,
+  getPurchaseDeletePreview,
+  deletePurchase,
 } from '../controllers/purchase.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { requireRole } from '../middleware/role.middleware';
@@ -39,6 +41,7 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/', getPurchases);
+router.get('/:id/delete-preview', requireRole(ROLES.ADMIN), getPurchaseDeletePreview);
 router.get('/:id', getPurchaseById);
 router.post(
   '/extract-bill',
@@ -47,5 +50,7 @@ router.post(
   extractPurchaseBill
 );
 router.post('/', requireRole(ROLES.ADMIN, ROLES.WAREHOUSE), validate(createPurchaseSchema), createPurchase);
+
+router.delete('/:id', requireRole(ROLES.ADMIN), deletePurchase);
 
 export default router;

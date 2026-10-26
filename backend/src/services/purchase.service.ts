@@ -2,6 +2,9 @@ import { Purchase } from '../models/Purchase';
 import { Product } from '../models/Product';
 import { Supplier } from '../models/Supplier';
 import { User } from '../models/User';
+import { MaterialConsumption } from '../models/MaterialConsumption';
+import '../models/Project'; // registers Project for populate
+import { PROJECT_GST_MULTIPLIER, roundToTwo } from '../constants/projectGst.constants';
 import { CreatePurchaseInput } from '../validators/purchase.validator';
 import { calculateLineItem } from '../utils/purchaseCalculations';
 
@@ -437,4 +440,163 @@ export const createPurchase = async (
     }
     throw err;
   }
+};
+
+const notFoundError = (message: string, statusCode = 404) => {
+  const error = new Error(message);
+  (error as any).statusCode = statusCode;
+  return error;
+};
+
+/**
+ * Works out how a bill's quantities come back out: first from the store's stock, and whatever was
+ * already issued to projects is taken back from the newest project issues of that product.
+ */
+const buildDeletionPlan = async (purchase: any) => {
+  const qtyByProduct = new Map<string, { productName: string; quantity: number }>();
+  for (const item of purchase.items || []) {
+    if (!item.product) continue;
+    const key = item.product.toString();
+    const entry = qtyByProduct.get(key) || { productName: item.productName, quantity: 0 };
+    entry.quantity = roundToTwo(entry.quantity + Number(item.quantity || 0));
+    qtyByProduct.set(key, entry);
+  }
+
+  const productIds = [...qtyByProduct.keys()];
+  const [products, consumptions] = await Promise.all([
+    Product.find({ _id: { $in: productIds } }).lean(),
+    MaterialConsumption.find({ product: { $in: productIds } })
+      .populate('project', 'name projectCode')
+      .sort({ issueDate: -1, createdAt: -1 })
+      .lean(),
+  ]);
+  const productById = new Map(products.map((p: any) => [p._id.toString(), p]));
+
+  const stockRemoved: any[] = [];
+  const projectRemoved: any[] = [];
+  const consumptionChanges: Array<{ consumption: any; takeQty: number }> = [];
+
+  for (const [productId, { productName, quantity }] of qtyByProduct) {
+    const product: any = productById.get(productId);
+    const inStock = Math.max(0, Number(product?.currentStock || 0));
+    const fromStock = Math.min(inStock, quantity);
+    let shortfall = roundToTwo(quantity - fromStock);
+
+    if (fromStock > 0) {
+      stockRemoved.push({ product: product._id, productName: product?.name || productName, quantity: fromStock });
+    }
+
+    for (const mc of consumptions as any[]) {
+      if (shortfall <= 0) break;
+      if (mc.product.toString() !== productId) continue;
+      const takeQty = Math.min(Number(mc.quantity || 0), shortfall);
+      if (takeQty <= 0) continue;
+      shortfall = roundToTwo(shortfall - takeQty);
+      consumptionChanges.push({ consumption: mc, takeQty });
+      projectRemoved.push({
+        project: mc.project?._id || mc.project,
+        projectName: mc.project?.name || 'Deleted project',
+        projectCode: mc.project?.projectCode,
+        product: mc.product,
+        productName: mc.productName || productName,
+        quantity: takeQty,
+      });
+    }
+  }
+
+  return { stockRemoved, projectRemoved, consumptionChanges };
+};
+
+const mapPlanResponse = (plan: { stockRemoved: any[]; projectRemoved: any[] }) => ({
+  stockRemoved: plan.stockRemoved.map((r) => ({ productId: r.product.toString(), productName: r.productName, quantity: r.quantity })),
+  projectRemoved: plan.projectRemoved.map((r) => ({
+    projectId: r.project ? r.project.toString() : undefined,
+    projectName: r.projectName,
+    projectCode: r.projectCode,
+    productId: r.product.toString(),
+    productName: r.productName,
+    quantity: r.quantity,
+  })),
+});
+
+const loadPurchase = async (id: string) => {
+  const purchase: any = await Purchase.findById(id).lean();
+  if (!purchase) throw notFoundError('Bill not found. It may already be deleted.');
+  return purchase;
+};
+
+/** What deleting a bill would take back, so the confirm box can show it before anything changes */
+export const getPurchaseDeletePreview = async (id: string): Promise<any> => {
+  const purchase = await loadPurchase(id);
+  return mapPlanResponse(await buildDeletionPlan(purchase));
+};
+
+/**
+ * Deletes a whole bill: its quantities leave the stock (and project issues when already used),
+ * product cost goes back to the latest remaining bill, and the bill is erased.
+ */
+export const deletePurchase = async (id: string): Promise<any> => {
+  const purchase = await loadPurchase(id);
+  const plan = await buildDeletionPlan(purchase);
+
+  // Remove the bill first so two clicks can't take the stock back twice
+  const removed = await Purchase.deleteOne({ _id: purchase._id });
+  if (removed.deletedCount === 0) throw notFoundError('Bill not found. It may already be deleted.');
+
+  // Few round trips: the database is in the cloud
+  if (plan.stockRemoved.length > 0) {
+    await Product.bulkWrite(
+      plan.stockRemoved.map((r) => ({
+        updateOne: {
+          filter: { _id: r.product },
+          update: [{ $set: { currentStock: { $max: [0, { $subtract: ['$currentStock', r.quantity] }] } } }],
+        },
+      })) as any
+    );
+  }
+
+  if (plan.consumptionChanges.length > 0) {
+    await MaterialConsumption.bulkWrite(
+      plan.consumptionChanges.map(({ consumption: mc, takeQty }) => {
+        const remaining = roundToTwo(Number(mc.quantity) - takeQty);
+        if (remaining <= 0) return { deleteOne: { filter: { _id: mc._id } } };
+        const actualCostTotal = roundToTwo(remaining * Number(mc.actualCostPrice || 0));
+        const inputGst = roundToTwo(actualCostTotal * PROJECT_GST_MULTIPLIER);
+        return {
+          updateOne: {
+            filter: { _id: mc._id },
+            update: {
+              $set: {
+                quantity: remaining,
+                actualCostTotal,
+                billingTotal: roundToTwo(remaining * Number(mc.billingPrice || 0)),
+                inputGst,
+                issuedMaterialValueIncludingGST: roundToTwo(actualCostTotal + inputGst),
+                supplierInvoiceTotal: roundToTwo(actualCostTotal + inputGst),
+                billedQuantity: Math.min(Number(mc.billedQuantity || 0), remaining),
+              },
+            },
+          },
+        };
+      }) as any
+    );
+  }
+
+  // Cost price goes back to the newest bill that still has the product
+  const productIds: string[] = [...new Set<string>((purchase.items || []).map((i: any) => i.product?.toString()).filter(Boolean))];
+  for (const productId of productIds) {
+    const latest: any = await Purchase.findOne({ 'items.product': productId })
+      .sort({ purchaseDate: -1, createdAt: -1 })
+      .lean();
+    const line = latest?.items?.find((i: any) => i.product?.toString() === productId);
+    if (line && Number(line.discountedPrice ?? line.purchasePrice) > 0) {
+      await Product.updateOne({ _id: productId }, { $set: { costPrice: Number(line.discountedPrice ?? line.purchasePrice) } });
+    }
+  }
+
+  return {
+    id: purchase._id.toString(),
+    invoiceNumber: purchase.invoiceNumber,
+    ...mapPlanResponse(plan),
+  };
 };
