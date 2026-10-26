@@ -468,18 +468,6 @@ const Purchases = () => {
                     {bp.supplier?.gstNumber && <span> · GSTIN {bp.supplier.gstNumber}</span>}
                   </p>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={openDeleteBill}
-                    disabled={isLoadingPreview}
-                    className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-red-600 hover:bg-red-700 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-60"
-                  >
-                    <FaTrashAlt className="text-[10px]" />
-                    <span>{isLoadingPreview ? 'Checking...' : 'Delete bill'}</span>
-                  </button>
-                )}
                 <button
                   type="button"
                   onClick={() => setIsDetailOpen(false)}
@@ -489,7 +477,6 @@ const Purchases = () => {
                 >
                   <FaTimes />
                 </button>
-                </div>
               </div>
 
               <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px]">
@@ -567,6 +554,18 @@ const Purchases = () => {
                   <div className="mt-auto pt-4 border-t border-gray-100">
                     <div className="text-gray-400">Bill total</div>
                     <div className="text-[#FFB82E] font-semibold text-2xl">₹{money(billTotal)}</div>
+                    {/* Rare and risky, so it sits at the bottom, away from ✕ */}
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={openDeleteBill}
+                        disabled={isLoadingPreview}
+                        className="mt-4 w-full py-2 rounded-lg text-xs font-medium text-red-500 border border-red-500/40 hover:bg-red-600 hover:text-white hover:border-red-600 flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-60"
+                      >
+                        <FaTrashAlt className="text-[10px]" />
+                        <span>{isLoadingPreview ? 'Checking...' : 'Delete bill'}</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
