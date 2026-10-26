@@ -77,17 +77,21 @@ export const calculateLineItem = (input = {}) => {
     }
   }
 
-  const cgstAmount = input.cgstAmount !== undefined && input.cgstAmount !== null && Number(input.cgstAmount) > 0
-    ? roundToTwo(Number(input.cgstAmount))
-    : roundToTwo(lineTax / 2);
+  // An IGST line carries the whole tax as IGST; CGST/SGST stay 0
+  const isIgstLine = input.igstAmount !== undefined && input.igstAmount !== null && Number(input.igstAmount) > 0;
+  const igstAmount = isIgstLine ? lineTax : 0;
 
-  const sgstAmount = input.sgstAmount !== undefined && input.sgstAmount !== null && Number(input.sgstAmount) > 0
-    ? roundToTwo(Number(input.sgstAmount))
-    : roundToTwo(lineTax - cgstAmount);
+  const cgstAmount = isIgstLine
+    ? 0
+    : input.cgstAmount !== undefined && input.cgstAmount !== null && Number(input.cgstAmount) > 0
+      ? roundToTwo(Number(input.cgstAmount))
+      : roundToTwo(lineTax / 2);
 
-  const igstAmount = input.igstAmount !== undefined && input.igstAmount !== null && Number(input.igstAmount) > 0
-    ? roundToTwo(Number(input.igstAmount))
-    : 0;
+  const sgstAmount = isIgstLine
+    ? 0
+    : input.sgstAmount !== undefined && input.sgstAmount !== null && Number(input.sgstAmount) > 0
+      ? roundToTwo(Number(input.sgstAmount))
+      : roundToTwo(lineTax - cgstAmount);
 
   const totalCost = roundToTwo(taxableValue + lineTax);
 

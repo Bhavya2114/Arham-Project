@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { extractedBillSchema, ExtractedBillData } from '../validators/billExtraction.validator';
 import { geminiKeyManager } from './geminiKeyManager.service';
+import { normalizeIgstBill, normalizeTaxInclusiveLine } from '../utils/billNormalization';
 
 const SYSTEM_EXTRACTION_PROMPT = `
 You are an expert Indian GST Purchase Invoice / Supplier Bill OCR Data Extractor.
@@ -20,9 +21,12 @@ CRITICAL INSTRUCTIONS:
    - "discountAmount": monetary discount amount in rupees (e.g. 17856). If absent on the invoice but discount percent is given, calculate as (quantity * unitPrice * discountPercent / 100). If no discount is present, return 0.
    - "taxableAmount": net taxable value after discount, i.e. (quantity * unitPrice) - discountAmount.
    - GST (CGST/SGST/IGST rates and amounts) must be calculated on the discounted "taxableAmount", NOT on gross.
+   - If the bill prints a "Taxable" / "Taxable Amt" / "Taxable Value" column, "taxableAmount" MUST be that printed value, even when it is not (quantity * unitPrice) - discountAmount.
+   - Some bills print a rate that ALREADY INCLUDES GST (quantity * rate equals the line total with tax). Still return "unitPrice" exactly as printed, "taxableAmount" as printed in the taxable column, and "lineTotal" as printed. Do not add GST on top of such a rate.
 7. Understand Indian GST structures:
    - If GST is 18% with CGST 9% and SGST 9%, set gstRate=18, cgstRate=9, sgstRate=9, igstRate=0.
    - For interstate purchases with IGST 18%, set gstRate=18, cgstRate=0, sgstRate=0, igstRate=18.
+   - If the bill shows IGST (in the tax summary or HSN table), put the item tax in igstAmount and return 0 for cgstAmount and sgstAmount. Never fill CGST/SGST and IGST together.
 8. Handle Explicit Rounded-Off Lines:
    - Carefully inspect the invoice totals and summary block for explicit rounded-off lines such as:
      "Add : Rounded Off (+)", "Less: Rounded Off (-)", "Add: Round Off", "Less: Round Off", "Round Off", "Rounding", etc.
@@ -273,6 +277,14 @@ export const extractInvoiceFromBuffer = async (
   // Run Diagnostic Mathematical Validation and normalize missing discount calculations
   const warnings: string[] = [];
   let itemsCalculationMatch = true;
+
+  // Bills whose rate already includes GST, and IGST bills, are turned into the usual shape first
+  extracted.items.forEach((item, index) => {
+    if (normalizeTaxInclusiveLine(item)) {
+      warnings.push(`Item #${index + 1} ("${item.itemName}") rate includes GST; using the printed taxable amount.`);
+    }
+  });
+  normalizeIgstBill(extracted.items, extracted.totals);
 
   extracted.items.forEach((item, index) => {
     const gross = item.quantity * item.unitPrice;
