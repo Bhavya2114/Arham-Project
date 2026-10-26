@@ -216,6 +216,23 @@ export const createPurchase = async (
     throw error;
   }
 
+  // A bill that is already saved for this supplier must not add stock a second time
+  const billNumber = input.invoiceNumber ? input.invoiceNumber.trim() : '';
+  if (billNumber) {
+    const existingBill = await Purchase.findOne({ supplier: supplier._id, invoiceNumber: billNumber });
+    if (existingBill) {
+      const savedOn = existingBill.purchaseDate
+        ? new Date(existingBill.purchaseDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })
+        : null;
+      const error = new Error(
+        `Bill ${billNumber} from ${supplier.name} is already recorded${savedOn ? ` (dated ${savedOn})` : ''}. You can find it in Purchases.`
+      );
+      (error as any).statusCode = 409;
+      (error as any).code = 'DUPLICATE_BILL';
+      throw error;
+    }
+  }
+
   // 3. Resolve Products (Existing vs New with Duplicate Protection)
   const productDocs: Array<{ product: any; itemInput: any }> = [];
   const newlyCreatedProductIds: any[] = [];
@@ -357,9 +374,11 @@ export const createPurchase = async (
     const roundedOffType = input.roundedOffType || (roundedOffAmount !== null ? (roundedOffAmount < 0 ? 'less' : 'add') : null);
 
     const totalAmount = Math.round((subtotal + taxAmount + (roundedOffAmount || 0)) * 100) / 100;
-    const purchaseNumber = input.invoiceNumber
-      ? input.invoiceNumber
-      : `PUR-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    // purchaseNumber is unique, but two suppliers can print the same bill number
+    let purchaseNumber = billNumber || `PUR-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    if (billNumber && (await Purchase.exists({ purchaseNumber }))) {
+      purchaseNumber = `${billNumber}-${Date.now().toString(36).toUpperCase()}`;
+    }
 
     const rawDateStr = input.purchaseDate || input.invoiceDate;
     let parsedPurchaseDate: Date | undefined;
@@ -410,6 +429,11 @@ export const createPurchase = async (
     // Revert created new products if purchase creation fails
     if (newlyCreatedProductIds.length > 0) {
       await Product.deleteMany({ _id: { $in: newlyCreatedProductIds } });
+    }
+    if ((err as any)?.code === 11000) {
+      const error = new Error('This bill could not be saved because a purchase with the same number already exists. Nothing was changed.');
+      (error as any).statusCode = 409;
+      throw error;
     }
     throw err;
   }
