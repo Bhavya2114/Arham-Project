@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axiosInstance from '../utils/api';
+import { useToast } from '../context/ToastContext';
+import { downloadProjectReport } from '../utils/projectReportExcel';
 import {
   FaSearch,
   FaTable,
@@ -13,6 +15,8 @@ import {
   FaHashtag,
   FaMapMarkerAlt,
   FaCalendarAlt,
+  FaDownload,
+  FaSpinner,
 } from 'react-icons/fa';
 import { parseDateParts, formatDateRange } from '../utils/dateUtils';
 
@@ -39,6 +43,41 @@ const StatusBadge = ({ status }) => {
       <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
       {badge.label}
     </span>
+  );
+};
+
+// Excel report for one project; doesn't open the card / row it sits on
+const DownloadReportButton = ({ projectId }) => {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+
+  const handleClick = async (e) => {
+    e.stopPropagation();
+    if (busy) return;
+    setBusy(true);
+    try {
+      await downloadProjectReport(projectId);
+      toast.success('Project report downloaded.');
+    } catch (err) {
+      console.error('Error generating project report:', err);
+      toast.error('Could not create the project report. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      onKeyDown={(e) => e.stopPropagation()}
+      disabled={busy}
+      title="Download Excel report"
+      aria-label="Download Excel report"
+      className="w-7 h-7 shrink-0 rounded-lg border border-slate-200 text-slate-400 hover:text-[#FFC14D] hover:border-[#FFB82E]/60 hover:bg-[#FFB82E]/10 flex items-center justify-center transition-colors cursor-pointer focus:outline-none disabled:cursor-wait"
+    >
+      {busy ? <FaSpinner className="text-[11px] animate-spin" /> : <FaDownload className="text-[11px]" />}
+    </button>
   );
 };
 
@@ -327,10 +366,17 @@ const Reports = () => {
                     const noCosts = cost === 0;
 
                     return (
-                      <button
-                        type="button"
+                      <div
+                        role="button"
+                        tabIndex={0}
                         key={p.projectId}
                         onClick={() => setSelectedProject(p)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setSelectedProject(p);
+                          }
+                        }}
                         title="View details"
                         className={`text-left bg-white rounded-2xl p-4 transition-all cursor-pointer flex flex-col justify-start gap-3 ${
                           isSelected
@@ -340,10 +386,15 @@ const Reports = () => {
                       >
                         <div className="w-full">
                           <div className="flex items-start justify-between gap-2">
-                            <h3 className="font-bold text-slate-900 text-base leading-tight truncate">
-                              {capitalise(p.projectName)}
-                            </h3>
-                            <StatusBadge status={p.status} />
+                            <div className="min-w-0 flex items-center gap-2">
+                              <h3 className="font-bold text-slate-900 text-base leading-tight truncate">
+                                {capitalise(p.projectName)}
+                              </h3>
+                              <span className="shrink-0">
+                                <StatusBadge status={p.status} />
+                              </span>
+                            </div>
+                            <DownloadReportButton projectId={p.projectId} />
                           </div>
                           <p className="text-xs text-slate-400 font-medium truncate mt-0.5">
                             {p.customerName} · {p.projectCode}
@@ -396,7 +447,7 @@ const Reports = () => {
                             <span className="text-sm font-semibold text-slate-900">{formatRupees(cost)}</span>
                           </div>
                         </div>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -431,6 +482,7 @@ const Reports = () => {
                         <th className="px-4 py-3 text-right">Total cost</th>
                         <th className="px-4 py-3 text-right">Profit</th>
                         <th className="px-4 py-3 text-right">Margin</th>
+                        <th className="px-4 py-3 text-center">Report</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 font-medium">
@@ -460,6 +512,11 @@ const Reports = () => {
                             <td className="px-4 py-3 text-right">
                               <MarginBadge margin={margin} />
                             </td>
+                            <td className="px-4 py-3">
+                              <div className="flex justify-center">
+                                <DownloadReportButton projectId={p.projectId} />
+                              </div>
+                            </td>
                           </tr>
                         );
                       })}
@@ -476,6 +533,7 @@ const Reports = () => {
                         <td className="px-4 py-3 text-right">
                           <MarginBadge margin={listMargin} />
                         </td>
+                        <td className="px-4 py-3"></td>
                       </tr>
                     </tfoot>
                   </table>

@@ -17,6 +17,7 @@ import LabourPaymentModal from '../components/LabourPaymentModal';
 import ConfirmationModal from '../components/ConfirmationModal';
 import { stopLabour, updateContractAssignment } from '../utils/labourService';
 import { useAuth } from '../context/AuthContext';
+import { categoryLabel, materialLine, sumLabourEarned, projectBudgetFigures } from '../utils/projectCosts';
 
 const BADGE = {
   green: 'bg-[#22C55E]/10 text-[#4ADE80] border-[#22C55E]/40',
@@ -101,16 +102,6 @@ const EXPENSE_CATEGORIES = [
   { value: 'OTHER', label: 'Other Expenses' },
 ];
 
-const CATEGORY_SHORT = {
-  TRANSPORT: 'Transport',
-  LABOUR: 'Labour',
-  MACHINERY_RENTAL: 'Machinery rental',
-  LOADING_UNLOADING: 'Loading',
-  SITE_EXPENSE: 'Site expense',
-  MISCELLANEOUS: 'Misc',
-  OTHER: 'Other',
-};
-const categoryLabel = (cat) => CATEGORY_SHORT[cat] || capitalise((cat || '').replace(/_/g, ' ').toLowerCase());
 
 const ProjectDetails = () => {
   const { id } = useParams();
@@ -499,23 +490,22 @@ const ProjectDetails = () => {
 
   // Calculate Project Labour Totals (Phase 10 — Derived directly from Labour records)
   const activeLabourCount = labours.filter((l) => l.status === 'ACTIVE').length;
-  const totalLabourEarned = labours.reduce((sum, l) => sum + (Number(l.totalEarned) || 0), 0);
+  const totalLabourEarned = sumLabourEarned(labours);
   const totalLabourPaid = labours.reduce((sum, l) => sum + (Number(l.totalPaid) || 0), 0);
   const totalLabourBalance = totalLabourEarned - totalLabourPaid;
 
 
   const isClosedProject = project.status === 'COMPLETED' || project.status === 'CANCELLED';
 
-  // Labour cost = wages earned so far (same numbers as the Labour tab), so Overview
-  // is right even when the backend total is older
-  const budgetAmount = profitability
-    ? profitability.projectBudget !== undefined ? profitability.projectBudget : project?.budget || 0
-    : 0;
-  const materialCost = profitability?.totalMaterialCost || 0;
-  const expenseCost = profitability?.totalProjectExpenses || 0;
-  const totalSpent = roundToTwo(materialCost + expenseCost + totalLabourEarned);
-  const remaining = roundToTwo(budgetAmount - totalSpent);
-  const marginLeft = budgetAmount > 0 ? roundToTwo((remaining / budgetAmount) * 100) : 0;
+  // Labour cost = wages earned so far (same numbers as the Labour tab)
+  const {
+    budget: budgetAmount,
+    materialCost,
+    expenseCost,
+    totalSpent,
+    remaining,
+    marginLeft,
+  } = projectBudgetFigures(project, profitability, labours);
 
   const budgetCards = profitability
     ? [
@@ -734,15 +724,8 @@ const ProjectDetails = () => {
 
       {/* MATERIALS */}
       {activeTab === 'materials' && (() => {
-        // Each issue's money split, falling back to the fixed 18% rule for older records
-        const lineOf = (m) => {
-          const cost = m.actualCostTotal !== undefined ? Number(m.actualCostTotal) : Number(m.quantity) * Number(m.actualCostPrice || 0);
-          const gst = m.inputGst != null ? Number(m.inputGst) : roundToTwo(cost * PROJECT_GST_MULTIPLIER);
-          const value = m.issuedMaterialValueIncludingGST != null ? Number(m.issuedMaterialValueIncludingGST) : roundToTwo(cost + gst);
-          return { ...m, cost, gst, value, dateKey: toApiDateFormat(m.issueDate) || '' };
-        };
         const lines = materials
-          .map(lineOf)
+          .map(materialLine)
           .sort((a, b) => (b.dateKey || '').localeCompare(a.dateKey || '') || String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
 
         // By material: numbered in the order first issued, so new materials are added at the bottom
