@@ -8,6 +8,7 @@ import {
   updateLabour,
   deleteLabour,
   stopLabour,
+  updateAssignmentStopDate,
   assignLabourToProject,
 } from '../services/labour.service';
 import { successResponse } from '../utils/apiResponse';
@@ -99,8 +100,23 @@ export const handleStopLabour = async (
 ): Promise<void> => {
   try {
     const id = req.params.id as string;
-    const labour = await stopLabour(id);
+    const labour = await stopLabour(id, req.body?.stopDate);
     res.status(200).json(successResponse('Labour stopped successfully', labour));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const handleUpdateStopDate = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const assignmentId = req.params.assignmentId as string;
+    const labour = await updateAssignmentStopDate(id, assignmentId, req.body?.stopDate);
+    res.status(200).json(successResponse('Stop date updated', labour));
   } catch (error) {
     next(error);
   }

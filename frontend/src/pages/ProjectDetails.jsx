@@ -9,7 +9,7 @@ import { FaArrowLeft, FaEdit, FaPlus, FaTimes, FaSpinner, FaReceipt, FaExclamati
 import { LuChevronDown, LuMapPin, LuCalendarDays, LuWallet, LuUser, LuStickyNote } from 'react-icons/lu';
 import LabourFormModal from '../components/LabourFormModal';
 import AssignLabourModal from '../components/AssignLabourModal';
-import ConfirmationModal from '../components/ConfirmationModal';
+import StopDateModal from '../components/StopDateModal';
 import FilterSelect from '../components/FilterSelect';
 import IndianDateInput from '../components/IndianDateInput';
 import ProjectFormModal from '../components/ProjectFormModal';
@@ -328,11 +328,11 @@ const ProjectDetails = () => {
     setIsStopModalOpen(true);
   };
 
-  const handleConfirmStopLabour = async () => {
+  const handleConfirmStopLabour = async (stopDate) => {
     if (!labourToStop) return;
     setIsStopping(true);
     try {
-      await stopLabour(labourToStop.id);
+      await stopLabour(labourToStop.id, stopDate);
       toast.success(`Labour worker "${labourToStop.name}" has been stopped.`);
       setIsStopModalOpen(false);
       setLabourToStop(null);
@@ -1454,35 +1454,21 @@ const ProjectDetails = () => {
         }}
       />
 
-      {/* STOP LABOUR CONFIRMATION MODAL */}
-      <ConfirmationModal
+      {/* STOP LABOUR: stop date defaults to today and can be moved within the project timeline */}
+      <StopDateModal
         isOpen={isStopModalOpen}
         onClose={() => {
           setIsStopModalOpen(false);
           setLabourToStop(null);
         }}
         onConfirm={handleConfirmStopLabour}
-        title="Stop Labour"
-        confirmText="Stop Labour"
-        cancelText="Cancel"
-        isDanger={true}
         isLoading={isStopping}
-        message={
-          <div className="space-y-3">
-            <p className="text-gray-800 text-sm font-medium">
-              Are you sure you want to stop <span className="font-bold text-gray-900">{labourToStop?.name}</span>?
-            </p>
-            <p className="text-xs text-gray-500 font-normal">
-              Once stopped, this labour will no longer be considered active on this project.
-            </p>
-            <div className="bg-white p-2.5 rounded-lg border border-gray-200 flex items-center justify-between text-xs">
-              <span className="text-gray-500 font-medium">Stop Date:</span>
-              <span className="font-bold text-gray-800">
-                {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-              </span>
-            </div>
-          </div>
-        }
+        mode="stop"
+        name={labourToStop?.name}
+        startDate={labourToStop?.assignmentStartDate || labourToStop?.startDate}
+        minDate={toApiDateFormat(labourToStop?.assignmentStartDate || labourToStop?.startDate) || null}
+        maxDate={endKey && endKey < toApiDateFormat(new Date()) ? endKey : toApiDateFormat(new Date())}
+        dailyWage={labourToStop?.dailyWage}
       />
 
     </div>

@@ -6,6 +6,7 @@ import {
   handleUpdateLabour,
   handleDeleteLabour,
   handleStopLabour,
+  handleUpdateStopDate,
 } from '../controllers/labour.controller';
 import { handleGetPaymentsByLabourId } from '../controllers/labourPayment.controller';
 import { authenticate } from '../middleware/auth.middleware';
@@ -35,6 +36,9 @@ router.put('/:id', authorize('ADMIN', 'SALES'), validate(updateLabourSchema), ha
 
 // PATCH /api/labours/:id/stop - Stop active labour (ADMIN, SALES)
 router.patch('/:id/stop', authorize('ADMIN', 'SALES'), handleStopLabour);
+
+// PATCH /api/labours/:id/assignments/:assignmentId/stop-date - Change a past stop date (ADMIN, SALES)
+router.patch('/:id/assignments/:assignmentId/stop-date', authorize('ADMIN', 'SALES'), handleUpdateStopDate);
 
 // DELETE /api/labours/:id - Delete labour record (ADMIN)
 router.delete('/:id', authorize('ADMIN'), handleDeleteLabour);
