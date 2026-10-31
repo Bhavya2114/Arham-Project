@@ -172,10 +172,11 @@ describe('Labour Directory & Workforce Ledger Data Consistency (10 Required Case
         startDate: '2026-09-05',
       });
 
-    // 2. Stop from Project A
+    // 2. Stop from Project A on 2026-09-24, before the Project B stint starts
     await request(app)
       .patch(`/api/labours/${test4WorkerId}/stop`)
-      .set('Authorization', `Bearer ${adminToken}`);
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ stopDate: '2026-09-24' });
 
     // 3. Assign to Project B (2026-09-25)
     const assignB = await request(app)
