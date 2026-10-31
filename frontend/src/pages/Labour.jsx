@@ -28,6 +28,9 @@ import {
   FaTimes,
 } from 'react-icons/fa';
 
+// Purple rectangular outlined badge (same style as the profile's BADGE)
+const CONTRACTOR_BADGE = 'bg-[#A78BFA]/10 text-[#C4B5FD] border-[#A78BFA]/40';
+
 const Labour = () => {
   const navigate = useNavigate();
   const toast = useToast();
@@ -62,6 +65,7 @@ const Labour = () => {
   // Modal States for Add / Edit (Phase 4)
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState('create'); // 'create' | 'edit'
+  const [modalKind, setModalKind] = useState('LABOUR'); // 'LABOUR' | 'CONTRACTOR'
   const [activeLabour, setActiveLabour] = useState(null);
 
 
@@ -187,8 +191,9 @@ const Labour = () => {
     const inactive = baseLabours.filter((l) => l.status !== 'ACTIVE').length;
 
     // Projected Monthly Wages for Active Labours ONLY: sum(activeDailyWage * 30 days)
+    // Contractors are paid per project, so they are left out
     const activeDailyTotal = baseLabours
-      .filter((l) => l.status === 'ACTIVE')
+      .filter((l) => l.status === 'ACTIVE' && l.type !== 'CONTRACTOR')
       .reduce((acc, l) => acc + (Number(l.dailyWage) || 0), 0);
     const projectedMonthly = activeDailyTotal * 30;
 
@@ -217,6 +222,14 @@ const Labour = () => {
   const handleOpenAdd = () => {
     setActiveLabour(null);
     setModalMode('create');
+    setModalKind('LABOUR');
+    setIsModalOpen(true);
+  };
+
+  const handleOpenAddContractor = () => {
+    setActiveLabour(null);
+    setModalMode('create');
+    setModalKind('CONTRACTOR');
     setIsModalOpen(true);
   };
 
@@ -272,14 +285,24 @@ const Labour = () => {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleOpenAdd}
-          className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2.5 rounded-xl shadow-sm transition-all text-sm whitespace-nowrap self-start sm:self-auto cursor-pointer"
-        >
-          <FaPlus className="text-xs" />
-          <span>Add labour</span>
-        </button>
+        <div className="flex items-center gap-2.5 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={handleOpenAddContractor}
+            className="flex items-center justify-center gap-2 border border-[#FFB82E]/50 text-[#FFC14D] hover:bg-[#FFB82E]/10 font-semibold px-4 py-2.5 rounded-xl transition-all text-sm whitespace-nowrap cursor-pointer"
+          >
+            <FaPlus className="text-xs" />
+            <span>Add contractor</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleOpenAdd}
+            className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2.5 rounded-xl shadow-sm transition-all text-sm whitespace-nowrap cursor-pointer"
+          >
+            <FaPlus className="text-xs" />
+            <span>Add labour</span>
+          </button>
+        </div>
       </div>
 
       {/* 2. Summary Cards */}
@@ -535,6 +558,11 @@ const Labour = () => {
               </thead>
               <tbody className="divide-y divide-gray-100 font-medium">
                 {displayedLabours.map((labour, index) => {
+                  const isContractor = labour.type === 'CONTRACTOR';
+                  // A contractor can be on several projects; the list shows the first one + "+N more"
+                  const contractorProjects = isContractor ? labour.activeProjects || [] : [];
+                  const shownProject = isContractor ? contractorProjects[0] || null : labour.project;
+                  const moreProjects = Math.max(contractorProjects.length - 1, 0);
 
                   return (
                     <tr
@@ -548,12 +576,19 @@ const Labour = () => {
 
                       {/* Labour Name */}
                       <td className="px-2.5 py-3.5">
-                        <Link
-                          to={`/labour/${labour.id}`}
-                          className="font-extrabold text-slate-900 block tracking-tight hover:text-emerald-700 hover:underline transition-colors"
-                        >
-                          {labour.name}
-                        </Link>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <Link
+                            to={`/labour/${labour.id}`}
+                            className="font-extrabold text-slate-900 tracking-tight hover:text-emerald-700 hover:underline transition-colors"
+                          >
+                            {labour.name}
+                          </Link>
+                          {isContractor && (
+                            <span className={`px-1.5 py-0.5 rounded-md border text-[10px] font-medium leading-none ${CONTRACTOR_BADGE}`}>
+                              Contractor
+                            </span>
+                          )}
+                        </div>
                         {/* Mobile */}
                         <div className="flex items-center space-x-1.5 text-xs text-slate-700 font-semibold mt-0.5 whitespace-nowrap">
                           <FaPhoneAlt className="text-gray-400 text-[10px]" />
@@ -571,17 +606,26 @@ const Labour = () => {
 
                       {/* Project */}
                       <td className="px-2.5 py-3.5">
-                        {labour.project ? (
+                        {shownProject ? (
                           <div className="flex items-center space-x-1.5 text-xs">
                             <FaBuilding className="text-emerald-600 text-[11px] flex-shrink-0" />
                             <div>
                               <span className="font-bold text-slate-800 block">
-                                {labour.project.name}
+                                {shownProject.name}
                               </span>
-                              {labour.project.projectCode && (
-                                <span className="text-[10px] font-mono text-gray-400 uppercase">
-                                  {labour.project.projectCode}
+                              {moreProjects > 0 ? (
+                                <span
+                                  className="text-[10px] text-[#C4B5FD]"
+                                  title={contractorProjects.map((p) => p.name).join(', ')}
+                                >
+                                  +{moreProjects} more
                                 </span>
+                              ) : (
+                                shownProject.projectCode && (
+                                  <span className="text-[10px] font-mono text-gray-400 uppercase">
+                                    {shownProject.projectCode}
+                                  </span>
+                                )
                               )}
                             </div>
                           </div>
@@ -592,11 +636,30 @@ const Labour = () => {
                         )}
                       </td>
 
-                      {/* Daily Wage */}
+                      {/* Daily Wage (contractor: rate per sq ft and area) */}
                       <td className="px-2.5 py-3.5 text-right">
-                        <span className="font-black text-slate-900 font-mono text-xs whitespace-nowrap">
-                          ₹{Number(labour.dailyWage || 0).toLocaleString('en-IN')}
-                        </span>
+                        {isContractor ? (
+                          contractorProjects.length > 1 ? (
+                            <span className="text-xs text-slate-600 whitespace-nowrap">
+                              {contractorProjects.length} projects
+                            </span>
+                          ) : contractorProjects.length === 1 ? (
+                            <div className="flex flex-col items-end">
+                              <span className="font-black text-slate-900 font-mono text-xs whitespace-nowrap">
+                                ₹{Number(contractorProjects[0].ratePerSqFt || 0).toLocaleString('en-IN')}/sq ft
+                              </span>
+                              <span className="text-[10px] text-gray-500 font-semibold mt-0.5 whitespace-nowrap">
+                                {Number(contractorProjects[0].areaSqFt || 0).toLocaleString('en-IN')} sq ft
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400">-</span>
+                          )
+                        ) : (
+                          <span className="font-black text-slate-900 font-mono text-xs whitespace-nowrap">
+                            ₹{Number(labour.dailyWage || 0).toLocaleString('en-IN')}
+                          </span>
+                        )}
                       </td>
 
                       {/* Start Date */}
@@ -632,7 +695,11 @@ const Labour = () => {
                             })}
                           </span>
                           <span className="text-[10px] text-gray-500 font-semibold mt-0.5">
-                            {labour.earnedDays || 0} {labour.earnedDays === 1 ? 'day' : 'days'}
+                            {isContractor
+                              ? contractorProjects.length > 1
+                                ? `${contractorProjects.length} projects`
+                                : 'contract'
+                              : `${labour.earnedDays || 0} ${labour.earnedDays === 1 ? 'day' : 'days'}`}
                           </span>
                         </div>
                       </td>
@@ -708,6 +775,7 @@ const Labour = () => {
         }}
         onSuccess={handleModalSuccess}
         mode={modalMode}
+        kind={modalKind}
         labour={activeLabour}
       />
 

@@ -3,6 +3,7 @@ import { Project, ProjectStatus } from '../models/Project';
 import { Customer } from '../models/Customer';
 import { User } from '../models/User';
 import { Labour } from '../models/Labour';
+import { refreshContractorRoot } from './labour.service';
 import { CreateProjectInput, UpdateProjectInput } from '../validators/project.validator';
 
 const mapProjectResponse = (project: any) => ({
@@ -229,6 +230,15 @@ export const updateProject = async (
 
   await project.save();
 
+  // Contractors: a completed or cancelled project ends only that project's contract;
+  // their other projects carry on
+  if (
+    (input.status === 'COMPLETED' || input.status === 'CANCELLED') &&
+    previousStatus !== input.status
+  ) {
+    await stopContractorsOnProject(project._id.toString(), input.status === 'COMPLETED' ? project.expectedEndDate : null);
+  }
+
   // Lifecycle Rule: When project status transitions to COMPLETED,
   // all active Labour assigned to that project must transition to INACTIVE
   // and freeze wage calculation up to completion date.
@@ -244,6 +254,7 @@ export const updateProject = async (
     const activeLabours = await Labour.find({
       projectId: project._id,
       status: 'ACTIVE',
+      type: { $ne: 'CONTRACTOR' },
     });
     for (const l of activeLabours) {
       l.status = 'INACTIVE';
@@ -275,6 +286,35 @@ export const updateProject = async (
   return getProjectById(id);
 };
 
+/**
+ * Ends every contractor's open assignment on one project (stop date = today, or the
+ * project end date if that is already past) and recomputes each contractor's status.
+ */
+const stopContractorsOnProject = async (projectId: string, expectedEndDate?: Date | null): Promise<void> => {
+  const now = new Date();
+  let stopDate = now;
+  if (expectedEndDate) {
+    const exp = new Date(expectedEndDate);
+    if (!isNaN(exp.getTime()) && exp < now) stopDate = exp;
+  }
+
+  const projObjId = new mongoose.Types.ObjectId(projectId);
+  const contractors = await Labour.find({
+    type: 'CONTRACTOR',
+    projectAssignments: { $elemMatch: { projectId: projObjId, status: 'ACTIVE' } },
+  });
+  for (const c of contractors) {
+    for (const pa of c.projectAssignments || []) {
+      if (pa.status === 'ACTIVE' && pa.projectId?.toString() === projectId) {
+        pa.status = 'STOPPED';
+        pa.stoppedAt = pa.stoppedAt || stopDate;
+      }
+    }
+    await refreshContractorRoot(c, now);
+    await c.save();
+  }
+};
+
 export const deleteProject = async (id: string): Promise<boolean> => {
   if (!mongoose.Types.ObjectId.isValid(id)) {
     const error = new Error('Invalid project ID format');
@@ -289,9 +329,11 @@ export const deleteProject = async (id: string): Promise<boolean> => {
     throw error;
   }
 
+  await stopContractorsOnProject(id, null);
+
   // Deactivate any labours currently assigned to this deleted project
   const now = new Date();
-  const labours = await Labour.find({ projectId: id });
+  const labours = await Labour.find({ projectId: id, type: { $ne: 'CONTRACTOR' } });
   for (const l of labours) {
     l.status = 'INACTIVE';
     l.stoppedAt = l.stoppedAt || now;

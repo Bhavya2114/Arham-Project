@@ -8,12 +8,17 @@ import {
   handleStopLabour,
   handleUpdateStopDate,
   handleDeleteAssignment,
+  handleUpdateContractAssignment,
 } from '../controllers/labour.controller';
 import { handleGetPaymentsByLabourId } from '../controllers/labourPayment.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { authorize } from '../middleware/role.middleware';
 import { validate } from '../middleware/validate.middleware';
-import { createLabourSchema, updateLabourSchema } from '../validators/labour.validator';
+import {
+  createLabourSchema,
+  updateLabourSchema,
+  updateContractAssignmentSchema,
+} from '../validators/labour.validator';
 
 const router = Router();
 
@@ -40,6 +45,14 @@ router.patch('/:id/stop', authorize('ADMIN', 'SALES'), handleStopLabour);
 
 // PATCH /api/labours/:id/assignments/:assignmentId/stop-date - Change a past stop date (ADMIN, SALES)
 router.patch('/:id/assignments/:assignmentId/stop-date', authorize('ADMIN', 'SALES'), handleUpdateStopDate);
+
+// PATCH /api/labours/:id/assignments/:assignmentId - Change a contractor's area / rate on one project (ADMIN, SALES)
+router.patch(
+  '/:id/assignments/:assignmentId',
+  authorize('ADMIN', 'SALES'),
+  validate(updateContractAssignmentSchema),
+  handleUpdateContractAssignment
+);
 
 // DELETE /api/labours/:id/assignments/:assignmentId - Remove a project stint added by mistake (kept as deleted) (ADMIN, SALES)
 router.delete('/:id/assignments/:assignmentId', authorize('ADMIN', 'SALES'), handleDeleteAssignment);

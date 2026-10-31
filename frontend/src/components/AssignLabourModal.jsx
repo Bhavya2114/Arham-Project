@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { getLabours, assignLabourToProject } from '../utils/labourService';
+import { getLabours, assignLabourToProject, assignContractorToProject } from '../utils/labourService';
 import { getErrorMessage } from '../utils/apiError';
 import { toApiDateFormat, formatDateToIndian } from '../utils/dateUtils';
 import { FaTimes, FaExclamationTriangle, FaSpinner } from 'react-icons/fa';
@@ -20,8 +20,14 @@ const AssignLabourModal = ({
   onClose,
   onSuccess,
   project,
+  // 'CONTRACTOR': pick a contractor and enter his contract for this project (area x rate)
+  kind = 'LABOUR',
 }) => {
+  const isContractor = kind === 'CONTRACTOR';
   const [labourList, setLabourList] = useState([]);
+  const [areaSqFt, setAreaSqFt] = useState('');
+  const [ratePerSqFt, setRatePerSqFt] = useState('');
+  const [contractError, setContractError] = useState('');
   const [loadingLabours, setLoadingLabours] = useState(false);
   const [selectedLabourId, setSelectedLabourId] = useState('');
   const [startDate, setStartDate] = useState(() => toApiDateFormat(new Date()));
@@ -45,17 +51,33 @@ const AssignLabourModal = ({
         ? projectExpectedEndDateIso
         : todayIso;
     setStartDate(initialDate);
+    setAreaSqFt('');
+    setRatePerSqFt('');
+    setContractError('');
     setFieldError('');
     setStartDateError('');
     setFormError(null);
     setSubmitting(false);
 
+    const currentProjectId = project?.id || project?._id;
     const loadLabours = async () => {
       setLoadingLabours(true);
       try {
-        const data = await getLabours({ status: 'INACTIVE' });
-        const inactiveOnly = (data || []).filter((l) => l.status === 'INACTIVE');
-        setLabourList(inactiveOnly);
+        if (isContractor) {
+          // Contractors can be on other projects too; only hide those already on this one
+          const data = await getLabours();
+          setLabourList(
+            (data || []).filter(
+              (l) =>
+                l.type === 'CONTRACTOR' &&
+                !(l.activeProjects || []).some((p) => p.id === currentProjectId)
+            )
+          );
+        } else {
+          const data = await getLabours({ status: 'INACTIVE' });
+          const inactiveOnly = (data || []).filter((l) => l.status === 'INACTIVE' && l.type !== 'CONTRACTOR');
+          setLabourList(inactiveOnly);
+        }
       } catch (err) {
         console.error('Error fetching labours for assignment:', err);
         setFormError('Failed to load existing labour workers from database.');
@@ -65,7 +87,7 @@ const AssignLabourModal = ({
     };
 
     loadLabours();
-  }, [isOpen]);
+  }, [isOpen, isContractor]);
 
   // Handle ESC key to close modal
   useEffect(() => {
@@ -96,7 +118,8 @@ const AssignLabourModal = ({
   const todayIso = toApiDateFormat(new Date());
 
   // A returning worker can't start before the last day already counted for them
-  const lastStopIso = selectedLabour?.stoppedAt ? toApiDateFormat(selectedLabour.stoppedAt) : '';
+  // (contractors are paid per project, so this doesn't apply)
+  const lastStopIso = !isContractor && selectedLabour?.stoppedAt ? toApiDateFormat(selectedLabour.stoppedAt) : '';
   const effectiveMinDateIso =
     lastStopIso && (!projectStartDateIso || lastStopIso > projectStartDateIso)
       ? lastStopIso
@@ -114,7 +137,12 @@ const AssignLabourModal = ({
     setStartDateError('');
 
     if (!selectedLabourId) {
-      setFieldError('Please select an existing labour worker');
+      setFieldError(isContractor ? 'Please select a contractor' : 'Please select an existing labour worker');
+      return;
+    }
+
+    if (isContractor && !(Number(areaSqFt) > 0 && Number(ratePerSqFt) > 0)) {
+      setContractError('Enter the area and rate (both more than 0)');
       return;
     }
 
@@ -160,7 +188,13 @@ const AssignLabourModal = ({
     submitLock.current = true;
     setSubmitting(true);
     try {
-      const assigned = await assignLabourToProject(projectId, selectedLabourId, startDate);
+      const assigned = isContractor
+        ? await assignContractorToProject(projectId, selectedLabourId, {
+            areaSqFt: Number(areaSqFt),
+            ratePerSqFt: Number(ratePerSqFt),
+            startDate,
+          })
+        : await assignLabourToProject(projectId, selectedLabourId, startDate);
       onSuccess?.(assigned);
       onClose();
     } catch (err) {
@@ -177,13 +211,23 @@ const AssignLabourModal = ({
   };
 
   const capitalise = (t) => (t ? t.trim().charAt(0).toUpperCase() + t.trim().slice(1) : '');
-  const labourOptions = labourList.map((l) => ({
-    value: l.id || l._id,
-    label: l.name,
-    hint: `${capitalise(l.address || l.location) || 'No city'} · ₹${Number(l.dailyWage || 0).toLocaleString('en-IN')}/day`,
-  }));
+  const labourOptions = labourList.map((l) => {
+    const city = capitalise(l.address || l.location) || 'No city';
+    const onProjects = (l.activeProjects || []).length;
+    return {
+      value: l.id || l._id,
+      label: l.name,
+      hint: isContractor
+        ? `${city} · ${onProjects ? `${onProjects} ${onProjects === 1 ? 'project' : 'projects'}` : 'Free'}`
+        : `${city} · ₹${Number(l.dailyWage || 0).toLocaleString('en-IN')}/day`,
+    };
+  });
 
   const labelCls = 'block text-xs text-gray-400 mb-1.5';
+  const numberInputCls =
+    'w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-xs sm:text-sm font-mono text-slate-900 bg-transparent focus:outline-none focus:border-[#FFB82E] transition-colors';
+  const contractTotal = (Number(areaSqFt) || 0) * (Number(ratePerSqFt) || 0);
+  const noun = isContractor ? 'contractor' : 'worker';
 
   const modalContent = (
     <div
@@ -191,7 +235,7 @@ const AssignLabourModal = ({
       style={{ margin: 0, padding: '1rem' }}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-200 animate-scaleUp"
+        className={`bg-white rounded-2xl shadow-2xl w-full ${isContractor ? 'max-w-lg' : 'max-w-md'} border border-gray-200 animate-scaleUp`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="assign-labour-modal-title"
@@ -200,7 +244,7 @@ const AssignLabourModal = ({
         <div className="flex items-start justify-between px-6 pt-5 pb-1">
           <div>
             <h3 id="assign-labour-modal-title" className="text-lg font-semibold text-slate-900">
-              Assign labour
+              {isContractor ? 'Assign contractor' : 'Assign labour'}
             </h3>
             <p className="text-xs text-gray-400 mt-0.5">
               to <span className="text-slate-700">{projectName}</span>
@@ -227,21 +271,23 @@ const AssignLabourModal = ({
 
           {/* Worker */}
           <div>
-            <label className={labelCls}>Worker</label>
+            <label className={labelCls}>{isContractor ? 'Contractor' : 'Worker'}</label>
             {loadingLabours ? (
               <div className="flex items-center gap-2 py-2.5 px-3.5 border border-gray-200 rounded-xl text-xs text-gray-400">
                 <FaSpinner className="animate-spin text-[#FFB82E] text-xs" />
-                Loading workers...
+                Loading {noun}s...
               </div>
             ) : labourList.length === 0 ? (
               <p className="py-2.5 px-3.5 border border-gray-200 rounded-xl text-xs text-gray-400">
-                No free workers. Only inactive workers can be assigned.
+                {isContractor
+                  ? 'No contractors to assign. Add one from the Labour page first.'
+                  : 'No free workers. Only inactive workers can be assigned.'}
               </p>
             ) : (
               <FilterSelect
                 size="md"
                 value={selectedLabourId}
-                placeholder="Choose a worker"
+                placeholder={isContractor ? 'Choose a contractor' : 'Choose a worker'}
                 options={labourOptions}
                 onChange={(v) => {
                   setSelectedLabourId(v);
@@ -252,12 +298,87 @@ const AssignLabourModal = ({
               />
             )}
             {fieldError && <p className="text-rose-400 text-[11px] mt-1">{fieldError}</p>}
-            {!loadingLabours && labourList.length > 0 && (
+            {!loadingLabours && labourList.length > 0 && !isContractor && (
               <p className="text-[11px] text-gray-400 mt-1.5">Only workers not on a site right now are listed.</p>
             )}
           </div>
 
+          {/* Contractor: area + rate + start date, and the contract total */}
+          {isContractor && (
+            <div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label htmlFor="assign-contract-area" className={labelCls}>Area (sq ft)</label>
+                  <input
+                    id="assign-contract-area"
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="e.g. 10000"
+                    value={areaSqFt}
+                    onChange={(e) => {
+                      setAreaSqFt(e.target.value);
+                      if (contractError) setContractError('');
+                    }}
+                    disabled={submitting}
+                    className={numberInputCls}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="assign-contract-rate" className={labelCls}>Rate (₹/sq ft)</label>
+                  <input
+                    id="assign-contract-rate"
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="e.g. 20"
+                    value={ratePerSqFt}
+                    onChange={(e) => {
+                      setRatePerSqFt(e.target.value);
+                      if (contractError) setContractError('');
+                    }}
+                    disabled={submitting}
+                    className={numberInputCls}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="assign-contract-start-date" className={labelCls}>Start date</label>
+                  <IndianDateInput
+                    id="assign-contract-start-date"
+                    name="startDate"
+                    value={startDate}
+                    onChange={(iso) => {
+                      setStartDate(iso);
+                      if (startDateError) setStartDateError('');
+                      if (formError) setFormError(null);
+                    }}
+                    max={effectiveMaxDateIso}
+                    min={effectiveMinDateIso || undefined}
+                    disabled={submitting}
+                    error={startDateError}
+                    className="py-2.5 sm:text-sm"
+                  />
+                </div>
+              </div>
+              {contractError && <p className="text-rose-400 text-[11px] mt-1">{contractError}</p>}
+              <div className="mt-3 px-3.5 py-2.5 rounded-xl bg-[#FFB82E]/10 border border-[#FFB82E]/30 text-xs sm:text-sm font-mono text-slate-900">
+                {Number(areaSqFt) > 0 && Number(ratePerSqFt) > 0 ? (
+                  <>
+                    {Number(areaSqFt).toLocaleString('en-IN')} sq ft x ₹{Number(ratePerSqFt).toLocaleString('en-IN')} ={' '}
+                    <span className="text-[#FFC14D] font-semibold">
+                      ₹{contractTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-gray-400 font-sans">Contract amount = area x rate</span>
+                )}
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1.5">The full amount is owed from the start date.</p>
+            </div>
+          )}
+
           {/* Wage + start date */}
+          {!isContractor && (
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>Daily wage</label>
@@ -286,6 +407,7 @@ const AssignLabourModal = ({
               />
             </div>
           </div>
+          )}
 
           {/* Actions */}
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
