@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import axiosInstance from '../utils/api';
 import { useToast } from '../context/ToastContext';
 import { getErrorMessage } from '../utils/apiError';
@@ -42,6 +42,14 @@ const todayKey = () => {
 // "pune" and "Pune" show the same way
 const capitalise = (text) => (text ? text.trim().charAt(0).toUpperCase() + text.trim().slice(1) : '');
 
+// "5 workers · 1 contractor on site"; null when nobody is on site
+const onSiteLabel = ({ workers = 0, contractors = 0 } = {}) => {
+  const parts = [];
+  if (workers) parts.push(`${workers} ${workers === 1 ? 'worker' : 'workers'}`);
+  if (contractors) parts.push(`${contractors} ${contractors === 1 ? 'contractor' : 'contractors'}`);
+  return parts.length ? `${parts.join(' · ')} on site` : null;
+};
+
 const Projects = () => {
   const navigate = useNavigate();
   const toast = useToast();
@@ -56,7 +64,7 @@ const Projects = () => {
   const [editingProject, setEditingProject] = useState(null);
   const [sortBy, setSortBy] = useState('newest');
   const [sortDir, setSortDir] = useState('desc');
-  // Active workers per project id, for the "N workers on site" line
+  // People on site per project id ({ workers, contractors }), for the "N workers on site" line
   const [workerCounts, setWorkerCounts] = useState({});
   // Project waiting for delete confirmation, and whether the delete is running
   const [projectToDelete, setProjectToDelete] = useState(null);
@@ -84,14 +92,23 @@ const Projects = () => {
     fetchProjects();
   }, []);
 
-  // One request for all active workers, counted per project here
+  // One request for all active workers and contractors, counted per project here.
+  // A contractor can be on several projects at once, so he counts on each of his active ones.
   useEffect(() => {
     getLabours({ status: 'ACTIVE' })
       .then((list) => {
         const counts = {};
+        const add = (pid, key) => {
+          if (!pid) return;
+          counts[pid] = counts[pid] || { workers: 0, contractors: 0 };
+          counts[pid][key] += 1;
+        };
         (list || []).forEach((l) => {
-          const pid = l.project?.id || l.projectId;
-          if (pid) counts[pid] = (counts[pid] || 0) + 1;
+          if (l.type === 'CONTRACTOR') {
+            new Set((l.activeProjects || []).map((p) => p.id)).forEach((pid) => add(pid, 'contractors'));
+          } else {
+            add(l.project?.id || l.projectId, 'workers');
+          }
         });
         setWorkerCounts(counts);
       })
@@ -118,7 +135,8 @@ const Projects = () => {
       completed: projects.filter((p) => p.status === 'COMPLETED').length,
       overdue: inProgress.filter(isOverdue).length,
       ongoingBudget: inProgress.reduce((acc, p) => acc + (getBudget(p) || 0), 0),
-      ongoingWorkers: inProgress.reduce((acc, p) => acc + (workerCounts[p.id] || 0), 0),
+      ongoingWorkers: inProgress.reduce((acc, p) => acc + (workerCounts[p.id]?.workers || 0), 0),
+      ongoingContractors: inProgress.reduce((acc, p) => acc + (workerCounts[p.id]?.contractors || 0), 0),
     };
   }, [projects, workerCounts]);
 
@@ -227,7 +245,9 @@ const Projects = () => {
             <div>
               <p className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-700">In progress</p>
               <h3 className="text-2xl font-black text-emerald-700 mt-1">{metrics.inProgress}</h3>
-              <p className="text-xs font-semibold text-emerald-700/80 mt-1">{metrics.ongoingWorkers} {metrics.ongoingWorkers === 1 ? 'worker' : 'workers'} on site</p>
+              <p className="text-xs font-semibold text-emerald-700/80 mt-1">
+                {onSiteLabel({ workers: metrics.ongoingWorkers, contractors: metrics.ongoingContractors }) || '0 workers on site'}
+              </p>
             </div>
             <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-lg shadow-inner">
               <FaHardHat />
@@ -361,20 +381,23 @@ const Projects = () => {
                   const isOngoing = p.status === 'IN_PROGRESS';
                   const endKey = getEndDateKey(p);
                   const isOverdue = isOngoing && endKey && endKey < todayKey();
-                  const workers = workerCounts[p.id] || 0;
+                  const siteLabel = onSiteLabel(workerCounts[p.id]);
 
                   return (
-                    <tr key={p.id} className="hover:bg-[#FFB82E]/[0.05] transition-colors duration-150">
+                    // The whole row opens the project; Edit / Delete stop the click
+                    <tr
+                      key={p.id}
+                      onClick={() => navigate(`/projects/${p.id}`)}
+                      className="hover:bg-[#FFB82E]/[0.05] transition-colors duration-150 cursor-pointer"
+                    >
                       <td className="px-6 py-4 min-w-[180px]">
-                        <Link to={`/projects/${p.id}`} className="font-semibold text-slate-900 hover:text-[#FFC14D] transition-colors">
-                          {p.name}
-                        </Link>
+                        <span className="font-semibold text-slate-900">{p.name}</span>
                         <span className="block text-[11px] text-gray-400 mt-0.5">
                           {p.projectCode}
                           {isOngoing && (
-                            <span className={workers ? 'text-[#4ADE80]' : ''}>
+                            <span className={siteLabel ? 'text-[#4ADE80]' : ''}>
                               {' · '}
-                              {workers ? `${workers} ${workers === 1 ? 'worker' : 'workers'} on site` : 'No workers'}
+                              {siteLabel || 'No workers'}
                             </span>
                           )}
                         </span>
@@ -409,8 +432,8 @@ const Projects = () => {
                         )}
                       </td>
                       <td className="px-6 py-4">
-                        {/* Name opens the project; plain icons get a box only on hover */}
-                        <div className="flex items-center justify-center gap-1">
+                        {/* Plain icons get a box only on hover; clicks here don't open the project */}
+                        <div className="flex items-center justify-center gap-1" onClick={(e) => e.stopPropagation()}>
                           <button
                             onClick={() => {
                               setEditingProject(p);
