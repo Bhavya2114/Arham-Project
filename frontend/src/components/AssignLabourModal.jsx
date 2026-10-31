@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { getLabours, assignLabourToProject } from '../utils/labourService';
 import { getErrorMessage } from '../utils/apiError';
@@ -25,6 +25,7 @@ const AssignLabourModal = ({
   const [loadingLabours, setLoadingLabours] = useState(false);
   const [selectedLabourId, setSelectedLabourId] = useState('');
   const [startDate, setStartDate] = useState(() => toApiDateFormat(new Date()));
+  const submitLock = useRef(false);
   const [fieldError, setFieldError] = useState('');
   const [startDateError, setStartDateError] = useState('');
   const [formError, setFormError] = useState(null);
@@ -94,6 +95,13 @@ const AssignLabourModal = ({
     : '';
   const todayIso = toApiDateFormat(new Date());
 
+  // A returning worker can't start before the last day already counted for them
+  const lastStopIso = selectedLabour?.stoppedAt ? toApiDateFormat(selectedLabour.stoppedAt) : '';
+  const effectiveMinDateIso =
+    lastStopIso && (!projectStartDateIso || lastStopIso > projectStartDateIso)
+      ? lastStopIso
+      : projectStartDateIso;
+
   const effectiveMaxDateIso =
     projectExpectedEndDateIso && projectExpectedEndDateIso < todayIso
       ? projectExpectedEndDateIso
@@ -135,11 +143,21 @@ const AssignLabourModal = ({
       return;
     }
 
+    if (lastStopIso && startDate < lastStopIso) {
+      setStartDateError(
+        `This worker already worked till ${formatDateToIndian(selectedLabour.stoppedAt)}. Pick a start date on or after that day.`
+      );
+      return;
+    }
+
     if (!projectId) {
       setFormError('Invalid project context.');
       return;
     }
 
+    // Ignore a second click while the first assign is still being saved
+    if (submitLock.current) return;
+    submitLock.current = true;
     setSubmitting(true);
     try {
       const assigned = await assignLabourToProject(projectId, selectedLabourId, startDate);
@@ -153,6 +171,7 @@ const AssignLabourModal = ({
       );
       setFormError(msg);
     } finally {
+      submitLock.current = false;
       setSubmitting(false);
     }
   };
@@ -260,7 +279,7 @@ const AssignLabourModal = ({
                   if (formError) setFormError(null);
                 }}
                 max={effectiveMaxDateIso}
-                min={projectStartDateIso || undefined}
+                min={effectiveMinDateIso || undefined}
                 disabled={submitting}
                 error={startDateError}
                 className="py-2.5 sm:text-sm"
