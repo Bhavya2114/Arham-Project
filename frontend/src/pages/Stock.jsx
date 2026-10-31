@@ -7,6 +7,9 @@ import {
   FaSearch
 } from 'react-icons/fa';
 
+// Quantities can pick up float noise from adding / subtracting (6.800000000000001); show at most 3 decimals
+const formatQty = (n) => (Number(n) || 0).toLocaleString('en-IN', { maximumFractionDigits: 3 });
+
 const Stock = () => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -164,7 +167,7 @@ const Stock = () => {
         <tr style="${isOut ? 'background-color: #fff8f8;' : ''}">
           <td style="padding: 10px 12px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #64748b;">${idx + 1}</td>
           <td style="padding: 10px 12px; border-bottom: 1px solid #e2e8f0; font-weight: 600; color: #0f172a;">${p.name || ''}</td>
-          <td style="padding: 10px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700; color: ${qtyColor};">${stock} <span style="font-size: 10px; color: #94a3b8; text-transform: uppercase;">${p.unit || 'NOS'}</span></td>
+          <td style="padding: 10px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700; color: ${qtyColor};">${formatQty(stock)} <span style="font-size: 10px; color: #94a3b8; text-transform: uppercase;">${p.unit || 'NOS'}</span></td>
           <td style="padding: 10px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; color: #334155;">₹${cost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
           <td style="padding: 10px 12px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 600; color: #0f172a;">₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
           <td style="padding: 10px 12px; border-bottom: 1px solid #e2e8f0; text-align: center; color: ${statusColor}; font-weight: 600;">● ${status}</td>
@@ -471,14 +474,14 @@ const Stock = () => {
                       </td>
 
                       {/* PRODUCT */}
-                      <td className="px-5 py-4 text-left font-bold text-slate-900 text-sm whitespace-nowrap">
+                      <td className="px-5 py-4 text-left font-bold text-slate-900 text-sm break-words">
                         {p.name}
                       </td>
 
                       {/* QUANTITY */}
                       <td className="px-5 py-4 text-right whitespace-nowrap font-medium">
                         <span className={`font-bold text-sm ${isOut ? 'text-rose-600' : 'text-slate-900'}`}>
-                          {current}
+                          {formatQty(current)}
                         </span>
                         <span className="text-slate-400 text-xs font-normal ml-1">
                           {p.unit || 'NOS'}
