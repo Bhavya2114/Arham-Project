@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { MaterialConsumption } from '../models/MaterialConsumption';
 import { Project } from '../models/Project';
 import { Product } from '../models/Product';
+import { roundStoredStock } from '../utils/stockQty';
 import { User } from '../models/User';
 import { CreateMaterialConsumptionInput } from '../validators/materialConsumption.validator';
 import { PROJECT_GST_RATE, PROJECT_GST_MULTIPLIER, roundToTwo, getFixedBillingRate } from '../constants/projectGst.constants';
@@ -235,6 +236,7 @@ export const createMaterialConsumption = async (
     (error as any).statusCode = 409;
     throw error;
   }
+  await roundStoredStock([productObj._id]);
 
   // 7. Create MaterialConsumption Document with Rollback Safeguard
   try {
@@ -264,6 +266,7 @@ export const createMaterialConsumption = async (
     await Product.findByIdAndUpdate(productObj._id, {
       $inc: { currentStock: qty },
     });
+    await roundStoredStock([productObj._id]);
     throw createErr;
   }
 };
