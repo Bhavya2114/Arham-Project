@@ -9,6 +9,7 @@ import {
   deleteLabour,
   stopLabour,
   updateAssignmentStopDate,
+  deleteAssignment,
   assignLabourToProject,
 } from '../services/labour.service';
 import { successResponse } from '../utils/apiResponse';
@@ -117,6 +118,22 @@ export const handleUpdateStopDate = async (
     const assignmentId = req.params.assignmentId as string;
     const labour = await updateAssignmentStopDate(id, assignmentId, req.body?.stopDate);
     res.status(200).json(successResponse('Stop date updated', labour));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const handleDeleteAssignment = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const assignmentId = req.params.assignmentId as string;
+    const userId = (req as any).user?.id || (req as any).user?._id;
+    const labour = await deleteAssignment(id, assignmentId, userId ? String(userId) : undefined);
+    res.status(200).json(successResponse('Project record deleted', labour));
   } catch (error) {
     next(error);
   }

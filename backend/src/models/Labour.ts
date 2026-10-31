@@ -9,6 +9,12 @@ export interface IProjectAssignment {
   status: 'ACTIVE' | 'STOPPED';
 }
 
+// A stint removed by mistake: kept for the record, never counted in days or wages
+export interface IDeletedAssignment extends IProjectAssignment {
+  deletedAt: Date;
+  deletedBy?: mongoose.Types.ObjectId | null;
+}
+
 export interface ILabour extends Document {
   name: string;
   mobile: string;
@@ -16,6 +22,7 @@ export interface ILabour extends Document {
   projectId?: mongoose.Types.ObjectId | null;
   assignedProjects?: mongoose.Types.ObjectId[];
   projectAssignments?: IProjectAssignment[];
+  deletedAssignments?: IDeletedAssignment[];
   dailyWage: number;
   startDate?: Date | null;
   assignmentStartDate?: Date | null;
@@ -75,6 +82,37 @@ const labourSchema = new Schema<ILabour>(
           type: String,
           enum: ['ACTIVE', 'STOPPED'],
           default: 'ACTIVE',
+        },
+      },
+    ],
+    deletedAssignments: [
+      {
+        projectId: {
+          type: Schema.Types.ObjectId,
+          ref: 'Project',
+          required: true,
+        },
+        startDate: {
+          type: Date,
+          required: true,
+        },
+        stoppedAt: {
+          type: Date,
+          default: null,
+        },
+        status: {
+          type: String,
+          enum: ['ACTIVE', 'STOPPED'],
+          default: 'STOPPED',
+        },
+        deletedAt: {
+          type: Date,
+          required: true,
+        },
+        deletedBy: {
+          type: Schema.Types.ObjectId,
+          ref: 'User',
+          default: null,
         },
       },
     ],

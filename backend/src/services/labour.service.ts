@@ -302,6 +302,46 @@ export function isAssignmentActive(
   return true;
 }
 
+/**
+ * Deleted stints, shown faded in the worker's project history. Their days and wages
+ * are worked out for display only and never added to the worker's totals.
+ */
+function mapDeletedAssignments(labour: any, refDate: Date | string): any[] {
+  return (labour.deletedAssignments || []).map((pa: any) => {
+    const paProj = pa.projectId;
+    const paCap = paProj && typeof paProj === 'object' ? paProj.expectedEndDate || null : null;
+    const stop = pa.stoppedAt || pa.deletedAt;
+    const calc = calculateLabourEarned(
+      {
+        dailyWage: labour.dailyWage,
+        startDate: pa.startDate,
+        assignmentStartDate: pa.startDate,
+        status: 'STOPPED',
+        stoppedAt: stop,
+      },
+      refDate,
+      false,
+      paCap
+    );
+    const by = pa.deletedBy;
+    return {
+      assignmentId: pa._id ? pa._id.toString() : undefined,
+      projectId: paProj?._id ? paProj._id.toString() : paProj?.toString(),
+      name: paProj && typeof paProj === 'object' ? paProj.name : undefined,
+      projectCode: paProj && typeof paProj === 'object' ? paProj.projectCode : undefined,
+      projectStatus: paProj && typeof paProj === 'object' ? paProj.status : undefined,
+      startDate: pa.startDate,
+      stoppedAt: stop,
+      isActive: false,
+      isDeleted: true,
+      deletedAt: pa.deletedAt,
+      deletedBy: by && typeof by === 'object' && by._id ? { id: by._id.toString(), name: by.name } : null,
+      earnedDays: calc.earnedDays,
+      earned: Math.round(calc.totalEarned * 100) / 100,
+    };
+  });
+}
+
 export const mapLabourResponse = (
   labour: any,
   totalPaid: number = 0,
@@ -679,7 +719,7 @@ export const mapLabourResponse = (
     totalPaid: roundedPaid,
     balance,
     // Newest project first
-    projectHistory: projectHistory.sort(
+    projectHistory: [...projectHistory, ...mapDeletedAssignments(labour, refDate)].sort(
       (a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime()
     ),
     createdAt: labour.createdAt,
@@ -805,6 +845,8 @@ export const getLabourById = async (
   const labour = await Labour.findById(id)
     .populate('projectId', 'name projectCode siteAddress status expectedEndDate')
     .populate('projectAssignments.projectId', 'name projectCode siteAddress status expectedEndDate')
+    .populate('deletedAssignments.projectId', 'name projectCode siteAddress status expectedEndDate')
+    .populate('deletedAssignments.deletedBy', 'name')
     .lean();
 
   if (!labour) return null;
@@ -1422,6 +1464,88 @@ export const updateAssignmentStopDate = async (
     labour.stoppedAt = stopDate;
   }
 
+  await labour.save();
+  return getLabourById(labour._id.toString());
+};
+
+/**
+ * Removes a project stint added by mistake. It moves to deletedAssignments, so it stays
+ * visible (faded, "Deleted <date> by <name>") but no longer counts anywhere: days, wages,
+ * project labour cost or the project's worker list.
+ */
+export const deleteAssignment = async (
+  id: string,
+  assignmentId: string,
+  userId?: string
+): Promise<any> => {
+  if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(assignmentId)) {
+    const error = new Error('Invalid labour ID format');
+    (error as any).statusCode = 400;
+    throw error;
+  }
+
+  const labour = await Labour.findById(id);
+  if (!labour) {
+    const error = new Error('Labour not found');
+    (error as any).statusCode = 404;
+    throw error;
+  }
+
+  const assignments: any[] = labour.projectAssignments || [];
+  const assignment = assignments.find((pa: any) => pa._id && pa._id.toString() === assignmentId);
+  if (!assignment) {
+    const error = new Error('Project record not found for this worker');
+    (error as any).statusCode = 404;
+    throw error;
+  }
+
+  const now = new Date();
+  const project = await Project.findById(assignment.projectId).select('expectedEndDate').lean();
+  const wasActive = isAssignmentActive(assignment, now, (project as any)?.expectedEndDate || null);
+
+  if (!labour.deletedAssignments) labour.deletedAssignments = [];
+  labour.deletedAssignments.push({
+    _id: assignment._id,
+    projectId: assignment.projectId,
+    startDate: assignment.startDate,
+    stoppedAt: assignment.stoppedAt || null,
+    status: assignment.status,
+    deletedAt: now,
+    deletedBy: userId && mongoose.Types.ObjectId.isValid(userId) ? new mongoose.Types.ObjectId(userId) : null,
+  } as any);
+
+  const remaining = assignments.filter((pa: any) => pa !== assignment);
+  labour.projectAssignments = remaining as any;
+
+  // The project no longer lists this worker unless another stint there remains
+  const projectIdStr = assignment.projectId.toString();
+  if (!remaining.some((pa: any) => pa.projectId.toString() === projectIdStr)) {
+    labour.assignedProjects = (labour.assignedProjects || []).filter(
+      (p: any) => p.toString() !== projectIdStr
+    ) as any;
+  }
+
+  const stillActive = remaining.some((pa: any) => isAssignmentActive(pa, now));
+  if (wasActive || !stillActive) {
+    if (remaining.length === 0) {
+      // No work left on record: back to a fresh, unassigned worker
+      labour.status = 'INACTIVE';
+      labour.projectId = null;
+      labour.startDate = null;
+      labour.assignmentStartDate = null;
+      labour.stoppedAt = null;
+    } else if (!stillActive) {
+      const latest = remaining
+        .slice()
+        .sort((a: any, b: any) => +new Date(b.startDate) - +new Date(a.startDate))[0];
+      labour.status = 'INACTIVE';
+      labour.projectId = null;
+      labour.assignmentStartDate = latest.startDate;
+      labour.stoppedAt = latest.stoppedAt || labour.stoppedAt;
+    }
+  }
+
+  labour.increment();
   await labour.save();
   return getLabourById(labour._id.toString());
 };
