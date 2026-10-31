@@ -84,13 +84,11 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
       >
         {/* Logo */}
         <div className="flex items-center justify-between px-6 pt-6 pb-5">
-          <div className="leading-none">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xl font-extrabold tracking-[0.06em] text-[#F4F1EA]">ARHAM</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-[#FFB82E] -mt-2"></span>
-            </div>
-            <div className="text-[9px] tracking-[0.2em] text-[#75716A] mt-1.5">ELECTRICAL &amp; LIGHTING</div>
-          </div>
+          <img
+            src="/brand/arham-logo-horizontal-dark.svg"
+            alt="Arham Power Solutions"
+            className="h-10 w-auto"
+          />
           <button
             className="md:hidden p-2 text-[#908C84] hover:text-[#F4F1EA] rounded-lg transition-colors"
             onClick={() => setIsOpen(false)}

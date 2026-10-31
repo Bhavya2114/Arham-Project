@@ -792,13 +792,8 @@ const LabourDetails = () => {
                       {/* Recorded By */}
                       <td className="px-5 py-3.5">
                         <div className="text-slate-700 font-semibold">
-                          {payment.createdBy?.name || 'System Admin'}
+                          {payment.createdBy?.name || '-'}
                         </div>
-                        {payment.createdBy?.role && (
-                          <div className="text-[10px] text-gray-400 font-mono uppercase">
-                            {payment.createdBy.role}
-                          </div>
-                        )}
                       </td>
 
                       {/* Actions: Edit, Delete (delete asks for confirmation) */}
@@ -862,7 +857,7 @@ const LabourDetails = () => {
                   <div className="flex items-center justify-between text-xs pt-1">
                     <div>{getMethodBadge(payment.paymentMethod)}</div>
                     <div className="text-[11px] text-gray-400">
-                      By {payment.createdBy?.name || 'Admin'}
+                      By {payment.createdBy?.name || '-'}
                     </div>
                   </div>
 

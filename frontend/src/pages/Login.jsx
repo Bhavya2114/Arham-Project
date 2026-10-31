@@ -8,88 +8,14 @@ import {
   FiEye,
   FiEyeOff,
   FiLogIn,
-  FiUser,
-  FiTool,
-  FiShield,
   FiClipboard,
+  FiShield,
   FiZap,
   FiHexagon,
   FiSettings,
-  FiEye as FiViewer
 } from "react-icons/fi";
 import { HiOutlineBuildingOffice2 } from "react-icons/hi2";
 import { TbCircuitSwitchClosed } from "react-icons/tb";
-
-// Pre-configured role accounts for fast one-click demo login & testing
-const demoAccounts = {
-  admin: {
-    username: "admin@erp.com",
-    password: "Password@123",
-    roleName: "Admin",
-    badge: "Full Access"
-  },
-  technician: {
-    username: "warehouse@erp.com",
-    password: "Password@123",
-    roleName: "Technician",
-    badge: "Field Staff"
-  },
-  supervisor: {
-    username: "sales@erp.com",
-    password: "Password@123",
-    roleName: "Supervisor",
-    badge: "Team Lead"
-  },
-  viewer: {
-    username: "accounts@erp.com",
-    password: "Password@123",
-    roleName: "Viewer",
-    badge: "Read Only"
-  }
-};
-
-const roleCards = [
-  {
-    key: "admin",
-    title: "Admin",
-    desc: "Full Access",
-    icon: FiUser,
-    iconColor: "text-emerald-700",
-    bgColor: "bg-emerald-50",
-    borderColor: "hover:border-emerald-500",
-    activeBorder: "border-emerald-600 ring-2 ring-emerald-600/20 bg-emerald-50/40"
-  },
-  {
-    key: "technician",
-    title: "Technician",
-    desc: "Field Staff",
-    icon: FiTool,
-    iconColor: "text-sky-600",
-    bgColor: "bg-sky-50",
-    borderColor: "hover:border-sky-500",
-    activeBorder: "border-sky-600 ring-2 ring-sky-600/20 bg-sky-50/40"
-  },
-  {
-    key: "supervisor",
-    title: "Supervisor",
-    desc: "Team Lead",
-    icon: FiClipboard,
-    iconColor: "text-purple-600",
-    bgColor: "bg-purple-50",
-    borderColor: "hover:border-purple-500",
-    activeBorder: "border-purple-600 ring-2 ring-purple-600/20 bg-purple-50/40"
-  },
-  {
-    key: "viewer",
-    title: "Viewer",
-    desc: "Read Only",
-    icon: FiViewer,
-    iconColor: "text-amber-600",
-    bgColor: "bg-amber-50",
-    borderColor: "hover:border-amber-500",
-    activeBorder: "border-amber-600 ring-2 ring-amber-600/20 bg-amber-50/40"
-  }
-];
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -97,7 +23,6 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [loading, setLoading] = useState(false);
-  const [selectedRole, setSelectedRole] = useState(null);
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -134,16 +59,6 @@ const Login = () => {
     }
   };
 
-  const handleSelectRole = (roleKey) => {
-    const account = demoAccounts[roleKey];
-    if (account) {
-      setEmail(account.username);
-      setPassword(account.password);
-      setSelectedRole(roleKey);
-      setErrorMessage("");
-    }
-  };
-
   return (
     <div
       className="min-h-screen w-full bg-[#25262A] text-slate-800 font-sans selection:bg-emerald-600 selection:text-white relative bg-cover bg-center bg-no-repeat overflow-x-hidden"
@@ -163,40 +78,12 @@ const Login = () => {
         <div className="w-full lg:w-[54%] xl:w-[53%] flex flex-col justify-between py-6 sm:py-8 lg:py-10 xl:py-12 pr-0 lg:pr-6 xl:pr-8">
 
           {/* Top Brand Logo */}
-          <div className="flex items-center gap-3.5">
-            <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-white shadow-sm border border-emerald-700/20 text-[#FFC14D] shrink-0">
-              {/* Professional Electrical Contractor Logo: Building with Integrated Bolt & Plug */}
-              <svg
-                className="w-7 h-7 text-[#FFC14D]"
-                viewBox="0 0 32 32"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M4 14L16 4L28 14V27C28 27.5523 27.5523 28 27 28H5C4.44772 28 4 27.5523 4 27V14Z"
-                  stroke="#FFB82E"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <path
-                  d="M17 9L11 17H16L15 24L21 16H16L17 9Z"
-                  fill="#FFB82E"
-                  stroke="#FFB82E"
-                  strokeWidth="1.2"
-                  strokeLinejoin="round"
-                />
-                <path d="M22 23V27M25 23V27" stroke="#FFB82E" strokeWidth="2" strokeLinecap="round" />
-              </svg>
-            </div>
-            <div>
-              <span className="text-2xl sm:text-[28px] font-extrabold tracking-tight text-slate-900 block leading-tight">
-                Arham
-              </span>
-              <span className="text-xs sm:text-[13px] font-bold text-[#FFC14D] tracking-tight block">
-                Management System
-              </span>
-            </div>
+          <div className="flex items-center">
+            <img
+              src="/brand/arham-logo-horizontal-dark.svg"
+              alt="Arham Power Solutions"
+              className="h-12 sm:h-14 w-auto"
+            />
           </div>
 
           {/* Hero Pitch & Feature List */}
@@ -342,7 +229,6 @@ const Login = () => {
                     value={email}
                     onChange={(e) => {
                       setEmail(e.target.value);
-                      setSelectedRole(null);
                     }}
                     className="block w-full pl-10 pr-4 h-12 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-600/15 focus:border-[#FFB82E] transition-all text-sm bg-white hover:border-slate-300"
                     placeholder="Enter your email address"
@@ -370,7 +256,6 @@ const Login = () => {
                     value={password}
                     onChange={(e) => {
                       setPassword(e.target.value);
-                      setSelectedRole(null);
                     }}
                     className="block w-full pl-10 pr-11 h-12 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-600/15 focus:border-[#FFB82E] transition-all text-sm bg-white hover:border-slate-300"
                     placeholder="Enter your password"
@@ -408,60 +293,12 @@ const Login = () => {
                   ) : (
                     <>
                       <FiLogIn className="w-4 h-4 stroke-[2.5]" />
-                      <span>{selectedRole ? `Login as ${demoAccounts[selectedRole].roleName}` : "Login"}</span>
+                      <span>Login</span>
                     </>
                   )}
                 </button>
               </div>
             </form>
-
-            {/* Divider */}
-            <div className="relative flex py-4 items-center">
-              <div className="flex-grow border-t border-slate-200"></div>
-              <span className="flex-shrink mx-3 text-slate-400 text-[11px] uppercase tracking-wider font-bold bg-white px-2">OR</span>
-              <div className="flex-grow border-t border-slate-200"></div>
-            </div>
-
-            {/* Quick Role Login Section */}
-            <div className="space-y-3">
-              <div className="text-center">
-                <h4 className="text-xs sm:text-[13px] font-bold text-slate-800 tracking-tight">
-                  Login with Role
-                </h4>
-                <p className="text-[11px] text-slate-400 font-medium mt-0.5">
-                  Select your role to continue
-                </p>
-              </div>
-
-              <div className="grid grid-cols-4 gap-2.5 w-full">
-                {roleCards.map((card) => {
-                  const IconComponent = card.icon;
-                  const isSelected = selectedRole === card.key;
-                  return (
-                    <button
-                      key={card.key}
-                      type="button"
-                      onClick={() => handleSelectRole(card.key)}
-                      className={`flex flex-col items-center justify-center p-2.5 rounded-2xl border text-center cursor-pointer select-none transition-all duration-200 ${
-                        isSelected
-                          ? card.activeBorder
-                          : `border-slate-200 bg-white ${card.borderColor} hover:bg-slate-50/80 hover:shadow-sm`
-                      }`}
-                    >
-                      <div className={`p-2 rounded-xl mb-1.5 flex items-center justify-center ${card.bgColor} ${card.iconColor}`}>
-                        <IconComponent className="w-4 h-4 stroke-[2.2]" />
-                      </div>
-                      <span className="font-bold text-[11px] text-slate-800 tracking-tight block">
-                        {card.title}
-                      </span>
-                      <span className="text-[9px] text-slate-400 font-medium block mt-0.5 whitespace-nowrap">
-                        {card.desc}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
 
             {/* Bottom Trust Indicators */}
             <div className="mt-7 pt-4 border-t border-slate-100 flex items-center justify-center gap-7 text-slate-400 text-xs font-semibold">

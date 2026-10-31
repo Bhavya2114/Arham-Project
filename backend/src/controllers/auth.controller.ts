@@ -21,18 +21,25 @@ export const login = async (
 export const getProfile = async (
   req: Request,
   res: Response,
-  _next: NextFunction
+  next: NextFunction
 ): Promise<void> => {
   if (!req.user) {
     res.status(401).json({ success: false, message: 'Unauthorized' });
     return;
   }
 
-  res.status(200).json({
-    user: {
-      userId: req.user.id,
-      email: req.user.email,
-      role: req.user.role,
-    },
-  });
+  try {
+    // Name comes from the database, so the sidebar shows who is logged in
+    const profile = await authService.getProfile(req.user.id);
+    res.status(200).json({
+      user: {
+        userId: profile.id,
+        name: profile.name,
+        email: profile.email,
+        role: profile.role,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
 };
