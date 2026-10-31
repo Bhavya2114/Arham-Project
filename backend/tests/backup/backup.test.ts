@@ -64,11 +64,11 @@ describe('Backup API (GitHub Actions backup)', () => {
   });
 
   it('starts the workflow with force and a request id, and refuses a second start within a minute', async () => {
-    github((url, init) =>
-      url.endsWith('/actions/workflows/backup.yml/dispatches') && init?.method === 'POST'
-        ? new Response(null, { status: 204 })
-        : undefined
-    );
+    github((url, init) => {
+      if (url.startsWith(`${RUNS_URL}?status=success`)) return json({ workflow_runs: [{ updated_at: '2026-10-20T10:00:00Z' }] });
+      if (url.endsWith('/actions/workflows/backup.yml/dispatches') && init?.method === 'POST') return new Response(null, { status: 204 });
+      return undefined;
+    });
 
     const res = await request(app).post('/api/backup').set('Authorization', `Bearer ${adminToken}`);
     expect(res.status).toBe(202);
@@ -76,7 +76,7 @@ describe('Backup API (GitHub Actions backup)', () => {
     expect(requestId).toMatch(/^[0-9a-f-]{36}$/);
     expect(startedAt).toBeTruthy();
 
-    const [, init] = fetchMock.mock.calls[0];
+    const [, init] = fetchMock.mock.calls.find(([u]) => String(u).endsWith('/dispatches'))!;
     expect(JSON.parse(init.body)).toEqual({ ref: 'main', inputs: { force: 'true', request_id: requestId } });
     expect(init.headers.Authorization).toBe('Bearer test-token');
     expect(init.headers.Accept).toBe('application/vnd.github+json');
@@ -84,7 +84,43 @@ describe('Backup API (GitHub Actions backup)', () => {
 
     const again = await request(app).post('/api/backup').set('Authorization', `Bearer ${adminToken}`);
     expect(again.status).toBe(409);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls.filter(([u]) => String(u).endsWith('/dispatches'))).toHaveLength(1);
+  });
+
+  describe('one backup per day (IST)', () => {
+    // 31 Oct 2026, 11:30 PM IST
+    const NOW = Date.parse('2026-10-31T18:00:00Z');
+
+    const withLastBackup = (updatedAt: string) =>
+      github((url, init) => {
+        if (url.startsWith(`${RUNS_URL}?status=success`)) return json({ workflow_runs: [{ updated_at: updatedAt }] });
+        if (url.endsWith('/dispatches') && init?.method === 'POST') return new Response(null, { status: 204 });
+        return undefined;
+      });
+
+    beforeEach(() => {
+      jest.spyOn(Date, 'now').mockReturnValue(NOW);
+    });
+
+    it('refuses a second backup on the same IST day', async () => {
+      withLastBackup('2026-10-31T17:22:00Z'); // 10:52 PM IST, same day
+      const res = await request(app).post('/api/backup').set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(409);
+      expect(res.body.message).toBe('Already backed up today');
+      expect(fetchMock.mock.calls.some(([u]) => String(u).endsWith('/dispatches'))).toBe(false);
+    });
+
+    it('counts the day in IST, not UTC', async () => {
+      withLastBackup('2026-10-30T19:00:00Z'); // 31 Oct 12:30 AM IST, same IST day though 30 Oct in UTC
+      const res = await request(app).post('/api/backup').set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(409);
+    });
+
+    it('allows a backup when the last one was on an earlier IST day', async () => {
+      withLastBackup('2026-10-30T18:00:00Z'); // 30 Oct 11:30 PM IST
+      const res = await request(app).post('/api/backup').set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(202);
+    });
   });
 
   it('rejects an invalid request id', async () => {

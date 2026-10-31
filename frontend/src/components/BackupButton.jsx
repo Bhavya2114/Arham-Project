@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { LuDatabaseBackup, LuLoader2 } from 'react-icons/lu';
 import axiosInstance from '../utils/api';
 import { useToast } from '../context/ToastContext';
@@ -23,6 +24,9 @@ const formatLastBackup = (iso) => {
   const get = (type) => parts.find((p) => p.type === type)?.value || '';
   return `${get('day')} ${get('month')}, ${get('hour')}:${get('minute')} ${get('dayPeriod').toUpperCase()}`;
 };
+
+// YYYY-MM-DD in IST, so "today" means the Indian calendar day
+const istDay = (val) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date(val));
 
 const fileNameFrom = (disposition) => {
   const match = /filename="?([^";]+)"?/i.exec(disposition || '');
@@ -110,30 +114,43 @@ const BackupButton = () => {
     }
   };
 
-  const lastLabel = lastBackupAt ? formatLastBackup(lastBackupAt) : '';
+  // One backup a day: once today's is done the button stays off until tomorrow
+  const backedUpToday = Boolean(lastBackupAt) && istDay(lastBackupAt) === istDay(Date.now());
+  const lastLabel = !lastBackupAt
+    ? ''
+    : backedUpToday
+    ? `Today, ${formatLastBackup(lastBackupAt).split(', ')[1]}`
+    : formatLastBackup(lastBackupAt);
 
   return (
     <div className="mx-3 mb-2 px-2">
       <button
         type="button"
         onClick={() => setConfirmOpen(true)}
-        disabled={busy}
-        className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-[#2A2B30] text-[13px] text-[#B8B4AC] hover:text-[#FFC14D] hover:border-[#FFB82E]/50 hover:bg-[#FFB82E]/10 transition-colors cursor-pointer focus:outline-none disabled:cursor-wait disabled:text-[#FFC14D] disabled:border-[#FFB82E]/40"
+        disabled={busy || backedUpToday}
+        title={backedUpToday ? 'Only one backup per day. Try again tomorrow.' : 'Back up now'}
+        className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-[#2A2B30] text-[13px] text-[#B8B4AC] hover:text-[#FFC14D] hover:border-[#FFB82E]/50 hover:bg-[#FFB82E]/10 transition-colors cursor-pointer focus:outline-none disabled:cursor-not-allowed disabled:hover:bg-transparent ${
+          busy ? 'disabled:text-[#FFC14D] disabled:border-[#FFB82E]/40' : 'disabled:opacity-50 disabled:hover:text-[#B8B4AC] disabled:hover:border-[#2A2B30]'
+        }`}
       >
         {busy ? <LuLoader2 className="text-base animate-spin" /> : <LuDatabaseBackup className="text-base" />}
-        <span>{busy ? 'Backing up…' : 'Back up now'}</span>
+        <span>{busy ? 'Backing up…' : backedUpToday ? 'Backed up today' : 'Back up now'}</span>
       </button>
       {lastLabel && <div className="mt-1 text-center text-[11px] text-[#75716A]">Last backup: {lastLabel}</div>}
 
-      <ConfirmationModal
-        isOpen={confirmOpen}
-        onClose={() => setConfirmOpen(false)}
-        onConfirm={runBackup}
-        title="Back up now?"
-        message="A fresh backup goes to Google Drive and a copy downloads to this PC. It takes about 1–2 minutes."
-        confirmText="Back up now"
-        isDanger={false}
-      />
+      {/* Portal: the sidebar's transform would otherwise trap the pop-up inside it */}
+      {createPortal(
+        <ConfirmationModal
+          isOpen={confirmOpen}
+          onClose={() => setConfirmOpen(false)}
+          onConfirm={runBackup}
+          title="Back up now?"
+          message="A fresh backup goes to Google Drive and a copy downloads to this PC. It takes about 1–2 minutes."
+          confirmText="Back up now"
+          isDanger={false}
+        />,
+        document.body
+      )}
     </div>
   );
 };

@@ -57,6 +57,10 @@ const workflowPath = () => {
   return `/repos/${repo}/actions/workflows/${encodeURIComponent(workflow)}`;
 };
 
+// YYYY-MM-DD on the Indian calendar
+const istDay = (val: string | number | Date): string =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date(val));
+
 const runTitle = (requestId: string) => `App backup ${requestId}`;
 
 const findRun = async (requestId: string): Promise<any | null> => {
@@ -76,6 +80,11 @@ export const startBackup = async (): Promise<{ requestId: string; startedAt: str
   requireConfig();
   if (Date.now() - lastStartedAt < START_COOLDOWN_MS) {
     throw httpError(409, 'A backup was started less than a minute ago. Please wait for it to finish.');
+  }
+  // One backup a day (IST), counting the scheduled ones too
+  const { lastBackupAt } = await getLastBackup();
+  if (lastBackupAt && istDay(lastBackupAt) === istDay(Date.now())) {
+    throw httpError(409, 'Already backed up today');
   }
   const requestId = randomUUID();
   await github(`${workflowPath()}/dispatches`, {
