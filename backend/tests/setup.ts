@@ -15,3 +15,6 @@ for (const key of Object.keys(process.env)) {
     delete process.env[key];
   }
 }
+
+// Safety guard: never start the real GitHub backup workflow from tests
+delete process.env.GITHUB_BACKUP_TOKEN;

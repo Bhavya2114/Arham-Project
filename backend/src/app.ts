@@ -13,6 +13,7 @@ import projectInvoiceRoutes from './routes/projectInvoice.routes';
 import projectInvoicePaymentRoutes from './routes/projectInvoicePayment.routes';
 import labourRoutes from './routes/labour.routes';
 import labourPaymentRoutes from './routes/labourPayment.routes';
+import backupRoutes from './routes/backup.routes';
 import { notFoundHandler } from './middleware/notFound.middleware';
 import { errorHandler } from './middleware/error.middleware';
 import { successResponse } from './utils/apiResponse';
@@ -63,7 +64,7 @@ app.use(
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-    exposedHeaders: ['Authorization'],
+    exposedHeaders: ['Authorization', 'Content-Disposition'],
   })
 );
 app.use(express.json());
@@ -94,6 +95,7 @@ app.use('/api/project-invoice-payments', projectInvoicePaymentRoutes);
 app.use('/api/labours', labourRoutes);
 app.use('/api/labour-payments', labourPaymentRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/backup', backupRoutes);
 
 app.get('/', (_req: Request, res: Response) => {
   res.status(200).json(successResponse('Arham Inventory API is running'));

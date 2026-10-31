@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import BackupButton from './BackupButton';
 import {
   LuLayoutGrid,
   LuPackage,
@@ -127,6 +128,8 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
           {navItemsAfterPurchases.map(renderItem)}
 
         </nav>
+
+        {user?.role === 'ADMIN' && <BackupButton />}
 
         {/* Signed-in user */}
         <div className="mx-3 mb-3 pt-3 border-t border-[#222327] flex items-center gap-3 px-2">
