@@ -76,13 +76,12 @@ function dayNumberToIso(day: number): string {
   return new Date(day * DAY_MS).toISOString().slice(0, 10);
 }
 
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// '08 Sep 2026' (built by hand: newer ICU writes 'Sept' for en-GB)
 function formatDayLabel(day: number): string {
-  return new Date(day * DAY_MS).toLocaleDateString('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'UTC',
-  });
+  const d = new Date(day * DAY_MS);
+  return `${String(d.getUTCDate()).padStart(2, '0')} ${MONTHS_SHORT[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
 /**
