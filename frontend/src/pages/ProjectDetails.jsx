@@ -14,7 +14,8 @@ import FilterSelect from '../components/FilterSelect';
 import IndianDateInput from '../components/IndianDateInput';
 import ProjectFormModal from '../components/ProjectFormModal';
 import LabourPaymentModal from '../components/LabourPaymentModal';
-import { stopLabour } from '../utils/labourService';
+import ConfirmationModal from '../components/ConfirmationModal';
+import { stopLabour, updateContractAssignment } from '../utils/labourService';
 import { useAuth } from '../context/AuthContext';
 
 const BADGE = {
@@ -40,12 +41,25 @@ const capitalise = (text) => (text ? text.trim().charAt(0).toUpperCase() + text.
 const formatRupees = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
 const formatPaise = (n) => `₹${(Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const SectionHead = ({ title, subtitle, actionLabel, onAction, disabled, disabledTitle }) => (
+const SectionHead = ({ title, subtitle, actionLabel, onAction, disabled, disabledTitle, secondaryActionLabel, onSecondaryAction }) => (
   <div className="flex items-start justify-between gap-4">
     <div>
       <h3 className="text-base font-semibold text-slate-900">{title}</h3>
       <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>
     </div>
+    <div className="flex items-center gap-2 shrink-0">
+    {secondaryActionLabel && (
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onSecondaryAction}
+        title={disabled ? disabledTitle : secondaryActionLabel}
+        className="px-3 py-1.5 rounded-lg text-xs bg-[#FFB82E]/10 text-[#FFC14D] border border-[#FFB82E]/30 hover:bg-[#FFB82E]/20 transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        <FaPlus className="text-[10px]" />
+        {secondaryActionLabel}
+      </button>
+    )}
     {actionLabel && (
       <button
         type="button"
@@ -58,6 +72,7 @@ const SectionHead = ({ title, subtitle, actionLabel, onAction, disabled, disable
         {actionLabel}
       </button>
     )}
+    </div>
   </div>
 );
 
@@ -116,6 +131,14 @@ const ProjectDetails = () => {
 
   // Labour Modal States (Phase 10)
   const [isAssignLabourModalOpen, setIsAssignLabourModalOpen] = useState(false);
+  const [assignKind, setAssignKind] = useState('LABOUR'); // 'LABOUR' | 'CONTRACTOR'
+  // Contractor rows: stop on this project only, and edit area / rate
+  const [contractorToStop, setContractorToStop] = useState(null);
+  const [isStoppingContractor, setIsStoppingContractor] = useState(false);
+  const [contractToEdit, setContractToEdit] = useState(null);
+  const [contractForm, setContractForm] = useState({ areaSqFt: '', ratePerSqFt: '' });
+  const [contractFormError, setContractFormError] = useState('');
+  const [isSavingContract, setIsSavingContract] = useState(false);
   const [isLabourModalOpen, setIsLabourModalOpen] = useState(false);
   const [labourModalMode, setLabourModalMode] = useState('edit');
   const [activeLabour, setActiveLabour] = useState(null);
@@ -314,7 +337,60 @@ const ProjectDetails = () => {
 
   // Labour Handlers (Phase 10)
   const handleOpenAddLabour = () => {
+    setAssignKind('LABOUR');
     setIsAssignLabourModalOpen(true);
+  };
+
+  const handleOpenAssignContractor = () => {
+    setAssignKind('CONTRACTOR');
+    setIsAssignLabourModalOpen(true);
+  };
+
+  // Contractor: stop on this project only (his other projects carry on)
+  const handleConfirmStopContractor = async () => {
+    if (!contractorToStop) return;
+    setIsStoppingContractor(true);
+    try {
+      await stopLabour(contractorToStop.id, undefined, project?.id || project?._id || id);
+      toast.success(`Contractor "${contractorToStop.name}" stopped on this project.`);
+      setContractorToStop(null);
+      fetchData();
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Failed to stop contractor.'));
+    } finally {
+      setIsStoppingContractor(false);
+    }
+  };
+
+  const handleOpenEditContract = (labourItem) => {
+    setContractToEdit(labourItem);
+    setContractForm({
+      areaSqFt: labourItem.areaSqFt != null ? String(labourItem.areaSqFt) : '',
+      ratePerSqFt: labourItem.ratePerSqFt != null ? String(labourItem.ratePerSqFt) : '',
+    });
+    setContractFormError('');
+  };
+
+  const handleSaveContract = async (e) => {
+    e.preventDefault();
+    if (!contractToEdit?.assignmentId) return;
+    const area = Number(contractForm.areaSqFt);
+    const rate = Number(contractForm.ratePerSqFt);
+    if (!(area > 0 && rate > 0)) {
+      setContractFormError('Enter the area and rate (both more than 0)');
+      return;
+    }
+    setIsSavingContract(true);
+    try {
+      await updateContractAssignment(contractToEdit.id, contractToEdit.assignmentId, { areaSqFt: area, ratePerSqFt: rate });
+      toast.success(`Contract for "${contractToEdit.name}" updated.`);
+      setContractToEdit(null);
+      fetchData();
+    } catch (err) {
+      setContractFormError(getErrorMessage(err, 'Failed to update contract.'));
+    } finally {
+      setIsSavingContract(false);
+    }
   };
 
   const handleOpenEditLabour = (labourItem) => {
@@ -937,6 +1013,8 @@ const ProjectDetails = () => {
             subtitle="Workers on this site, what they earned and what is still owed."
             actionLabel={canManageLabour ? 'Assign labour' : null}
             onAction={handleOpenAddLabour}
+            secondaryActionLabel={canManageLabour ? 'Assign contractor' : null}
+            onSecondaryAction={handleOpenAssignContractor}
             disabled={isClosedProject}
             disabledTitle={`Cannot assign labour to a ${badge.label.toLowerCase()} project`}
           />
@@ -960,7 +1038,7 @@ const ProjectDetails = () => {
                 <thead className="bg-gray-50 text-gray-500 text-[10px]">
                   <tr>
                     <th className="p-3">Worker</th>
-                    <th className="p-3 text-right">Daily wage</th>
+                    <th className="p-3 text-right">Wage / rate</th>
                     <th className="p-3">Worked</th>
                     <th className="p-3">Status</th>
                     <th className="p-3 text-right">Earned</th>
@@ -972,6 +1050,7 @@ const ProjectDetails = () => {
                 <tbody className="divide-y divide-gray-100">
                   {labours.map((l) => {
                     const isActive = l.status === 'ACTIVE';
+                    const isContractor = l.type === 'CONTRACTOR';
                     const balance = Number(l.balance || 0);
                     return (
                       <tr key={l.id} className="hover:bg-[#FFB82E]/[0.05] transition-colors">
@@ -988,9 +1067,25 @@ const ProjectDetails = () => {
                           >
                             {l.name}
                           </button>
+                          {isContractor && (
+                            <span className={`ml-1.5 align-middle px-1.5 py-0.5 rounded-md border text-[10px] leading-none ${BADGE.purple}`}>
+                              Contractor
+                            </span>
+                          )}
                           {l.mobile && <div className="text-[11px] text-gray-400">{l.mobile}</div>}
                         </td>
-                        <td className="p-3 text-right font-mono">{formatRupees(l.dailyWage)}</td>
+                        <td className="p-3 text-right font-mono">
+                          {isContractor ? (
+                            <>
+                              <div className="whitespace-nowrap">₹{Number(l.ratePerSqFt || 0).toLocaleString('en-IN')}/sq ft</div>
+                              <div className="text-[10px] text-gray-400 whitespace-nowrap">
+                                {Number(l.areaSqFt || 0).toLocaleString('en-IN')} sq ft
+                              </div>
+                            </>
+                          ) : (
+                            formatRupees(l.dailyWage)
+                          )}
+                        </td>
                         <td className="p-3 whitespace-nowrap">
                           {formatDateRange(l.assignmentStartDate || l.startDate, l.stoppedAt, 'today')}
                         </td>
@@ -1024,11 +1119,22 @@ const ProjectDetails = () => {
                             >
                               Pay
                             </button>
+                            {canManageLabour && isContractor && (
+                              <button
+                                type="button"
+                                disabled={!l.assignmentId}
+                                onClick={() => handleOpenEditContract(l)}
+                                className="px-3 py-1.5 rounded-lg text-xs border border-gray-200 text-slate-700 hover:bg-gray-100 transition-colors whitespace-nowrap cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                title="Change area / rate"
+                              >
+                                Edit
+                              </button>
+                            )}
                             {canManageLabour && (
                               <button
                                 type="button"
                                 disabled={!isActive || isClosedProject}
-                                onClick={() => handleOpenStopLabour(l)}
+                                onClick={() => (isContractor ? setContractorToStop(l) : handleOpenStopLabour(l))}
                                 className="px-3 py-1.5 rounded-lg text-xs border transition-colors whitespace-nowrap border-rose-500/30 text-rose-500 hover:bg-rose-500/10 cursor-pointer disabled:border-gray-200 disabled:text-gray-500 disabled:bg-transparent disabled:cursor-not-allowed"
                                 title={!isActive ? 'Already stopped' : isClosedProject ? 'Project is closed' : 'Stop this worker'}
                               >
@@ -1408,12 +1514,129 @@ const ProjectDetails = () => {
         onSuccess={(assignedLabour) => {
           setIsAssignLabourModalOpen(false);
           toast.success(
-            `Labour worker "${assignedLabour?.name || 'worker'}" assigned to project successfully.`
+            assignKind === 'CONTRACTOR'
+              ? `Contractor "${assignedLabour?.name || 'contractor'}" assigned to project successfully.`
+              : `Labour worker "${assignedLabour?.name || 'worker'}" assigned to project successfully.`
           );
           fetchData();
         }}
         project={project}
+        kind={assignKind}
       />
+
+      {/* STOP CONTRACTOR: ends only this project's contract */}
+      <ConfirmationModal
+        isOpen={Boolean(contractorToStop)}
+        onClose={() => setContractorToStop(null)}
+        onConfirm={handleConfirmStopContractor}
+        title="Stop contractor"
+        confirmText="Stop"
+        cancelText="Cancel"
+        isDanger={true}
+        isLoading={isStoppingContractor}
+        message={
+          <div className="space-y-2">
+            <p className="text-gray-800 text-sm font-medium">
+              Stop <span className="font-bold text-gray-900">{contractorToStop?.name}</span> on{' '}
+              <span className="font-bold text-gray-900">{project?.name}</span>?
+            </p>
+            <p className="text-xs text-gray-500 font-normal">
+              The contract of {formatRupees(contractorToStop?.contractAmount ?? contractorToStop?.totalEarned)} still counts.
+              His other projects are not affected.
+            </p>
+          </div>
+        }
+      />
+
+      {/* EDIT CONTRACT: change a contractor's area / rate on this project */}
+      {contractToEdit && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn"
+          style={{ margin: 0 }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm border border-gray-200 animate-scaleUp" role="dialog" aria-modal="true">
+            <div className="flex items-start justify-between px-6 pt-5 pb-1">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Edit contract</h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {contractToEdit.name} on <span className="text-slate-700">{project?.name}</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setContractToEdit(null)}
+                disabled={isSavingContract}
+                className="w-8 h-8 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-400 hover:text-slate-900 flex items-center justify-center transition-colors cursor-pointer"
+                aria-label="Close"
+              >
+                <FaTimes className="text-xs" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveContract} className="px-6 pt-4 pb-5 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="edit-contract-area" className="block text-xs text-gray-400 mb-1.5">Area (sq ft)</label>
+                  <input
+                    id="edit-contract-area"
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={contractForm.areaSqFt}
+                    onChange={(e) => {
+                      setContractForm((f) => ({ ...f, areaSqFt: e.target.value }));
+                      setContractFormError('');
+                    }}
+                    className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm font-mono text-slate-900 bg-transparent focus:outline-none focus:border-[#FFB82E]"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="edit-contract-rate" className="block text-xs text-gray-400 mb-1.5">Rate (₹/sq ft)</label>
+                  <input
+                    id="edit-contract-rate"
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={contractForm.ratePerSqFt}
+                    onChange={(e) => {
+                      setContractForm((f) => ({ ...f, ratePerSqFt: e.target.value }));
+                      setContractFormError('');
+                    }}
+                    className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm font-mono text-slate-900 bg-transparent focus:outline-none focus:border-[#FFB82E]"
+                  />
+                </div>
+              </div>
+              <div className="px-3.5 py-2.5 rounded-xl bg-[#FFB82E]/10 border border-[#FFB82E]/30 text-sm font-mono text-slate-900">
+                New total:{' '}
+                <span className="text-[#FFC14D] font-semibold">
+                  {formatPaise((Number(contractForm.areaSqFt) || 0) * (Number(contractForm.ratePerSqFt) || 0))}
+                </span>
+                <div className="text-[11px] text-gray-400 font-sans mt-0.5">
+                  Was {formatPaise(contractToEdit.contractAmount)}
+                </div>
+              </div>
+              {contractFormError && <p className="text-rose-400 text-[11px]">{contractFormError}</p>}
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setContractToEdit(null)}
+                  disabled={isSavingContract}
+                  className="px-4 py-2.5 rounded-xl text-sm text-gray-400 hover:text-slate-900 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingContract}
+                  className="px-6 py-2.5 rounded-xl bg-[#FFB82E] hover:bg-[#FFC14D] text-[#1A1B1E] font-medium disabled:opacity-40 text-sm transition-all inline-flex items-center gap-2 cursor-pointer"
+                >
+                  {isSavingContract && <FaSpinner className="animate-spin text-xs" />}
+                  {isSavingContract ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* LABOUR FORM MODAL (Edit Labour) */}
       <LabourFormModal

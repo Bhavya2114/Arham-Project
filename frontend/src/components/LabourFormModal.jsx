@@ -36,8 +36,13 @@ const LabourFormModal = ({
   labour = null,
   defaultProjectId = '',
   projectName = '',
+  // 'CONTRACTOR' asks only name, mobile and address (paid per project, no daily wage).
+  // When editing, the record's own type decides.
+  kind = 'LABOUR',
 }) => {
   const isEdit = mode === 'edit';
+  const isContractor = (isEdit ? labour?.type : kind) === 'CONTRACTOR';
+  const noun = isContractor ? 'contractor' : 'labour';
 
   const [formData, setFormData] = useState({
     name: '',
@@ -96,7 +101,7 @@ const LabourFormModal = ({
     const errors = {};
 
     if (!formData.name || !formData.name.trim()) {
-      errors.name = 'Labour name is required';
+      errors.name = isContractor ? 'Contractor name is required' : 'Labour name is required';
     }
 
     if (!formData.address || !formData.address.trim()) {
@@ -113,7 +118,9 @@ const LabourFormModal = ({
     }
 
     const wageNum = Number(formData.dailyWage);
-    if (
+    if (isContractor) {
+      // no daily wage for a contractor
+    } else if (
       formData.dailyWage === '' ||
       formData.dailyWage === undefined ||
       formData.dailyWage === null
@@ -143,19 +150,20 @@ const LabourFormModal = ({
           name: formData.name.trim(),
           address: trimmedAddress,
           mobile: formData.mobile.trim(),
-          dailyWage: Number(formData.dailyWage),
         };
+        if (!isContractor) payload.dailyWage = Number(formData.dailyWage);
         await updateLabour(labourId, payload);
-        onSuccess?.('Labour worker updated successfully');
+        onSuccess?.(isContractor ? 'Contractor updated successfully' : 'Labour worker updated successfully');
       } else {
         const payload = {
           name: formData.name.trim(),
           address: trimmedAddress,
           mobile: formData.mobile.trim(),
-          dailyWage: Number(formData.dailyWage),
         };
+        if (isContractor) payload.type = 'CONTRACTOR';
+        else payload.dailyWage = Number(formData.dailyWage);
         await createLabour(payload);
-        onSuccess?.('Labour created successfully');
+        onSuccess?.(isContractor ? 'Contractor added successfully' : 'Labour created successfully');
       }
 
       onClose();
@@ -163,7 +171,7 @@ const LabourFormModal = ({
       console.error(`Error ${isEdit ? 'updating' : 'creating'} labour:`, err);
       let msg = getErrorMessage(
         err,
-        `Failed to ${isEdit ? 'update' : 'add'} labour. Please check input.`
+        `Failed to ${isEdit ? 'update' : 'add'} ${noun}. Please check input.`
       );
       if (err.response?.data?.errors && typeof err.response.data.errors === 'object') {
         const errObj = err.response.data.errors;
@@ -200,10 +208,16 @@ const LabourFormModal = ({
                 id="labour-modal-title"
                 className="text-base font-black text-slate-900 tracking-tight"
               >
-                {isEdit ? 'Edit Labour' : 'Add Labour'}
+                {isContractor
+                  ? isEdit ? 'Edit contractor' : 'Add contractor'
+                  : isEdit ? 'Edit Labour' : 'Add Labour'}
               </h3>
               <p className="text-[11px] text-gray-500 font-medium">
-                {isEdit
+                {isContractor
+                  ? isEdit
+                    ? 'Update contractor details'
+                    : 'Paid per project (area x rate), set when assigned to a project'
+                  : isEdit
                   ? 'Update worker profile and wage'
                   : 'Add a new labour worker to the master directory'}
               </p>
@@ -233,7 +247,7 @@ const LabourFormModal = ({
           {/* 1. Labour Name */}
           <div>
             <label className="block font-bold text-gray-700 mb-1">
-              Labour Name <span className="text-red-500">*</span>
+              {isContractor ? 'Contractor Name' : 'Labour Name'} <span className="text-red-500">*</span>
             </label>
             <div className="relative">
               <FaUser className="absolute left-3.5 top-3 text-gray-400 text-xs" />
@@ -295,7 +309,7 @@ const LabourFormModal = ({
           </div>
 
           {/* 3 & 4. Mobile Number and Daily Wage (Grid) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className={`grid grid-cols-1 gap-3 ${isContractor ? '' : 'sm:grid-cols-2'}`}>
             {/* Mobile Number */}
             <div>
               <label className="block font-bold text-gray-700 mb-1">
@@ -326,7 +340,8 @@ const LabourFormModal = ({
               )}
             </div>
 
-            {/* Daily Wage */}
+            {/* Daily Wage (not for contractors) */}
+            {!isContractor && (
             <div>
               <label className="block font-bold text-gray-700 mb-1">
                 Daily Wage (₹) <span className="text-red-500">*</span>
@@ -357,6 +372,7 @@ const LabourFormModal = ({
                 </p>
               )}
             </div>
+            )}
           </div>
 
           {/* Modal Footer / Action Buttons */}
@@ -377,12 +393,12 @@ const LabourFormModal = ({
               {submitting ? (
                 <>
                   <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white"></div>
-                  <span>{isEdit ? 'Saving Changes...' : 'Adding Labour...'}</span>
+                  <span>{isEdit ? 'Saving Changes...' : isContractor ? 'Adding Contractor...' : 'Adding Labour...'}</span>
                 </>
               ) : (
                 <>
                   <FaCheck className="text-xs" />
-                  <span>{isEdit ? 'Save Changes' : 'Add Labour'}</span>
+                  <span>{isEdit ? 'Save Changes' : isContractor ? 'Add Contractor' : 'Add Labour'}</span>
                 </>
               )}
             </button>

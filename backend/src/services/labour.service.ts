@@ -302,6 +302,192 @@ export function isAssignmentActive(
   return true;
 }
 
+export const isContractor = (labour: any): boolean => labour?.type === 'CONTRACTOR';
+
+const roundMoney = (n: number): number => Math.round((Number(n) || 0) * 100) / 100;
+
+/** A contractor's amount for one project: area x rate, owed in full from the assignment day. */
+export function contractAmountOf(pa: any): number {
+  if (pa?.contractAmount !== undefined && pa?.contractAmount !== null) {
+    return roundMoney(pa.contractAmount);
+  }
+  return roundMoney((Number(pa?.areaSqFt) || 0) * (Number(pa?.ratePerSqFt) || 0));
+}
+
+const assignmentProjectId = (pa: any): string | undefined =>
+  pa?.projectId?._id ? pa.projectId._id.toString() : pa?.projectId?.toString();
+
+const projectSummary = (p: any) =>
+  p && typeof p === 'object' && p._id
+    ? {
+        id: p._id.toString(),
+        name: p.name,
+        projectCode: p.projectCode,
+        siteAddress: p.siteAddress,
+        status: p.status,
+        expectedEndDate: p.expectedEndDate,
+      }
+    : undefined;
+
+/**
+ * Contractor response. A contractor can be on several projects at once; each assignment
+ * counts its full contract amount and stays active until the project's end date
+ * (or until stopped / the project is completed). He is ACTIVE while any assignment is.
+ * In a project context only that project's assignments count.
+ */
+function mapContractorResponse(
+  labour: any,
+  totalPaid: number,
+  context?: { projectId?: string; referenceDate?: Date | string; expectedEndDate?: Date | string }
+) {
+  const isProjectContext = Boolean(context?.projectId);
+  const refDate = context?.referenceDate || new Date();
+  const all: any[] = Array.isArray(labour.projectAssignments) ? labour.projectAssignments : [];
+  const scoped = isProjectContext
+    ? all.filter((pa) => assignmentProjectId(pa) === context!.projectId)
+    : all;
+
+  const rows = scoped.map((pa) => {
+    const proj = pa.projectId && typeof pa.projectId === 'object' && pa.projectId._id ? pa.projectId : null;
+    const cap = proj?.expectedEndDate || (isProjectContext ? context?.expectedEndDate || null : null);
+    const isActive = isAssignmentActive(
+      pa,
+      refDate,
+      isProjectContext ? context?.expectedEndDate : undefined,
+      labour
+    );
+    return {
+      pa,
+      proj,
+      isActive,
+      stoppedAt: isActive ? null : pa.stoppedAt || cap || null,
+      amount: contractAmountOf(pa),
+    };
+  });
+
+  const activeRows = rows.filter((r) => r.isActive);
+  const isActive = activeRows.length > 0;
+  // Most recently added active assignment is "the" current project (kept for older screens)
+  const currentRow = isActive ? activeRows[activeRows.length - 1] : rows[rows.length - 1];
+
+  const startTimes = (list: any[]) =>
+    list.map((r) => r.pa.startDate).filter(Boolean).sort((a, b) => +new Date(a) - +new Date(b));
+  const earliestActiveStart = startTimes(activeRows)[0] || null;
+  const latestStop = rows
+    .map((r) => r.stoppedAt)
+    .filter(Boolean)
+    .sort((a, b) => +new Date(b) - +new Date(a))[0] || null;
+
+  const totalEarned = roundMoney(rows.reduce((sum, r) => sum + r.amount, 0));
+  const roundedPaid = roundMoney(totalPaid);
+  const balance = roundMoney(totalEarned - roundedPaid);
+
+  const status: 'ACTIVE' | 'STOPPED' | 'INACTIVE' = isActive
+    ? 'ACTIVE'
+    : isProjectContext
+    ? 'STOPPED'
+    : 'INACTIVE';
+
+  const activeProjects = activeRows.map((r) => ({
+    assignmentId: r.pa._id ? r.pa._id.toString() : undefined,
+    ...(projectSummary(r.proj) || { id: assignmentProjectId(r.pa) }),
+    startDate: r.pa.startDate,
+    areaSqFt: r.pa.areaSqFt ?? null,
+    ratePerSqFt: r.pa.ratePerSqFt ?? null,
+    contractAmount: r.amount,
+  }));
+
+  const projectHistory = isProjectContext
+    ? []
+    : rows.map((r) => ({
+        assignmentId: r.pa._id ? r.pa._id.toString() : undefined,
+        projectId: assignmentProjectId(r.pa),
+        name: r.proj?.name,
+        projectCode: r.proj?.projectCode,
+        projectStatus: r.proj?.status,
+        startDate: r.pa.startDate,
+        stoppedAt: r.stoppedAt,
+        isActive: r.isActive,
+        areaSqFt: r.pa.areaSqFt ?? null,
+        ratePerSqFt: r.pa.ratePerSqFt ?? null,
+        contractAmount: r.amount,
+        earnedDays: null,
+        earned: r.amount,
+      }));
+
+  return {
+    id: labour._id ? labour._id.toString() : labour.id,
+    type: 'CONTRACTOR' as const,
+    name: labour.name,
+    mobile: labour.mobile,
+    location: labour.location,
+    address: labour.location,
+    projectId: currentRow && (isActive || isProjectContext) ? assignmentProjectId(currentRow.pa) : undefined,
+    project: currentRow && (isActive || isProjectContext) ? projectSummary(currentRow.proj) : undefined,
+    activeProjects,
+    dailyWage: 0,
+    startDate: isProjectContext ? currentRow?.pa.startDate || null : earliestActiveStart,
+    assignmentStartDate: isProjectContext ? currentRow?.pa.startDate || null : earliestActiveStart,
+    status,
+    projectAssignmentStatus: isProjectContext ? status : undefined,
+    stoppedAt: isActive ? null : latestStop,
+    // The assignment shown on a project's Labour tab (active one, else the latest)
+    assignmentId: isProjectContext && currentRow?.pa._id ? currentRow.pa._id.toString() : undefined,
+    areaSqFt: isProjectContext ? currentRow?.pa.areaSqFt ?? null : undefined,
+    ratePerSqFt: isProjectContext ? currentRow?.pa.ratePerSqFt ?? null : undefined,
+    contractAmount: isProjectContext ? currentRow?.amount ?? 0 : undefined,
+    earnedDays: 0,
+    totalEarned,
+    totalPaid: roundedPaid,
+    balance,
+    projectHistory: [...projectHistory, ...(isProjectContext ? [] : mapDeletedAssignments(labour, refDate))].sort(
+      (a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime()
+    ),
+    createdAt: labour.createdAt,
+    updatedAt: labour.updatedAt,
+  };
+}
+
+/**
+ * Brings a contractor's own status / projectId in line with his assignments:
+ * ACTIVE with projectId = the most recently added active project, or INACTIVE when none is left.
+ * Assignments past their project's end date are NOT closed here, so if the end date is
+ * extended later the contractor shows as active again (responses work it out from the dates).
+ */
+export async function refreshContractorRoot(labour: any, now: Date = new Date()): Promise<void> {
+  const assignments: any[] = labour.projectAssignments || [];
+  const ids = assignments
+    .filter((pa) => pa.status === 'ACTIVE')
+    .map((pa) => assignmentProjectId(pa))
+    .filter((pid): pid is string => Boolean(pid));
+  const projects = ids.length
+    ? await Project.find({ _id: { $in: ids } }).select('expectedEndDate').lean()
+    : [];
+  const endById = new Map(projects.map((p: any) => [p._id.toString(), p.expectedEndDate || null]));
+
+  let current: any = null;
+  for (const pa of assignments) {
+    if (pa.status !== 'ACTIVE') continue;
+    const end = endById.get(assignmentProjectId(pa) || '') ?? null;
+    if (isAssignmentActive(pa, now, end)) current = pa;
+  }
+
+  if (current) {
+    labour.status = 'ACTIVE';
+    labour.projectId = current.projectId;
+    labour.assignmentStartDate = current.startDate;
+    labour.stoppedAt = null;
+  } else {
+    const latestStop = assignments
+      .map((pa) => pa.stoppedAt)
+      .filter(Boolean)
+      .sort((a, b) => +new Date(b) - +new Date(a))[0];
+    labour.status = 'INACTIVE';
+    labour.projectId = null;
+    labour.stoppedAt = latestStop || labour.stoppedAt || null;
+  }
+}
+
 /**
  * Deleted stints, shown faded in the worker's project history. Their days and wages
  * are worked out for display only and never added to the worker's totals.
@@ -336,8 +522,18 @@ function mapDeletedAssignments(labour: any, refDate: Date | string): any[] {
       isDeleted: true,
       deletedAt: pa.deletedAt,
       deletedBy: by && typeof by === 'object' && by._id ? { id: by._id.toString(), name: by.name } : null,
-      earnedDays: calc.earnedDays,
-      earned: Math.round(calc.totalEarned * 100) / 100,
+      ...(isContractor(labour)
+        ? {
+            areaSqFt: pa.areaSqFt ?? null,
+            ratePerSqFt: pa.ratePerSqFt ?? null,
+            contractAmount: contractAmountOf(pa),
+            earnedDays: null,
+            earned: contractAmountOf(pa),
+          }
+        : {
+            earnedDays: calc.earnedDays,
+            earned: Math.round(calc.totalEarned * 100) / 100,
+          }),
     };
   });
 }
@@ -347,6 +543,8 @@ export const mapLabourResponse = (
   totalPaid: number = 0,
   context?: { projectId?: string; referenceDate?: Date | string; expectedEndDate?: Date | string }
 ) => {
+  if (isContractor(labour)) return mapContractorResponse(labour, totalPaid, context);
+
   const isProjectContext = Boolean(context?.projectId);
   const refDate = context?.referenceDate || new Date();
 
@@ -702,6 +900,7 @@ export const mapLabourResponse = (
 
   return {
     id: labour._id ? labour._id.toString() : labour.id,
+    type: 'LABOUR' as const,
     name: labour.name,
     mobile: labour.mobile,
     location: labour.location,
@@ -743,9 +942,9 @@ export const getLabours = async (
     const normalizedStatus = query.status.trim().toUpperCase();
     if (normalizedStatus !== 'ALL') {
       if (normalizedStatus === 'ACTIVE') {
+        // Contractors are worked out from their assignments' dates, so they are filtered after mapping
         andClauses.push({
-          status: 'ACTIVE',
-          projectId: { $ne: null },
+          $or: [{ status: 'ACTIVE', projectId: { $ne: null } }, { type: 'CONTRACTOR' }],
         });
       } else if (normalizedStatus === 'INACTIVE') {
         andClauses.push({
@@ -753,6 +952,7 @@ export const getLabours = async (
             { status: 'INACTIVE' },
             { status: 'STOPPED' },
             { projectId: null },
+            { type: 'CONTRACTOR' },
           ],
         });
       } else {
@@ -856,9 +1056,11 @@ export const getLabourById = async (
 
 export const createLabour = async (input: CreateLabourInput): Promise<any> => {
   let projectObj = null;
+  // A contractor is created unassigned; his contract is entered when he is assigned to a project
+  const contractor = input.type === 'CONTRACTOR';
 
   // 1. Validate Project Reference if provided
-  if (input.projectId && typeof input.projectId === 'string' && input.projectId.trim() !== '') {
+  if (!contractor && input.projectId && typeof input.projectId === 'string' && input.projectId.trim() !== '') {
     if (!mongoose.Types.ObjectId.isValid(input.projectId)) {
       const error = new Error('Invalid project ID format');
       (error as any).statusCode = 400;
@@ -991,13 +1193,14 @@ export const createLabour = async (input: CreateLabourInput): Promise<any> => {
 
   // 2. Create Labour Document
   const newLabour = await Labour.create({
+    type: contractor ? 'CONTRACTOR' : 'LABOUR',
     name: input.name.trim(),
     mobile: input.mobile.trim(),
     location: locationVal,
     projectId: projectObj ? projectObj._id : null,
     assignedProjects,
     projectAssignments,
-    dailyWage: Number(input.dailyWage),
+    dailyWage: contractor ? 0 : Number(input.dailyWage),
     startDate: startDateVal,
     assignmentStartDate: projectObj ? startDateVal : null,
     status: initialStatus,
@@ -1013,7 +1216,8 @@ export const createLabour = async (input: CreateLabourInput): Promise<any> => {
 export const assignLabourToProject = async (
   projectId: string,
   labourId: string,
-  startDate?: string | Date | null
+  startDate?: string | Date | null,
+  contract?: { areaSqFt?: number | null; ratePerSqFt?: number | null }
 ): Promise<any> => {
   if (!mongoose.Types.ObjectId.isValid(projectId)) {
     const error = new Error('Invalid project ID format');
@@ -1047,9 +1251,33 @@ export const assignLabourToProject = async (
     throw error;
   }
 
+  const contractor = isContractor(labour);
+  const areaSqFt = Number(contract?.areaSqFt);
+  const ratePerSqFt = Number(contract?.ratePerSqFt);
+  if (contractor) {
+    if (!(areaSqFt > 0) || !(ratePerSqFt > 0)) {
+      const error = new Error('Enter the area (sq ft) and rate per sq ft for this contractor');
+      (error as any).statusCode = 400;
+      throw error;
+    }
+    // A contractor can be on many projects at once, but only once at a time on the same project
+    const sameProjectActive = (labour.projectAssignments || []).some(
+      (pa: any) =>
+        assignmentProjectId(pa) === projectId &&
+        isAssignmentActive(pa, new Date(), project.expectedEndDate || null)
+    );
+    if (sameProjectActive) {
+      const error = new Error('This contractor is already working on this project.');
+      (error as any).statusCode = 400;
+      throw error;
+    }
+  }
+
   // Business Rule: Check if labour has any currently active assignment that has not passed its project expectedEndDate
   const now = new Date();
-  if (Array.isArray(labour.projectAssignments) && labour.projectAssignments.length > 0) {
+  if (contractor) {
+    // Checked above; other projects don't matter for a contractor
+  } else if (Array.isArray(labour.projectAssignments) && labour.projectAssignments.length > 0) {
     for (const pa of labour.projectAssignments) {
       if (pa.status === 'ACTIVE') {
         const paProjId = pa.projectId?._id ? pa.projectId._id.toString() : pa.projectId?.toString();
@@ -1074,7 +1302,7 @@ export const assignLabourToProject = async (
     : null;
   const isCurrentlyActive = Boolean(activePA) || (labour.status === 'ACTIVE' && Boolean(labour.projectId));
 
-  if (isCurrentlyActive) {
+  if (!contractor && isCurrentlyActive) {
     const activePId = activePA
       ? (activePA.projectId?._id ? activePA.projectId._id.toString() : activePA.projectId?.toString())
       : labour.projectId?.toString();
@@ -1180,7 +1408,8 @@ export const assignLabourToProject = async (
   }
 
   // A worker can return to a project, but never for days already counted on an earlier stint
-  const lastWorkedDay = getLastWorkedDay(labour);
+  // (a contractor is paid per project, not per day, so this doesn't apply to him)
+  const lastWorkedDay = contractor ? null : getLastWorkedDay(labour);
   const finalStartDay = toDayNumber(finalStartDate);
   if (lastWorkedDay !== null && finalStartDay !== null && finalStartDay < lastWorkedDay) {
     throw overlapError(lastWorkedDay);
@@ -1210,6 +1439,13 @@ export const assignLabourToProject = async (
     startDate: finalStartDate,
     stoppedAt: null,
     status: 'ACTIVE',
+    ...(contractor
+      ? {
+          areaSqFt,
+          ratePerSqFt,
+          contractAmount: roundMoney(areaSqFt * ratePerSqFt),
+        }
+      : {}),
   });
 
   // Version check: if two assign requests race (double click), only the first one saves
@@ -1253,7 +1489,8 @@ export const updateLabour = async (
       ? input.location.trim()
       : undefined;
   if (locVal !== undefined) labour.location = locVal;
-  if (input.dailyWage !== undefined) labour.dailyWage = Number(input.dailyWage);
+  // Contractors have no daily wage
+  if (input.dailyWage !== undefined && !isContractor(labour)) labour.dailyWage = Number(input.dailyWage);
 
   if (input.projectId !== undefined) {
     if (typeof input.projectId !== 'string' || !mongoose.Types.ObjectId.isValid(input.projectId)) {
@@ -1334,7 +1571,11 @@ export const deleteLabour = async (id: string): Promise<boolean> => {
   return true;
 };
 
-export const stopLabour = async (id: string, stopDateInput?: string): Promise<any> => {
+export const stopLabour = async (
+  id: string,
+  stopDateInput?: string,
+  projectId?: string
+): Promise<any> => {
   if (!mongoose.Types.ObjectId.isValid(id)) {
     const error = new Error('Invalid labour ID format');
     (error as any).statusCode = 400;
@@ -1347,6 +1588,8 @@ export const stopLabour = async (id: string, stopDateInput?: string): Promise<an
     (error as any).statusCode = 404;
     throw error;
   }
+
+  if (isContractor(labour)) return stopContractorAssignment(labour, stopDateInput, projectId);
 
   if (labour.status !== 'ACTIVE') {
     const error = new Error('Only active labour can be stopped');
@@ -1403,6 +1646,106 @@ export const stopLabour = async (id: string, stopDateInput?: string): Promise<an
 
   await labour.save();
   return getLabourById(labour._id.toString());
+};
+
+/**
+ * Stops a contractor on ONE project (projectId; may be left out when he is on only one).
+ * His other projects carry on; he becomes INACTIVE only when none is left.
+ * The contract amount stays as it was.
+ */
+async function stopContractorAssignment(
+  labour: any,
+  stopDateInput?: string,
+  projectId?: string
+): Promise<any> {
+  const open: any[] = (labour.projectAssignments || []).filter(
+    (pa: any) => pa.status === 'ACTIVE' && !pa.stoppedAt
+  );
+  let target: any = null;
+  if (projectId) {
+    target = open
+      .slice()
+      .reverse()
+      .find((pa: any) => assignmentProjectId(pa) === projectId);
+  } else if (open.length === 1) {
+    target = open[0];
+  } else if (open.length > 1) {
+    const error = new Error('This contractor is on several projects. Choose which project to stop him on.');
+    (error as any).statusCode = 400;
+    throw error;
+  }
+  if (!target) {
+    const error = new Error('This contractor is not working on this project');
+    (error as any).statusCode = 400;
+    throw error;
+  }
+
+  let stopDate = new Date();
+  if (stopDateInput) {
+    const project = await Project.findById(target.projectId).select('expectedEndDate').lean();
+    const range = getStopDateRange(target.startDate, (project as any)?.expectedEndDate, []);
+    stopDate = resolveStopDate(stopDateInput, range);
+  }
+
+  target.status = 'STOPPED';
+  target.stoppedAt = stopDate;
+  await refreshContractorRoot(labour);
+
+  labour.increment();
+  await labour.save();
+  return getLabourById(labour._id.toString());
+}
+
+/**
+ * Changes a contractor's area / rate on one project. The amount follows (area x rate).
+ */
+export const updateContractAssignment = async (
+  id: string,
+  assignmentId: string,
+  input: { areaSqFt: number; ratePerSqFt: number }
+): Promise<any> => {
+  if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(assignmentId)) {
+    const error = new Error('Invalid labour ID format');
+    (error as any).statusCode = 400;
+    throw error;
+  }
+
+  const labour = await Labour.findById(id);
+  if (!labour) {
+    const error = new Error('Labour not found');
+    (error as any).statusCode = 404;
+    throw error;
+  }
+  if (!isContractor(labour)) {
+    const error = new Error('Area and rate can only be changed for a contractor');
+    (error as any).statusCode = 400;
+    throw error;
+  }
+
+  const assignment: any = (labour.projectAssignments || []).find(
+    (pa: any) => pa._id && pa._id.toString() === assignmentId
+  );
+  if (!assignment) {
+    const error = new Error('Project record not found for this contractor');
+    (error as any).statusCode = 404;
+    throw error;
+  }
+
+  const areaSqFt = Number(input.areaSqFt);
+  const ratePerSqFt = Number(input.ratePerSqFt);
+  if (!(areaSqFt > 0) || !(ratePerSqFt > 0)) {
+    const error = new Error('Area and rate must be greater than 0');
+    (error as any).statusCode = 400;
+    throw error;
+  }
+
+  assignment.areaSqFt = areaSqFt;
+  assignment.ratePerSqFt = ratePerSqFt;
+  assignment.contractAmount = roundMoney(areaSqFt * ratePerSqFt);
+
+  labour.increment();
+  await labour.save();
+  return getLabourById(labour._id.toString(), { projectId: assignmentProjectId(assignment) });
 };
 
 /**
@@ -1510,6 +1853,9 @@ export const deleteAssignment = async (
     startDate: assignment.startDate,
     stoppedAt: assignment.stoppedAt || null,
     status: assignment.status,
+    areaSqFt: assignment.areaSqFt ?? null,
+    ratePerSqFt: assignment.ratePerSqFt ?? null,
+    contractAmount: assignment.contractAmount ?? null,
     deletedAt: now,
     deletedBy: userId && mongoose.Types.ObjectId.isValid(userId) ? new mongoose.Types.ObjectId(userId) : null,
   } as any);
@@ -1526,7 +1872,14 @@ export const deleteAssignment = async (
   }
 
   const stillActive = remaining.some((pa: any) => isAssignmentActive(pa, now));
-  if (wasActive || !stillActive) {
+  if (isContractor(labour)) {
+    await refreshContractorRoot(labour, now);
+    if (remaining.length === 0) {
+      labour.startDate = null;
+      labour.assignmentStartDate = null;
+      labour.stoppedAt = null;
+    }
+  } else if (wasActive || !stillActive) {
     if (remaining.length === 0) {
       // No work left on record: back to a fresh, unassigned worker
       labour.status = 'INACTIVE';
@@ -1640,6 +1993,7 @@ export const getLabourDashboardMetrics = async (): Promise<LabourDashboardMetric
       legacyCap
     );
     const isWorkerActive = hasAssignments ? Boolean(activeAssignment) : isLegacyActive;
+    const contractor = isContractor(l);
     let workerTotalEarned = 0;
     const assignmentList: Array<{
       projId: string;
@@ -1671,7 +2025,9 @@ export const getLabourDashboardMetrics = async (): Promise<LabourDashboardMetric
             true,
             paCap
           );
-          workerTotalEarned += paCalc.totalEarned;
+          // A contractor's earning on a project is his contract amount, not days x wage
+          const paEarned = contractor ? contractAmountOf(pa) : paCalc.totalEarned;
+          workerTotalEarned += paEarned;
 
           let aProjId = 'unassigned';
           let aProjName = 'Unassigned / Archived';
@@ -1689,7 +2045,7 @@ export const getLabourDashboardMetrics = async (): Promise<LabourDashboardMetric
             projName: aProjName,
             projCode: aProjCode,
             status: isPAActive ? 'ACTIVE' : 'STOPPED',
-            earned: paCalc.totalEarned,
+            earned: paEarned,
           });
         }
       }
@@ -1785,7 +2141,8 @@ export const getLabourDashboardMetrics = async (): Promise<LabourDashboardMetric
 
     if (isWorkerActive) {
       activeCount += 1;
-      projectedMonthlyWages += (Number(l.dailyWage) || 0) * 30;
+      // Contractors are paid per project, so they are left out of projected wages
+      if (!contractor) projectedMonthlyWages += (Number(l.dailyWage) || 0) * 30;
     } else {
       inactiveCount += 1;
     }

@@ -2,11 +2,18 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export type LabourStatus = 'ACTIVE' | 'STOPPED' | 'INACTIVE';
 
+// A contractor brings his own crew and is paid per project (area x rate), not per day
+export type LabourType = 'LABOUR' | 'CONTRACTOR';
+
 export interface IProjectAssignment {
   projectId: mongoose.Types.ObjectId;
   startDate: Date;
   stoppedAt?: Date | null;
   status: 'ACTIVE' | 'STOPPED';
+  // Contractors only: the contract for this project (contractAmount = areaSqFt x ratePerSqFt)
+  areaSqFt?: number | null;
+  ratePerSqFt?: number | null;
+  contractAmount?: number | null;
 }
 
 // A stint removed by mistake: kept for the record, never counted in days or wages
@@ -16,6 +23,7 @@ export interface IDeletedAssignment extends IProjectAssignment {
 }
 
 export interface ILabour extends Document {
+  type: LabourType;
   name: string;
   mobile: string;
   location: string;
@@ -34,6 +42,12 @@ export interface ILabour extends Document {
 
 const labourSchema = new Schema<ILabour>(
   {
+    type: {
+      type: String,
+      enum: ['LABOUR', 'CONTRACTOR'],
+      default: 'LABOUR',
+      index: true,
+    },
     name: {
       type: String,
       required: true,
@@ -83,6 +97,18 @@ const labourSchema = new Schema<ILabour>(
           enum: ['ACTIVE', 'STOPPED'],
           default: 'ACTIVE',
         },
+        areaSqFt: {
+          type: Number,
+          default: null,
+        },
+        ratePerSqFt: {
+          type: Number,
+          default: null,
+        },
+        contractAmount: {
+          type: Number,
+          default: null,
+        },
       },
     ],
     deletedAssignments: [
@@ -105,6 +131,18 @@ const labourSchema = new Schema<ILabour>(
           enum: ['ACTIVE', 'STOPPED'],
           default: 'STOPPED',
         },
+        areaSqFt: {
+          type: Number,
+          default: null,
+        },
+        ratePerSqFt: {
+          type: Number,
+          default: null,
+        },
+        contractAmount: {
+          type: Number,
+          default: null,
+        },
         deletedAt: {
           type: Date,
           required: true,
@@ -116,10 +154,19 @@ const labourSchema = new Schema<ILabour>(
         },
       },
     ],
+    // Contractors have no daily wage (stored as 0)
     dailyWage: {
       type: Number,
-      required: true,
-      min: [0.01, 'Daily wage must be greater than 0'],
+      required: function (this: any) {
+        return this.type !== 'CONTRACTOR';
+      },
+      validate: {
+        validator: function (this: any, v: number) {
+          if (this?.type === 'CONTRACTOR') return v == null || v >= 0;
+          return v > 0;
+        },
+        message: 'Daily wage must be greater than 0',
+      },
     },
     startDate: {
       type: Date,

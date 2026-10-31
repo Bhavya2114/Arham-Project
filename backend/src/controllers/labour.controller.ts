@@ -11,6 +11,7 @@ import {
   updateAssignmentStopDate,
   deleteAssignment,
   assignLabourToProject,
+  updateContractAssignment,
 } from '../services/labour.service';
 import { successResponse } from '../utils/apiResponse';
 
@@ -101,7 +102,9 @@ export const handleStopLabour = async (
 ): Promise<void> => {
   try {
     const id = req.params.id as string;
-    const labour = await stopLabour(id, req.body?.stopDate);
+    // projectId: for a contractor, the one project to stop him on
+    const projectId = typeof req.body?.projectId === 'string' ? req.body.projectId : undefined;
+    const labour = await stopLabour(id, req.body?.stopDate, projectId);
     res.status(200).json(successResponse('Labour stopped successfully', labour));
   } catch (error) {
     next(error);
@@ -118,6 +121,21 @@ export const handleUpdateStopDate = async (
     const assignmentId = req.params.assignmentId as string;
     const labour = await updateAssignmentStopDate(id, assignmentId, req.body?.stopDate);
     res.status(200).json(successResponse('Stop date updated', labour));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const handleUpdateContractAssignment = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const assignmentId = req.params.assignmentId as string;
+    const labour = await updateContractAssignment(id, assignmentId, req.body);
+    res.status(200).json(successResponse('Contract updated', labour));
   } catch (error) {
     next(error);
   }
@@ -175,8 +193,8 @@ export const handleAssignLabourToProject = async (
 ): Promise<void> => {
   try {
     const projectId = req.params.projectId as string;
-    const { labourId, startDate } = req.body;
-    const labour = await assignLabourToProject(projectId, labourId, startDate);
+    const { labourId, startDate, areaSqFt, ratePerSqFt } = req.body;
+    const labour = await assignLabourToProject(projectId, labourId, startDate, { areaSqFt, ratePerSqFt });
     res.status(200).json(successResponse('Labour assigned to project successfully', labour));
   } catch (error) {
     next(error);

@@ -42,6 +42,9 @@ const PROJECT_STATUS = {
 };
 
 const formatRupees = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
+// '10,000 sq ft x ₹20'
+const formatContract = (area, rate) =>
+  `${Number(area || 0).toLocaleString('en-IN')} sq ft x ₹${Number(rate || 0).toLocaleString('en-IN')}`;
 
 const LabourDetails = () => {
   const { id } = useParams();
@@ -74,6 +77,10 @@ const LabourDetails = () => {
   // Delete a project stint added by mistake (it stays listed, marked deleted)
   const [rowToDelete, setRowToDelete] = useState(null);
   const [isDeletingRow, setIsDeletingRow] = useState(false);
+
+  // Contractor: stop him on one project (a projectHistory row); his other projects carry on
+  const [rowToStop, setRowToStop] = useState(null);
+  const [isStoppingRow, setIsStoppingRow] = useState(false);
 
   // Payment Add / Edit Modal State
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -178,6 +185,23 @@ const LabourDetails = () => {
       toast.error(getErrorMessage(err, 'Failed to update stop date'));
     } finally {
       setIsSavingStopDate(false);
+    }
+  };
+
+  // Action: Stop a contractor on one project
+  const handleConfirmStopRow = async () => {
+    if (!labour?.id || !rowToStop?.projectId) return;
+    setIsStoppingRow(true);
+    try {
+      await stopLabour(labour.id, undefined, rowToStop.projectId);
+      toast.success(`Stopped on ${rowToStop.name || 'this project'}`);
+      setRowToStop(null);
+      fetchLabourData();
+    } catch (err) {
+      console.error('Error stopping contractor:', err);
+      toast.error(getErrorMessage(err, 'Failed to stop contractor'));
+    } finally {
+      setIsStoppingRow(false);
     }
   };
 
@@ -337,6 +361,8 @@ const LabourDetails = () => {
   }
 
   const isActive = labour.status === 'ACTIVE';
+  const isContractor = labour.type === 'CONTRACTOR';
+  const currentProjects = isContractor ? labour.activeProjects || [] : [];
   const balanceVal = Number(labour.balance ?? 0);
   const isOverpaid = balanceVal < 0;
   // Newest project first. If the server sends no history (older records or an old backend),
@@ -344,7 +370,7 @@ const LabourDetails = () => {
   const projectHistory = (() => {
     const rows = Array.isArray(labour.projectHistory) ? [...labour.projectHistory] : [];
     const currentId = labour.project?.id || labour.projectId;
-    if (isActive && currentId && !rows.some((h) => h.projectId === currentId && h.isActive)) {
+    if (!isContractor && isActive && currentId && !rows.some((h) => h.projectId === currentId && h.isActive)) {
       rows.push({
         projectId: currentId,
         name: labour.project?.name,
@@ -369,7 +395,8 @@ const LabourDetails = () => {
     max: projectEndIso && projectEndIso < todayIso ? projectEndIso : todayIso,
   };
   // Finished projects whose stop date can be changed (needs the updated backend)
-  const canEditStopDate = (h) => !h.isDeleted && !h.isActive && h.assignmentId && h.stopDateRange;
+  // (A contractor's amount doesn't depend on dates, so there is nothing to change for him)
+  const canEditStopDate = (h) => !isContractor && !h.isDeleted && !h.isActive && h.assignmentId && h.stopDateRange;
   const liveHistory = projectHistory.filter((h) => !h.isDeleted);
   const latestRow = liveHistory[0];
   const startDateLabel = formatDateShortMonth(labour.assignmentStartDate || labour.startDate, 'Not set');
@@ -385,7 +412,33 @@ const LabourDetails = () => {
   const deletedLabel = (p) =>
     `Deleted${p.deletedAt ? ` ${formatDateShortMonth(p.deletedAt)}` : ''}${p.deletedBy?.name ? ` by ${p.deletedBy.name}` : ''}`;
 
-  const statCards = [
+  const contractProjectCount = liveHistory.length;
+  const balanceCard = {
+    label: 'Balance',
+    value: `${isOverpaid ? '-' : ''}${rupees(Math.abs(balanceVal))}`,
+    note: isOverpaid ? 'Overpaid' : balanceVal === 0 ? 'Settled' : 'To pay',
+    valueClass: isOverpaid ? 'text-rose-600' : balanceVal === 0 ? 'text-slate-500' : 'text-[#FFC14D]',
+    noteClass: isOverpaid ? 'text-rose-500' : balanceVal === 0 ? 'text-gray-400' : 'text-[#FFC14D]/80',
+  };
+  const paidCard = {
+    label: 'Total paid',
+    value: rupees(labour.totalPaid),
+    note: `${activePaymentCount} ${activePaymentCount === 1 ? 'payment' : 'payments'}`,
+    valueClass: 'text-emerald-700',
+  };
+
+  const statCards = isContractor
+    ? [
+        {
+          label: 'Contract amount',
+          value: rupees(labour.totalEarned),
+          note: `${contractProjectCount} ${contractProjectCount === 1 ? 'project' : 'projects'}`,
+          valueClass: 'text-slate-900',
+        },
+        paidCard,
+        balanceCard,
+      ]
+    : [
     {
       label: 'Earned days',
       value: `${labour.earnedDays || 0} ${labour.earnedDays === 1 ? 'day' : 'days'}`,
@@ -398,24 +451,25 @@ const LabourDetails = () => {
       note: `₹${Number(labour.dailyWage || 0).toLocaleString('en-IN')} / day`,
       valueClass: 'text-slate-900',
     },
-    {
-      label: 'Total paid',
-      value: rupees(labour.totalPaid),
-      note: `${activePaymentCount} ${activePaymentCount === 1 ? 'payment' : 'payments'}`,
-      valueClass: 'text-emerald-700',
-    },
-    {
-      label: 'Balance',
-      value: `${isOverpaid ? '-' : ''}${rupees(Math.abs(balanceVal))}`,
-      note: isOverpaid ? 'Overpaid' : balanceVal === 0 ? 'Settled' : 'To pay',
-      valueClass: isOverpaid ? 'text-rose-600' : balanceVal === 0 ? 'text-slate-500' : 'text-[#FFC14D]',
-      noteClass: isOverpaid ? 'text-rose-500' : balanceVal === 0 ? 'text-gray-400' : 'text-[#FFC14D]/80',
-    },
+    paidCard,
+    balanceCard,
   ];
 
   const hasNotes = payments.some((p) => p.notes && String(p.notes).trim());
 
-  const workDetails = [
+  const workDetails = isContractor
+    ? [
+        { label: 'Status', value: isActive ? 'Working' : 'Not on any project', muted: !isActive },
+        {
+          label: 'Current projects',
+          value: currentProjects.length ? currentProjects.map((p) => p.name).join(', ') : 'None',
+          sub: currentProjects.length > 1 ? `${currentProjects.length} projects` : currentProjects[0]?.projectCode,
+          muted: !currentProjects.length,
+        },
+        { label: 'Start date', value: startDateLabel, muted: startDateLabel === 'Not set' },
+        { label: 'Stopped date', value: stoppedDateLabel, muted: !labour.stoppedAt },
+      ]
+    : [
     {
       label: 'Project',
       value: labour.project?.name || 'Unassigned',
@@ -451,6 +505,11 @@ const LabourDetails = () => {
             {(labour.name || '?').charAt(0).toUpperCase()}
           </span>
           <h1 className="text-2xl font-semibold text-slate-900 truncate">{labour.name}</h1>
+          {isContractor && (
+            <span className={`px-2.5 py-1 rounded-md border text-[11px] font-medium shrink-0 ${BADGE.purple}`}>
+              Contractor
+            </span>
+          )}
           <span
             className={`px-2.5 py-1 rounded-md border text-[11px] font-medium inline-flex items-center gap-1.5 shrink-0 ${
               isActive ? BADGE.green : BADGE.grey
@@ -470,7 +529,8 @@ const LabourDetails = () => {
             <FaEdit className="text-xs" />
             Edit
           </button>
-          {isActive && (
+          {/* A contractor is stopped per project, from his project history below */}
+          {isActive && !isContractor && (
             <button
               type="button"
               onClick={handleOpenStop}
@@ -484,7 +544,7 @@ const LabourDetails = () => {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
+      <div className={`grid grid-cols-2 gap-3.5 ${isContractor ? 'md:grid-cols-3' : 'md:grid-cols-4'}`}>
         {statCards.map((c) => (
           <div key={c.label} className="bg-white px-4 py-3.5 rounded-2xl border border-gray-200">
             <p className="text-xs text-gray-400">{c.label}</p>
@@ -539,8 +599,8 @@ const LabourDetails = () => {
                 <th className="px-5 py-3">Project</th>
                 <th className="px-5 py-3">Project status</th>
                 <th className="px-5 py-3">Worked</th>
-                <th className="px-5 py-3 text-right">Days</th>
-                <th className="px-5 py-3 text-right">Earned</th>
+                <th className="px-5 py-3 text-right">{isContractor ? 'Area x rate' : 'Days'}</th>
+                <th className="px-5 py-3 text-right">{isContractor ? 'Amount' : 'Earned'}</th>
                 <th className="px-5 py-3 text-center w-40">Actions</th>
               </tr>
             </thead>
@@ -588,7 +648,9 @@ const LabourDetails = () => {
                         <span className={`ml-2 inline-block px-2 py-0.5 rounded-md border text-[10px] ${BADGE.amber}`}>Current</span>
                       )}
                     </td>
-                    <td className={`px-5 py-3.5 text-right text-slate-800 ${h.isDeleted ? 'line-through' : ''}`}>{h.earnedDays ?? '-'}</td>
+                    <td className={`px-5 py-3.5 text-right text-slate-800 whitespace-nowrap ${h.isDeleted ? 'line-through' : ''}`}>
+                      {isContractor ? formatContract(h.areaSqFt, h.ratePerSqFt) : h.earnedDays ?? '-'}
+                    </td>
                     <td className={`px-5 py-3.5 text-right font-medium text-slate-900 ${h.isDeleted ? 'line-through' : ''}`}>
                       {h.earned == null ? '-' : formatRupees(h.earned)}
                     </td>
@@ -606,13 +668,24 @@ const LabourDetails = () => {
                           )}
                         </div>
                       ) : h.assignmentId ? (
-                        <button
-                          type="button"
-                          onClick={() => setRowToDelete(h)}
-                          className="w-16 py-1.5 rounded-lg text-xs text-rose-500 border border-rose-500/30 hover:bg-rose-500/10 transition-all duration-150 hover:scale-105 cursor-pointer"
-                        >
-                          Delete
-                        </button>
+                        <div className="inline-flex items-center gap-2">
+                          {isContractor && h.isActive && (
+                            <button
+                              type="button"
+                              onClick={() => setRowToStop(h)}
+                              className="w-14 py-1.5 rounded-lg text-xs text-rose-500 border border-rose-500/30 hover:bg-rose-500/10 transition-all duration-150 hover:scale-105 cursor-pointer"
+                            >
+                              Stop
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setRowToDelete(h)}
+                            className="w-16 py-1.5 rounded-lg text-xs text-rose-500 border border-rose-500/30 hover:bg-rose-500/10 transition-all duration-150 hover:scale-105 cursor-pointer"
+                          >
+                            Delete
+                          </button>
+                        </div>
                       ) : (
                         <span className="text-gray-400">-</span>
                       )}
@@ -893,8 +966,33 @@ const LabourDetails = () => {
               <span className="font-bold text-gray-900">{labour?.name}</span>'s history?
             </p>
             <p className="text-xs text-gray-500 font-normal">
-              {rowToDelete?.earnedDays ?? 0} days and {formatRupees(rowToDelete?.earned)} will no longer count in earnings, balance or project
-              labour cost.{rowToDelete?.isActive ? ' The worker will be taken off this project.' : ''} It stays in the history marked as deleted.
+              {isContractor
+                ? `The contract of ${formatRupees(rowToDelete?.earned)} will no longer count in the balance or project labour cost.`
+                : `${rowToDelete?.earnedDays ?? 0} days and ${formatRupees(rowToDelete?.earned)} will no longer count in earnings, balance or project labour cost.`}
+              {rowToDelete?.isActive ? ` The ${isContractor ? 'contractor' : 'worker'} will be taken off this project.` : ''} It stays in the history marked as deleted.
+            </p>
+          </div>
+        }
+      />
+
+      {/* MODAL 2d: Stop a contractor on one project */}
+      <ConfirmationModal
+        isOpen={Boolean(rowToStop)}
+        onClose={() => setRowToStop(null)}
+        onConfirm={handleConfirmStopRow}
+        title="Stop contractor"
+        confirmText="Stop"
+        cancelText="Cancel"
+        isDanger={true}
+        isLoading={isStoppingRow}
+        message={
+          <div className="space-y-2">
+            <p className="text-gray-800 text-sm font-medium">
+              Stop <span className="font-bold text-gray-900">{labour?.name}</span> on{' '}
+              <span className="font-bold text-gray-900">{rowToStop?.name || 'this project'}</span>?
+            </p>
+            <p className="text-xs text-gray-500 font-normal">
+              The contract of {formatRupees(rowToStop?.earned)} still counts. His other projects are not affected.
             </p>
           </div>
         }
