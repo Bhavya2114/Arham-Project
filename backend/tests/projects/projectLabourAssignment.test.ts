@@ -329,10 +329,10 @@ describe('Project Labour Assignment & Automatic Start Date Flow', () => {
       expect(assignRes.body.message).toMatch(/future/i);
     });
 
-    it('Case E: labour own startDate must NOT restrict the assignment date if within project date range', async () => {
+    it('Case E: a returning worker cannot start before the last day already worked', async () => {
       // activeProjectAId started on 2026-09-01
       // activeProjectBId started on 2026-09-05
-      // Worker created with earlier assignment / startDate of 2026-09-20 on Project B
+      // Worker on Project B from 2026-09-20, stopped on 2026-09-25
       const workerRes = await request(app)
         .post('/api/labours')
         .set('Authorization', `Bearer ${adminToken}`)
@@ -347,25 +347,35 @@ describe('Project Labour Assignment & Automatic Start Date Flow', () => {
       const workerId = workerRes.body.data.id;
       expect(new Date(workerRes.body.data.startDate).toISOString().slice(0, 10)).toBe('2026-09-20');
 
-      // Stop worker from Project B
-      await request(app)
+      const stopRes = await request(app)
         .patch(`/api/labours/${workerId}/stop`)
-        .set('Authorization', `Bearer ${adminToken}`);
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ stopDate: '2026-09-25' });
+      expect(stopRes.status).toBe(200);
 
-      // Assign to Project A (started 2026-09-01) on 2026-09-05
-      // Notice: 2026-09-05 is BEFORE labour's own previous startDate (2026-09-20),
-      // but AFTER Project A startDate (2026-09-01). This MUST be allowed.
-      const assignRes = await request(app)
+      // 2026-09-05 is inside Project A's dates but goes back over days already paid on Project B
+      const overlapRes = await request(app)
         .post(`/api/projects/${activeProjectAId}/labours`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send({
           labourId: workerId,
           startDate: '2026-09-05',
         });
+      expect(overlapRes.status).toBe(400);
+      expect(overlapRes.body.message).toMatch(/already worked till 25 Sep 2026/);
+
+      // Starting on the last worked day (moved between sites that day) is allowed
+      const assignRes = await request(app)
+        .post(`/api/projects/${activeProjectAId}/labours`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          labourId: workerId,
+          startDate: '2026-09-25',
+        });
 
       expect(assignRes.status).toBe(200);
       const assignedDate = new Date(assignRes.body.data.startDate).toISOString().slice(0, 10);
-      expect(assignedDate).toBe('2026-09-05');
+      expect(assignedDate).toBe('2026-09-25');
     });
 
     it('15. should reject assignment of nonexistent Labour', async () => {

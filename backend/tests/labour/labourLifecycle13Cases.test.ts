@@ -156,9 +156,11 @@ describe('Labour Status / Lifecycle Across ERP (13 Required Cases)', () => {
   // TEST 6: Stop/complete the labour's active project assignment: Expected Labour status = INACTIVE
   // ==================================================
   it('TEST 6: Stop/complete active project assignment -> master Labour status becomes INACTIVE', async () => {
+    // Stopped on 11 Sep, before the Project B stint (TEST 10) starts on 12 Sep
     const stopRes = await request(app)
       .patch(`/api/labours/${workerId}/stop`)
-      .set('Authorization', `Bearer ${adminToken}`);
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ stopDate: '2026-09-11' });
 
     expect(stopRes.status).toBe(200);
     expect(stopRes.body.data.status).toBe('INACTIVE');

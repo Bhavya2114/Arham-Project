@@ -76,13 +76,12 @@ function dayNumberToIso(day: number): string {
   return new Date(day * DAY_MS).toISOString().slice(0, 10);
 }
 
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// '08 Sep 2026' (built by hand: newer ICU writes 'Sept' for en-GB)
 function formatDayLabel(day: number): string {
-  return new Date(day * DAY_MS).toLocaleDateString('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'UTC',
-  });
+  const d = new Date(day * DAY_MS);
+  return `${String(d.getUTCDate()).padStart(2, '0')} ${MONTHS_SHORT[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
 /**
@@ -116,6 +115,33 @@ export function getStopDateRange(
     min: startDay !== null ? dayNumberToIso(startDay) : null,
     max: dayNumberToIso(maxDay),
   };
+}
+
+/**
+ * The last calendar day (day number) the worker has already been paid for on any
+ * finished project, so a new or edited start date can't go back over it.
+ * (Starting on that same day is allowed, for a worker moved between sites mid-day.)
+ */
+function getLastWorkedDay(labour: any, skip?: any): number | null {
+  let last: number | null = null;
+  const consider = (val: any) => {
+    const day = toDayNumber(val);
+    if (day !== null && (last === null || day > last)) last = day;
+  };
+  for (const pa of labour.projectAssignments || []) {
+    if (pa === skip || pa.status === 'ACTIVE') continue;
+    consider(pa.stoppedAt);
+  }
+  if (!(labour.projectAssignments || []).length) consider(labour.stoppedAt);
+  return last;
+}
+
+function overlapError(lastDay: number): Error {
+  const error = new Error(
+    `This worker already worked till ${formatDayLabel(lastDay)}. Pick a start date on or after that day.`
+  );
+  (error as any).statusCode = 400;
+  return error;
 }
 
 /**
@@ -1111,6 +1137,13 @@ export const assignLabourToProject = async (
     finalStartDate = new Date(Date.UTC(todayParts.year, todayParts.month - 1, todayParts.day));
   }
 
+  // A worker can return to a project, but never for days already counted on an earlier stint
+  const lastWorkedDay = getLastWorkedDay(labour);
+  const finalStartDay = toDayNumber(finalStartDate);
+  if (lastWorkedDay !== null && finalStartDay !== null && finalStartDay < lastWorkedDay) {
+    throw overlapError(lastWorkedDay);
+  }
+
   labour.projectId = project._id as any;
   labour.assignmentStartDate = finalStartDate;
   // Preserve existing master startDate if already set, or initialize if null
@@ -1137,7 +1170,18 @@ export const assignLabourToProject = async (
     status: 'ACTIVE',
   });
 
-  await labour.save();
+  // Version check: if two assign requests race (double click), only the first one saves
+  labour.increment();
+  try {
+    await labour.save();
+  } catch (err: any) {
+    if (err?.name === 'VersionError') {
+      const error = new Error('This worker was just updated. Please refresh and try again.');
+      (error as any).statusCode = 409;
+      throw error;
+    }
+    throw err;
+  }
   return getLabourById(labour._id.toString(), { projectId: project._id.toString() });
 };
 
@@ -1201,6 +1245,17 @@ export const updateLabour = async (
 
   if (input.startDate !== undefined) {
     const newStart = new Date(input.startDate);
+    const activeForStart = (labour.projectAssignments || [])
+      .slice()
+      .reverse()
+      .find((pa: any) => pa.status === 'ACTIVE');
+    if (activeForStart) {
+      const lastWorkedDay = getLastWorkedDay(labour, activeForStart);
+      const newStartDay = toDayNumber(newStart);
+      if (lastWorkedDay !== null && newStartDay !== null && newStartDay < lastWorkedDay) {
+        throw overlapError(lastWorkedDay);
+      }
+    }
     labour.startDate = newStart;
     labour.assignmentStartDate = newStart;
     if (labour.projectAssignments && labour.projectAssignments.length > 0) {
