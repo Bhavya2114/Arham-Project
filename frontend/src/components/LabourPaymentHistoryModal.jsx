@@ -257,7 +257,7 @@ const LabourPaymentHistoryModal = ({
                         {p.notes || '—'}
                       </td>
                       <td className="px-3 py-2.5 text-gray-500 max-w-[100px] truncate" title={p.createdBy?.email || ''}>
-                        {p.createdBy?.name || 'Admin'}
+                        {p.createdBy?.name || '-'}
                       </td>
                       <td className="px-3 py-2.5 text-center whitespace-nowrap">
                         {p.isDeleted ? (

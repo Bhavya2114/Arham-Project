@@ -535,7 +535,7 @@ const ProjectDetails = () => {
     { key: 'labour', label: 'Labour', count: labours.length },
   ];
 
-  const creatorName = project.creator?.name || 'System Admin';
+  const creatorName = project.creator?.name || '-';
 
   return (
     <div className="space-y-5 animate-fadeIn pb-16">
