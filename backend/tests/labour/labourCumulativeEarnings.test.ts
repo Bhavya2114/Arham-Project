@@ -3,6 +3,20 @@ import app from '../../src/app';
 import { getAuthToken } from '../helpers/auth.helper';
 import { Labour } from '../../src/models/Labour';
 
+// Dates are relative to today so the test does not expire on a fixed calendar day.
+// Project 1 spans 31 days and ended a month ago; project 2 started 30 days ago and runs 30 more days.
+const daysFromToday = (offset: number): string => {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+const P1_START = daysFromToday(-61);
+const P1_END = daysFromToday(-31);
+const P2_START = daysFromToday(-30);
+const P2_END = daysFromToday(30);
+const PAYMENT_DATE = daysFromToday(-50);
+
 describe('Labour Cumulative Earnings Across Multiple Projects', () => {
   let adminToken: string;
   let project1Id: string;
@@ -12,7 +26,7 @@ describe('Labour Cumulative Earnings Across Multiple Projects', () => {
   beforeAll(async () => {
     adminToken = await getAuthToken('ADMIN');
 
-    // 1. Create Project 1 (PRJ-SEQ-1): 01/09/2026 to expected completion 01/10/2026
+    // 1. Create Project 1 (PRJ-SEQ-1): 31 days, P1_START to P1_END
     const p1Res = await request(app)
       .post('/api/projects')
       .set('Authorization', `Bearer ${adminToken}`)
@@ -20,14 +34,14 @@ describe('Labour Cumulative Earnings Across Multiple Projects', () => {
         projectCode: `PRJ-SEQ1-${Date.now()}`,
         name: 'Sequential Project 1',
         siteAddress: 'Baner, Pune',
-        startDate: '2026-09-01',
-        expectedEndDate: '2026-10-01',
+        startDate: P1_START,
+        expectedEndDate: P1_END,
         status: 'IN_PROGRESS',
       });
     expect(p1Res.status).toBe(201);
     project1Id = p1Res.body.data.id;
 
-    // 2. Create Project 2 (PRJ-SEQ-2): 01/10/2026 to expected completion 31/10/2026
+    // 2. Create Project 2 (PRJ-SEQ-2): P2_START to P2_END (today is inside it)
     const p2Res = await request(app)
       .post('/api/projects')
       .set('Authorization', `Bearer ${adminToken}`)
@@ -35,8 +49,8 @@ describe('Labour Cumulative Earnings Across Multiple Projects', () => {
         projectCode: `PRJ-SEQ2-${Date.now()}`,
         name: 'Sequential Project 2',
         siteAddress: 'Kothrud, Pune',
-        startDate: '2026-10-01',
-        expectedEndDate: '2026-10-31',
+        startDate: P2_START,
+        expectedEndDate: P2_END,
         status: 'IN_PROGRESS',
       });
     expect(p2Res.status).toBe(201);
@@ -55,13 +69,13 @@ describe('Labour Cumulative Earnings Across Multiple Projects', () => {
     expect(lRes.status).toBe(201);
     workerId = lRes.body.data.id;
 
-    // 4. Assign Worker to Project 1 on 01/09/2026
+    // 4. Assign Worker to Project 1 on its start date
     const assign1Res = await request(app)
       .post(`/api/projects/${project1Id}/labours`)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
         labourId: workerId,
-        startDate: '2026-09-01',
+        startDate: P1_START,
       });
     expect(assign1Res.status).toBe(200);
 
@@ -82,7 +96,7 @@ describe('Labour Cumulative Earnings Across Multiple Projects', () => {
   });
 
   it('1 & 4. Worker assigned to two projects sequentially accumulates earnings while current assignment is ACTIVE', async () => {
-    // Project 1 (01/09 to 01/10 capped) = 31 days * ₹1000 = ₹31,000
+    // Project 1 (P1_START to P1_END capped) = 31 days * ₹1000 = ₹31,000
     // Project 2 (assigned today = 1 day) = 1 day * ₹1000 = ₹1,000
     // Cumulative = 32 days, ₹32,000
     const res = await request(app)
@@ -141,7 +155,7 @@ describe('Labour Cumulative Earnings Across Multiple Projects', () => {
       .send({
         labourId: workerId,
         amount: 10000,
-        paymentDate: '2026-10-11',
+        paymentDate: PAYMENT_DATE,
         paymentMethod: 'CASH',
         notes: 'Mid-month settlement',
       });
