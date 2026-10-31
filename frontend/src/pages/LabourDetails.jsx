@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { getLabourById, stopLabour, updateStopDate } from '../utils/labourService';
+import { getLabourById, stopLabour, updateStopDate, deleteAssignment } from '../utils/labourService';
 import { getPaymentsByLabourId, deletePayment } from '../utils/labourPaymentService';
 import LabourFormModal from '../components/LabourFormModal';
 import LabourPaymentModal from '../components/LabourPaymentModal';
@@ -70,6 +70,10 @@ const LabourDetails = () => {
   // Change stop date of a finished project (a projectHistory row)
   const [stopDateRow, setStopDateRow] = useState(null);
   const [isSavingStopDate, setIsSavingStopDate] = useState(false);
+
+  // Delete a project stint added by mistake (it stays listed, marked deleted)
+  const [rowToDelete, setRowToDelete] = useState(null);
+  const [isDeletingRow, setIsDeletingRow] = useState(false);
 
   // Payment Add / Edit Modal State
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -174,6 +178,23 @@ const LabourDetails = () => {
       toast.error(getErrorMessage(err, 'Failed to update stop date'));
     } finally {
       setIsSavingStopDate(false);
+    }
+  };
+
+  // Action: Delete a project stint (kept in history as deleted)
+  const handleConfirmDeleteRow = async () => {
+    if (!labour?.id || !rowToDelete?.assignmentId) return;
+    setIsDeletingRow(true);
+    try {
+      await deleteAssignment(labour.id, rowToDelete.assignmentId);
+      toast.success('Project record deleted');
+      setRowToDelete(null);
+      fetchLabourData();
+    } catch (err) {
+      console.error('Error deleting project record:', err);
+      toast.error(getErrorMessage(err, 'Failed to delete project record'));
+    } finally {
+      setIsDeletingRow(false);
     }
   };
 
@@ -348,8 +369,9 @@ const LabourDetails = () => {
     max: projectEndIso && projectEndIso < todayIso ? projectEndIso : todayIso,
   };
   // Finished projects whose stop date can be changed (needs the updated backend)
-  const canEditStopDate = (h) => !h.isActive && h.assignmentId && h.stopDateRange;
-  const latestRow = projectHistory[0];
+  const canEditStopDate = (h) => !h.isDeleted && !h.isActive && h.assignmentId && h.stopDateRange;
+  const liveHistory = projectHistory.filter((h) => !h.isDeleted);
+  const latestRow = liveHistory[0];
   const startDateLabel = formatDateShortMonth(labour.assignmentStartDate || labour.startDate, 'Not set');
   const stoppedDateLabel = labour.stoppedAt
     ? formatDateShortMonth(labour.stoppedAt)
@@ -502,9 +524,9 @@ const LabourDetails = () => {
       <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
           <h2 className="text-sm font-semibold text-slate-900">Project history</h2>
-          {projectHistory.length > 0 && (
+          {liveHistory.length > 0 && (
             <span className="text-xs text-gray-400">
-              {projectHistory.length} {projectHistory.length === 1 ? 'project' : 'projects'}
+              {liveHistory.length} {liveHistory.length === 1 ? 'project' : 'projects'}
             </span>
           )}
         </div>
@@ -519,13 +541,17 @@ const LabourDetails = () => {
                 <th className="px-5 py-3">Worked</th>
                 <th className="px-5 py-3 text-right">Days</th>
                 <th className="px-5 py-3 text-right">Earned</th>
+                <th className="px-5 py-3 text-center w-40">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {projectHistory.map((h, idx) => {
                 const st = PROJECT_STATUS[h.projectStatus];
                 return (
-                  <tr key={`${h.projectId}-${idx}`} className="hover:bg-[#FFB82E]/[0.05] transition-colors duration-150">
+                  <tr
+                    key={`${h.assignmentId || h.projectId}-${idx}`}
+                    className={`transition-colors duration-150 ${h.isDeleted ? 'opacity-50' : 'hover:bg-[#FFB82E]/[0.05]'}`}
+                  >
                     <td className="px-5 py-3.5">
                       <button
                         type="button"
@@ -546,7 +572,7 @@ const LabourDetails = () => {
                         <span className="text-gray-400">-</span>
                       )}
                     </td>
-                    <td className="px-5 py-3.5 text-slate-800">
+                    <td className={`px-5 py-3.5 text-slate-800 ${h.isDeleted ? 'line-through' : ''}`}>
                       {formatDateRange(h.startDate, h.stoppedAt, 'today')}
                       {canEditStopDate(h) && (
                         <button
@@ -562,8 +588,35 @@ const LabourDetails = () => {
                         <span className={`ml-2 inline-block px-2 py-0.5 rounded-md border text-[10px] ${BADGE.amber}`}>Current</span>
                       )}
                     </td>
-                    <td className="px-5 py-3.5 text-right text-slate-800">{h.earnedDays ?? '-'}</td>
-                    <td className="px-5 py-3.5 text-right font-medium text-slate-900">{h.earned == null ? '-' : formatRupees(h.earned)}</td>
+                    <td className={`px-5 py-3.5 text-right text-slate-800 ${h.isDeleted ? 'line-through' : ''}`}>{h.earnedDays ?? '-'}</td>
+                    <td className={`px-5 py-3.5 text-right font-medium text-slate-900 ${h.isDeleted ? 'line-through' : ''}`}>
+                      {h.earned == null ? '-' : formatRupees(h.earned)}
+                    </td>
+                    {/* Actions: Delete (asks for confirmation); deleted rows say when and by whom */}
+                    <td className="px-5 py-3.5 text-center">
+                      {h.isDeleted ? (
+                        <div className="leading-tight">
+                          <span className="inline-flex px-2 py-0.5 rounded-full text-[11px] bg-rose-50 text-rose-500">Deleted</span>
+                          {(h.deletedAt || h.deletedBy?.name) && (
+                            <p className="text-[11px] text-gray-400 mt-1">
+                              {[h.deletedAt && formatDateShortMonth(h.deletedAt), h.deletedBy?.name && `by ${h.deletedBy.name}`]
+                                .filter(Boolean)
+                                .join(' ')}
+                            </p>
+                          )}
+                        </div>
+                      ) : h.assignmentId ? (
+                        <button
+                          type="button"
+                          onClick={() => setRowToDelete(h)}
+                          className="w-16 py-1.5 rounded-lg text-xs text-rose-500 border border-rose-500/30 hover:bg-rose-500/10 transition-all duration-150 hover:scale-105 cursor-pointer"
+                        >
+                          Delete
+                        </button>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
@@ -820,6 +873,31 @@ const LabourDetails = () => {
         dailyWage={labour.dailyWage}
         currentEarned={stopDateRow?.earned ?? 0}
         balance={labour.balance}
+      />
+
+      {/* MODAL 2c: Delete a project stint added by mistake */}
+      <ConfirmationModal
+        isOpen={Boolean(rowToDelete)}
+        onClose={() => setRowToDelete(null)}
+        onConfirm={handleConfirmDeleteRow}
+        title="Delete project record"
+        confirmText="Delete"
+        cancelText="Cancel"
+        isDanger={true}
+        isLoading={isDeletingRow}
+        message={
+          <div className="space-y-2">
+            <p className="text-gray-800 text-sm font-medium">
+              Delete <span className="font-bold text-gray-900">{rowToDelete?.name || 'this project'}</span>
+              {rowToDelete && ` (${formatDateRange(rowToDelete.startDate, rowToDelete.stoppedAt, 'today')})`} from{' '}
+              <span className="font-bold text-gray-900">{labour?.name}</span>'s history?
+            </p>
+            <p className="text-xs text-gray-500 font-normal">
+              {rowToDelete?.earnedDays ?? 0} days and {formatRupees(rowToDelete?.earned)} will no longer count in earnings, balance or project
+              labour cost.{rowToDelete?.isActive ? ' The worker will be taken off this project.' : ''} It stays in the history marked as deleted.
+            </p>
+          </div>
+        }
       />
 
       {/* MODAL 3: Labour Payment Modal (Add or Edit) */}

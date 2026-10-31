@@ -7,6 +7,7 @@ import {
   handleDeleteLabour,
   handleStopLabour,
   handleUpdateStopDate,
+  handleDeleteAssignment,
 } from '../controllers/labour.controller';
 import { handleGetPaymentsByLabourId } from '../controllers/labourPayment.controller';
 import { authenticate } from '../middleware/auth.middleware';
@@ -39,6 +40,9 @@ router.patch('/:id/stop', authorize('ADMIN', 'SALES'), handleStopLabour);
 
 // PATCH /api/labours/:id/assignments/:assignmentId/stop-date - Change a past stop date (ADMIN, SALES)
 router.patch('/:id/assignments/:assignmentId/stop-date', authorize('ADMIN', 'SALES'), handleUpdateStopDate);
+
+// DELETE /api/labours/:id/assignments/:assignmentId - Remove a project stint added by mistake (kept as deleted) (ADMIN, SALES)
+router.delete('/:id/assignments/:assignmentId', authorize('ADMIN', 'SALES'), handleDeleteAssignment);
 
 // DELETE /api/labours/:id - Delete labour record (ADMIN)
 router.delete('/:id', authorize('ADMIN'), handleDeleteLabour);

@@ -95,3 +95,14 @@ export const updateStopDate = async (id, assignmentId, stopDate) => {
   const res = await axiosInstance.patch(`/labours/${id}/assignments/${assignmentId}/stop-date`, { stopDate });
   return res.data?.data;
 };
+
+/**
+ * Delete a project stint added by mistake. It stays in the worker's history, marked deleted.
+ * @param {string} id - Labour ID
+ * @param {string} assignmentId - Project assignment ID (from projectHistory)
+ * @returns {Promise<Object>} Updated labour object
+ */
+export const deleteAssignment = async (id, assignmentId) => {
+  const res = await axiosInstance.delete(`/labours/${id}/assignments/${assignmentId}`);
+  return res.data?.data;
+};
