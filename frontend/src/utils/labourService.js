@@ -79,7 +79,19 @@ export const updateLabour = async (id, payload) => {
  * @param {string} id - Labour ID
  * @returns {Promise<Object>} Updated labour object
  */
-export const stopLabour = async (id) => {
-  const res = await axiosInstance.patch(`/labours/${id}/stop`);
+export const stopLabour = async (id, stopDate) => {
+  const res = await axiosInstance.patch(`/labours/${id}/stop`, stopDate ? { stopDate } : {});
+  return res.data?.data;
+};
+
+/**
+ * Change the stop date of a project the worker has already stopped on.
+ * @param {string} id - Labour ID
+ * @param {string} assignmentId - Project assignment ID (from projectHistory)
+ * @param {string} stopDate - 'YYYY-MM-DD'
+ * @returns {Promise<Object>} Updated labour object
+ */
+export const updateStopDate = async (id, assignmentId, stopDate) => {
+  const res = await axiosInstance.patch(`/labours/${id}/assignments/${assignmentId}/stop-date`, { stopDate });
   return res.data?.data;
 };

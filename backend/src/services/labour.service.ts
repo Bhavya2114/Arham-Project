@@ -63,6 +63,94 @@ export function parseCalendarDate(
   }
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Calendar day (IST) as a whole day number, so dates can be compared and counted. */
+function toDayNumber(val: any): number | null {
+  const parts = parseCalendarDate(val);
+  if (!parts) return null;
+  return Date.UTC(parts.year, parts.month - 1, parts.day) / DAY_MS;
+}
+
+function dayNumberToIso(day: number): string {
+  return new Date(day * DAY_MS).toISOString().slice(0, 10);
+}
+
+function formatDayLabel(day: number): string {
+  return new Date(day * DAY_MS).toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+/**
+ * The dates a stop date may take for one project assignment:
+ * from the day the worker started on it, up to today or the project end date
+ * (whichever comes first), and before the worker's next project started.
+ */
+export function getStopDateRange(
+  startDate: any,
+  projectEndDate: any,
+  otherStartDates: any[] = [],
+  referenceDate: Date | string = new Date()
+): { min: string | null; max: string } {
+  const startDay = toDayNumber(startDate);
+  let maxDay = toDayNumber(referenceDate) as number;
+
+  const endDay = toDayNumber(projectEndDate);
+  if (endDay !== null && endDay < maxDay) maxDay = endDay;
+
+  if (startDay !== null) {
+    for (const other of otherStartDates) {
+      const otherDay = toDayNumber(other);
+      if (otherDay !== null && otherDay > startDay && otherDay - 1 < maxDay) {
+        maxDay = otherDay - 1;
+      }
+    }
+    if (maxDay < startDay) maxDay = startDay;
+  }
+
+  return {
+    min: startDay !== null ? dayNumberToIso(startDay) : null,
+    max: dayNumberToIso(maxDay),
+  };
+}
+
+/**
+ * Checks a chosen stop date ('YYYY-MM-DD') against the allowed range and
+ * returns the Date to store (midday IST, so it never shifts a day).
+ */
+function resolveStopDate(input: any, range: { min: string | null; max: string }): Date {
+  const badDate = (message: string) => {
+    const error = new Error(message);
+    (error as any).statusCode = 400;
+    return error;
+  };
+
+  if (typeof input !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(input.trim())) {
+    throw badDate('Please choose a valid stop date');
+  }
+  const iso = input.trim();
+  const day = toDayNumber(iso);
+  if (day === null || dayNumberToIso(day) !== iso) {
+    throw badDate('Please choose a valid stop date');
+  }
+
+  const minDay = range.min ? toDayNumber(range.min) : null;
+  const maxDay = toDayNumber(range.max) as number;
+  if ((minDay !== null && day < minDay) || day > maxDay) {
+    throw badDate(
+      minDay !== null
+        ? `Stop date must be between ${formatDayLabel(minDay)} and ${formatDayLabel(maxDay)}`
+        : `Stop date can't be after ${formatDayLabel(maxDay)}`
+    );
+  }
+
+  return new Date(`${iso}T12:00:00+05:30`);
+}
+
 /**
  * Calculates earned days and total earned wages for a labour worker.
  *
@@ -466,6 +554,7 @@ export const mapLabourResponse = (
           cumulativeEarned += paCalc.totalEarned;
 
           projectHistory.push({
+            assignmentId: pa._id ? pa._id.toString() : undefined,
             projectId: paProj?._id ? paProj._id.toString() : paProj?.toString(),
             name: paProj && typeof paProj === 'object' ? paProj.name : undefined,
             projectCode: paProj && typeof paProj === 'object' ? paProj.projectCode : undefined,
@@ -475,6 +564,12 @@ export const mapLabourResponse = (
             isActive: isPAActive,
             earnedDays: paCalc.earnedDays,
             earned: Math.round(paCalc.totalEarned * 100) / 100,
+            stopDateRange: getStopDateRange(
+              pa.startDate,
+              paCap,
+              labour.projectAssignments.filter((o: any) => o !== pa).map((o: any) => o.startDate),
+              refDate
+            ),
           });
         }
       }
@@ -1142,7 +1237,7 @@ export const deleteLabour = async (id: string): Promise<boolean> => {
   return true;
 };
 
-export const stopLabour = async (id: string): Promise<any> => {
+export const stopLabour = async (id: string, stopDateInput?: string): Promise<any> => {
   if (!mongoose.Types.ObjectId.isValid(id)) {
     const error = new Error('Invalid labour ID format');
     (error as any).statusCode = 400;
@@ -1162,8 +1257,28 @@ export const stopLabour = async (id: string): Promise<any> => {
     throw error;
   }
 
-  const stopDate = new Date();
   const currentProjectId = labour.projectId;
+  const activeAssignment = (labour.projectAssignments || [])
+    .slice()
+    .reverse()
+    .find((pa: any) => pa.status === 'ACTIVE');
+
+  // Today by default; a chosen date must sit inside the worker's time on this project
+  let stopDate = new Date();
+  if (stopDateInput) {
+    const projectIdForRange = activeAssignment?.projectId || currentProjectId;
+    const project = projectIdForRange
+      ? await Project.findById(projectIdForRange).select('expectedEndDate').lean()
+      : null;
+    const range = getStopDateRange(
+      activeAssignment?.startDate || labour.assignmentStartDate || labour.startDate,
+      (project as any)?.expectedEndDate,
+      (labour.projectAssignments || [])
+        .filter((pa: any) => pa !== activeAssignment)
+        .map((pa: any) => pa.startDate)
+    );
+    stopDate = resolveStopDate(stopDateInput, range);
+  }
 
   // Master status becomes INACTIVE
   labour.status = 'INACTIVE';
@@ -1171,10 +1286,6 @@ export const stopLabour = async (id: string): Promise<any> => {
 
   // Update project assignment record
   if (labour.projectAssignments && labour.projectAssignments.length > 0) {
-    const activeAssignment = labour.projectAssignments
-      .slice()
-      .reverse()
-      .find((pa: any) => pa.status === 'ACTIVE');
     if (activeAssignment) {
       activeAssignment.status = 'STOPPED';
       activeAssignment.stoppedAt = stopDate;
@@ -1192,6 +1303,69 @@ export const stopLabour = async (id: string): Promise<any> => {
 
   // Clear current active projectId so worker is unassigned and available for assignment
   labour.projectId = null;
+
+  await labour.save();
+  return getLabourById(labour._id.toString());
+};
+
+/**
+ * Changes the stop date of a project the worker has already stopped on.
+ * Earned days and wages are worked out from the dates, so they follow the new date.
+ */
+export const updateAssignmentStopDate = async (
+  id: string,
+  assignmentId: string,
+  stopDateInput: string
+): Promise<any> => {
+  if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(assignmentId)) {
+    const error = new Error('Invalid labour ID format');
+    (error as any).statusCode = 400;
+    throw error;
+  }
+
+  const labour = await Labour.findById(id);
+  if (!labour) {
+    const error = new Error('Labour not found');
+    (error as any).statusCode = 404;
+    throw error;
+  }
+
+  const assignments: any[] = labour.projectAssignments || [];
+  const assignment = assignments.find((pa: any) => pa._id && pa._id.toString() === assignmentId);
+  if (!assignment) {
+    const error = new Error('Project record not found for this worker');
+    (error as any).statusCode = 404;
+    throw error;
+  }
+
+  const project = await Project.findById(assignment.projectId).select('expectedEndDate').lean();
+  const expectedEndDate = (project as any)?.expectedEndDate || null;
+
+  if (isAssignmentActive(assignment, new Date(), expectedEndDate)) {
+    const error = new Error('This worker is still working on this project. Use Stop instead.');
+    (error as any).statusCode = 400;
+    throw error;
+  }
+
+  const range = getStopDateRange(
+    assignment.startDate,
+    expectedEndDate,
+    assignments.filter((pa: any) => pa !== assignment).map((pa: any) => pa.startDate)
+  );
+  const stopDate = resolveStopDate(stopDateInput, range);
+
+  assignment.status = 'STOPPED';
+  assignment.stoppedAt = stopDate;
+
+  // The worker's own stop date follows their latest project
+  const startDay = toDayNumber(assignment.startDate);
+  const isLatest = assignments.every((pa: any) => {
+    const day = toDayNumber(pa.startDate);
+    return pa === assignment || day === null || startDay === null || day <= startDay;
+  });
+  if (labour.status !== 'ACTIVE' && isLatest) {
+    labour.stoppedAt = stopDate;
+  }
 
   await labour.save();
   return getLabourById(labour._id.toString());

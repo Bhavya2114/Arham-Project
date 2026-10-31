@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { getLabourById, stopLabour } from '../utils/labourService';
+import { getLabourById, stopLabour, updateStopDate } from '../utils/labourService';
 import { getPaymentsByLabourId, deletePayment } from '../utils/labourPaymentService';
 import LabourFormModal from '../components/LabourFormModal';
 import LabourPaymentModal from '../components/LabourPaymentModal';
 import ConfirmationModal from '../components/ConfirmationModal';
+import StopDateModal from '../components/StopDateModal';
 import axiosInstance from '../utils/api';
 import { useToast } from '../context/ToastContext';
 import { getErrorMessage } from '../utils/apiError';
-import { formatDateShortMonth, formatDateRange } from '../utils/dateUtils';
+import { formatDateShortMonth, formatDateRange, toApiDateFormat } from '../utils/dateUtils';
 import {
   FaArrowLeft,
   FaEdit,
@@ -19,6 +20,7 @@ import {
   FaPlus,
   FaCreditCard,
   FaMobileAlt,
+  FaPen,
 } from 'react-icons/fa';
 
 // Rectangular outlined badges: tinted fill, coloured border and text
@@ -64,6 +66,10 @@ const LabourDetails = () => {
   // Stop Labour Confirmation Modal State
   const [isStopModalOpen, setIsStopModalOpen] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
+
+  // Change stop date of a finished project (a projectHistory row)
+  const [stopDateRow, setStopDateRow] = useState(null);
+  const [isSavingStopDate, setIsSavingStopDate] = useState(false);
 
   // Payment Add / Edit Modal State
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -138,11 +144,11 @@ const LabourDetails = () => {
   };
 
   // Action: Confirm Stop Labour
-  const handleConfirmStop = async () => {
+  const handleConfirmStop = async (stopDate) => {
     if (!labour?.id) return;
     setIsStopping(true);
     try {
-      await stopLabour(labour.id);
+      await stopLabour(labour.id, stopDate);
       toast.success('Labour stopped successfully');
       setIsStopModalOpen(false);
       fetchLabourData();
@@ -151,6 +157,23 @@ const LabourDetails = () => {
       toast.error(getErrorMessage(err, 'Failed to stop labour'));
     } finally {
       setIsStopping(false);
+    }
+  };
+
+  // Action: Save a changed stop date
+  const handleSaveStopDate = async (stopDate) => {
+    if (!labour?.id || !stopDateRow?.assignmentId) return;
+    setIsSavingStopDate(true);
+    try {
+      await updateStopDate(labour.id, stopDateRow.assignmentId, stopDate);
+      toast.success('Stop date updated');
+      setStopDateRow(null);
+      fetchLabourData();
+    } catch (err) {
+      console.error('Error updating stop date:', err);
+      toast.error(getErrorMessage(err, 'Failed to update stop date'));
+    } finally {
+      setIsSavingStopDate(false);
     }
   };
 
@@ -315,6 +338,18 @@ const LabourDetails = () => {
     }
     return rows.sort((a, b) => new Date(b.startDate || 0) - new Date(a.startDate || 0));
   })();
+  // Stop popup: the date can be moved back to the day the worker started on this project,
+  // and not past today or the project end date
+  const activeRow = projectHistory.find((h) => h.isActive);
+  const todayIso = toApiDateFormat(new Date());
+  const projectEndIso = toApiDateFormat(labour.project?.expectedEndDate);
+  const stopRange = activeRow?.stopDateRange || {
+    min: toApiDateFormat(activeRow?.startDate || labour.assignmentStartDate || labour.startDate) || null,
+    max: projectEndIso && projectEndIso < todayIso ? projectEndIso : todayIso,
+  };
+  // Finished projects whose stop date can be changed (needs the updated backend)
+  const canEditStopDate = (h) => !h.isActive && h.assignmentId && h.stopDateRange;
+  const latestRow = projectHistory[0];
   const startDateLabel = formatDateShortMonth(labour.assignmentStartDate || labour.startDate, 'Not set');
   const stoppedDateLabel = labour.stoppedAt
     ? formatDateShortMonth(labour.stoppedAt)
@@ -367,7 +402,12 @@ const LabourDetails = () => {
     },
     { label: 'Daily wage', value: `₹${Number(labour.dailyWage || 0).toLocaleString('en-IN')} / day` },
     { label: 'Start date', value: startDateLabel, muted: startDateLabel === 'Not set' },
-    { label: 'Stopped date', value: stoppedDateLabel, muted: !labour.stoppedAt },
+    {
+      label: 'Stopped date',
+      value: stoppedDateLabel,
+      muted: !labour.stoppedAt,
+      onEdit: !isActive && latestRow && canEditStopDate(latestRow) ? () => setStopDateRow(latestRow) : null,
+    },
   ];
 
   return (
@@ -439,7 +479,19 @@ const LabourDetails = () => {
           {workDetails.map((d) => (
             <div key={d.label}>
               <p className="text-xs text-gray-400">{d.label}</p>
-              <p className={`text-sm mt-1 ${d.muted ? 'text-gray-400' : 'text-slate-900 font-medium'}`}>{d.value}</p>
+              <p className={`text-sm mt-1 flex items-center gap-2 ${d.muted ? 'text-gray-400' : 'text-slate-900 font-medium'}`}>
+                {d.value}
+                {d.onEdit && (
+                  <button
+                    type="button"
+                    onClick={d.onEdit}
+                    title="Change stop date"
+                    className="text-gray-400 hover:text-[#FFC14D] transition-colors cursor-pointer"
+                  >
+                    <FaPen className="text-[10px]" />
+                  </button>
+                )}
+              </p>
               {d.sub && <p className="text-xs text-gray-400 mt-0.5">{d.sub}</p>}
             </div>
           ))}
@@ -496,6 +548,16 @@ const LabourDetails = () => {
                     </td>
                     <td className="px-5 py-3.5 text-slate-800">
                       {formatDateRange(h.startDate, h.stoppedAt, 'today')}
+                      {canEditStopDate(h) && (
+                        <button
+                          type="button"
+                          onClick={() => setStopDateRow(h)}
+                          title="Change stop date"
+                          className="ml-2 align-middle text-gray-400 hover:text-[#FFC14D] transition-colors cursor-pointer"
+                        >
+                          <FaPen className="text-[10px]" />
+                        </button>
+                      )}
                       {h.isActive && (
                         <span className={`ml-2 inline-block px-2 py-0.5 rounded-md border text-[10px] ${BADGE.amber}`}>Current</span>
                       )}
@@ -725,32 +787,39 @@ const LabourDetails = () => {
         labour={labour}
       />
 
-      {/* MODAL 2: Stop Labour Confirmation */}
-      <ConfirmationModal
+      {/* MODAL 2: Stop Labour, with a stop date that can be changed */}
+      <StopDateModal
         isOpen={isStopModalOpen}
         onClose={() => setIsStopModalOpen(false)}
         onConfirm={handleConfirmStop}
-        title="Stop Labour"
-        confirmText="Stop Labour"
-        cancelText="Cancel"
-        isDanger={true}
         isLoading={isStopping}
-        message={
-          <div className="space-y-3">
-            <p className="text-gray-800 text-sm font-medium">
-              Are you sure you want to stop <span className="font-bold text-gray-900">{labour?.name}</span>?
-            </p>
-            <p className="text-xs text-gray-500 font-normal">
-              Once stopped, this labour will no longer be considered active.
-            </p>
-            <div className="bg-white p-2.5 rounded-lg border border-gray-200 flex items-center justify-between text-xs">
-              <span className="text-gray-500 font-medium">Stop Date:</span>
-              <span className="font-bold text-gray-800">
-                {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-              </span>
-            </div>
-          </div>
-        }
+        mode="stop"
+        name={labour?.name}
+        startDate={activeRow?.startDate || labour.assignmentStartDate || labour.startDate}
+        minDate={stopRange.min}
+        maxDate={stopRange.max}
+        initialDate={stopRange.max}
+        dailyWage={labour.dailyWage}
+        currentEarned={activeRow?.earned ?? 0}
+        balance={activeRow?.earned != null ? labour.balance : null}
+      />
+
+      {/* MODAL 2b: Change the stop date of a finished project */}
+      <StopDateModal
+        isOpen={Boolean(stopDateRow)}
+        onClose={() => setStopDateRow(null)}
+        onConfirm={handleSaveStopDate}
+        isLoading={isSavingStopDate}
+        mode="edit"
+        name={labour?.name}
+        projectName={stopDateRow?.name}
+        startDate={stopDateRow?.startDate}
+        minDate={stopDateRow?.stopDateRange?.min}
+        maxDate={stopDateRow?.stopDateRange?.max}
+        initialDate={toApiDateFormat(stopDateRow?.stoppedAt)}
+        dailyWage={labour.dailyWage}
+        currentEarned={stopDateRow?.earned ?? 0}
+        balance={labour.balance}
       />
 
       {/* MODAL 3: Labour Payment Modal (Add or Edit) */}
