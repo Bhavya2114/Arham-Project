@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   handleGetProjects,
   handleGetProjectById,
+  handleGetNextProjectCode,
   handleCreateProject,
   handleUpdateProject,
   handleDeleteProject,
@@ -24,6 +25,9 @@ router.use(authenticate);
 
 // GET /api/projects - View all projects (ADMIN, SALES, WAREHOUSE, ACCOUNTS)
 router.get('/', authorize('ADMIN', 'SALES', 'WAREHOUSE', 'ACCOUNTS'), handleGetProjects);
+
+// GET /api/projects/next-code - Preview the code the next new project will get (ADMIN, SALES, WAREHOUSE, ACCOUNTS)
+router.get('/next-code', authorize('ADMIN', 'SALES', 'WAREHOUSE', 'ACCOUNTS'), handleGetNextProjectCode);
 
 // GET /api/projects/:projectId/material-consumptions - View materials for a project (ADMIN, SALES, WAREHOUSE, ACCOUNTS)
 router.get('/:projectId/material-consumptions', authorize('ADMIN', 'SALES', 'WAREHOUSE', 'ACCOUNTS'), handleGetMaterialConsumptionsByProject);

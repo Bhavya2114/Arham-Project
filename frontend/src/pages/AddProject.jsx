@@ -55,9 +55,13 @@ const AddProject = () => {
             });
           }
         } else {
-          // Generate auto code suggestion if new
-          const defaultCode = `PRJ-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`;
-          setFormData((prev) => ({ ...prev, projectCode: defaultCode }));
+          // The server assigns the code on save; this only previews it ("Auto" if the preview fails)
+          try {
+            const codeRes = await axiosInstance.get('/projects/next-code');
+            setFormData((prev) => ({ ...prev, projectCode: codeRes.data.data?.projectCode || '' }));
+          } catch (codeErr) {
+            console.error('Error loading next project code:', codeErr);
+          }
         }
       } catch (err) {
         console.error('Error loading form metadata:', err);
@@ -117,7 +121,7 @@ const AddProject = () => {
     setFormError(null);
 
     // Client-side validations
-    if (!formData.projectCode.trim()) {
+    if (isEditMode && !formData.projectCode.trim()) {
       setFormError('Project Code is required.');
       return;
     }
@@ -148,7 +152,8 @@ const AddProject = () => {
     setSubmitting(true);
 
     const payload = {
-      projectCode: formData.projectCode.trim(),
+      // New projects get their code from the server
+      ...(isEditMode ? { projectCode: formData.projectCode.trim() } : {}),
       name: formData.name.trim(),
       siteAddress: formData.siteAddress.trim(),
       startDate: toApiDateFormat(formData.startDate),
@@ -239,7 +244,7 @@ const AddProject = () => {
                     type="text"
                     id="projectCode"
                     name="projectCode"
-                    value={formData.projectCode}
+                    value={formData.projectCode || 'Auto'}
                     onChange={handleChange}
                     readOnly
                     className="w-full pl-9 pr-3.5 py-2 bg-[#25262A] border border-slate-200 rounded-lg text-sm font-semibold text-slate-800 cursor-default select-all focus:outline-none"

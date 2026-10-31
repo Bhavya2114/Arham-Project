@@ -11,7 +11,6 @@ import {
   FaExternalLinkAlt,
   FaArrowUp,
   FaArrowDown,
-  FaUser,
   FaHashtag,
   FaMapMarkerAlt,
   FaCalendarAlt,
@@ -397,7 +396,7 @@ const Reports = () => {
                             <DownloadReportButton projectId={p.projectId} />
                           </div>
                           <p className="text-xs text-slate-400 font-medium truncate mt-0.5">
-                            {p.customerName} · {p.projectCode}
+                            {p.projectCode}
                           </p>
                         </div>
 
@@ -497,7 +496,6 @@ const Reports = () => {
                           >
                             <td className="px-4 py-3">
                               <span className="font-semibold text-slate-900 block">{capitalise(p.projectName)}</span>
-                              <span className="text-[11px] text-gray-400">{p.customerName}</span>
                             </td>
                             <td className="px-4 py-3 font-mono text-slate-500">{p.projectCode}</td>
                             <td className="px-4 py-3 text-center">
@@ -594,7 +592,6 @@ const Reports = () => {
         ];
 
         const metaItems = [
-          { icon: FaUser, text: p.customerName || 'No client', title: 'Client' },
           { icon: FaHashtag, text: p.projectCode, title: 'Project code' },
           p.siteAddress && { icon: FaMapMarkerAlt, text: capitalise(p.siteAddress), title: 'Site' },
         ].filter(Boolean);

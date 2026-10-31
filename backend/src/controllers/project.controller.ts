@@ -5,6 +5,7 @@ import {
   createProject,
   updateProject,
   deleteProject,
+  generateNextProjectCode,
 } from '../services/project.service';
 import { successResponse } from '../utils/apiResponse';
 
@@ -20,6 +21,19 @@ export const handleGetProjects = async (
 
     const projects = await getProjects({ search, status, customer });
     res.status(200).json(successResponse('Projects retrieved successfully', projects));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const handleGetNextProjectCode = async (
+  _req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const projectCode = await generateNextProjectCode();
+    res.status(200).json(successResponse('Next project code retrieved successfully', { projectCode }));
   } catch (error) {
     next(error);
   }

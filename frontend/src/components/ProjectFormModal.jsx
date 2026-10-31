@@ -29,10 +29,6 @@ const ProjectFormModal = ({ isOpen, onClose, onSuccess, project = null }) => {
   const isEdit = Boolean(project);
   const toast = useToast();
 
-  const generateProjectCode = () => {
-    return `PRJ-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`;
-  };
-
   const getInitialState = () =>
     isEdit
       ? {
@@ -46,7 +42,7 @@ const ProjectFormModal = ({ isOpen, onClose, onSuccess, project = null }) => {
           status: project.status || 'PLANNING',
         }
       : {
-    projectCode: generateProjectCode(),
+    projectCode: '',
     name: '',
     siteAddress: '',
     targetBudget: '',
@@ -67,6 +63,22 @@ const ProjectFormModal = ({ isOpen, onClose, onSuccess, project = null }) => {
       setSubmitting(false);
     }
   }, [isOpen, project]);
+
+  // When creating, preview the code the server will assign; the box shows "Auto" until it arrives or if it fails
+  useEffect(() => {
+    if (!isOpen || isEdit) return undefined;
+    let cancelled = false;
+    axiosInstance
+      .get('/projects/next-code')
+      .then((res) => {
+        const nextCode = res.data.data?.projectCode;
+        if (!cancelled && nextCode) setFormData((prev) => ({ ...prev, projectCode: nextCode }));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, isEdit]);
 
   if (!isOpen) return null;
 
@@ -121,7 +133,8 @@ const ProjectFormModal = ({ isOpen, onClose, onSuccess, project = null }) => {
     setSubmitting(true);
 
     const payload = {
-      projectCode: formData.projectCode.trim(),
+      // New projects get their code from the server
+      ...(isEdit ? { projectCode: formData.projectCode.trim() } : {}),
       name: formData.name.trim(),
       siteAddress: formData.siteAddress.trim(),
       startDate: toApiDateFormat(formData.startDate),
@@ -198,7 +211,7 @@ const ProjectFormModal = ({ isOpen, onClose, onSuccess, project = null }) => {
               </label>
               <div className="flex items-center gap-2 px-3.5 py-2.5 bg-slate-50 border border-slate-200/90 rounded-xl text-xs sm:text-sm font-semibold text-slate-700 select-none">
                 <FaLock className="text-emerald-600 text-xs flex-shrink-0" />
-                <span className="font-mono tracking-wide">{formData.projectCode}</span>
+                <span className="font-mono tracking-wide">{formData.projectCode || 'Auto'}</span>
               </div>
             </div>
 

@@ -82,7 +82,7 @@ describe('Customer Module Removal Verification', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.data).toHaveProperty('id');
-      expect(res.body.data.projectCode).toBe(code);
+      expect(res.body.data.projectCode).toMatch(/^PRJ-\d{4}-\d{3,}$/);
 
       // Clean up
       await Project.findByIdAndDelete(res.body.data.id);

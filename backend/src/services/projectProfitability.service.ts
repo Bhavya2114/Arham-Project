@@ -187,7 +187,7 @@ export const getProjectProfitability = async (projectId: string): Promise<IProje
     projectName: project.name,
     projectCode: project.projectCode,
     status: project.status,
-    customerName: (project.customer as any)?.name || 'N/A',
+    customerName: (project.customer as any)?.name || '',
     siteAddress: project.siteAddress,
     startDate: project.startDate,
     expectedEndDate: project.expectedEndDate,

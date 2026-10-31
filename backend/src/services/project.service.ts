@@ -52,6 +52,36 @@ const mapProjectResponse = (project: any) => ({
   updatedAt: project.updatedAt,
 });
 
+const PROJECT_CODE_MAX_RETRIES = 3;
+
+/**
+ * Works out the next code in the yearly sequence PRJ-<year>-001, 002, ... from the
+ * codes already taken. Codes that do not follow the pattern for that year are ignored.
+ */
+export const computeNextProjectCode = (existingCodes: string[], year: number): string => {
+  const pattern = new RegExp(`^PRJ-${year}-(\\d+)$`);
+  let highest = 0;
+  for (const code of existingCodes) {
+    const match = pattern.exec((code || '').trim().toUpperCase());
+    if (match) highest = Math.max(highest, Number(match[1]));
+  }
+  return `PRJ-${year}-${String(highest + 1).padStart(3, '0')}`;
+};
+
+export const generateNextProjectCode = async (date: Date = new Date()): Promise<string> => {
+  const year = date.getFullYear();
+  const projects = await Project.find({ projectCode: { $regex: `^PRJ-${year}-\\d+$` } })
+    .select('projectCode')
+    .lean();
+  return computeNextProjectCode(
+    projects.map((p: any) => p.projectCode),
+    year
+  );
+};
+
+const isDuplicateProjectCodeError = (error: any): boolean =>
+  error?.code === 11000 && Boolean(error?.keyPattern?.projectCode || /projectCode/.test(error?.message || ''));
+
 export const getProjects = async (query: {
   search?: string;
   status?: string;
@@ -138,31 +168,31 @@ export const createProject = async (
     }
   }
 
-  // 3. Unique Project Code Check
-  const codeClean = input.projectCode.trim().toUpperCase();
-  const existingProject = await Project.findOne({ projectCode: codeClean });
-  if (existingProject) {
-    const error = new Error(`Project code "${codeClean}" already exists`);
-    (error as any).statusCode = 400;
-    throw error;
-  }
-
-  // 4. Create Project
+  // 3. Create Project with a server-generated code (any code sent by the client is ignored)
   const startDate = new Date(input.startDate);
   const expectedEndDate = input.expectedEndDate ? new Date(input.expectedEndDate) : undefined;
 
-  const newProject = await Project.create({
-    projectCode: codeClean,
-    name: input.name.trim(),
-    customer: customerObj ? customerObj._id : undefined,
-    siteAddress: input.siteAddress.trim(),
-    startDate,
-    expectedEndDate,
-    status: (input.status as ProjectStatus) || 'PLANNING',
-    budget: input.budget !== undefined ? Number(input.budget) : undefined,
-    notes: input.notes ? input.notes.trim() : undefined,
-    createdBy: userObj._id,
-  });
+  let newProject: any = null;
+  for (let attempt = 1; !newProject; attempt++) {
+    const projectCode = await generateNextProjectCode();
+    try {
+      newProject = await Project.create({
+        projectCode,
+        name: input.name.trim(),
+        customer: customerObj ? customerObj._id : undefined,
+        siteAddress: input.siteAddress.trim(),
+        startDate,
+        expectedEndDate,
+        status: (input.status as ProjectStatus) || 'PLANNING',
+        budget: input.budget !== undefined ? Number(input.budget) : undefined,
+        notes: input.notes ? input.notes.trim() : undefined,
+        createdBy: userObj._id,
+      });
+    } catch (error) {
+      // Another project took the same code at the same moment: generate the next one and retry
+      if (!isDuplicateProjectCodeError(error) || attempt > PROJECT_CODE_MAX_RETRIES) throw error;
+    }
+  }
 
   return getProjectById(newProject._id.toString());
 };

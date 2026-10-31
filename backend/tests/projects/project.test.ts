@@ -10,6 +10,7 @@ describe('Projects API integration tests (Phase 7.1)', () => {
   let accountsToken: string;
   let customerId: string;
   let createdProjectId: string;
+  let createdProjectCode: string;
 
   beforeAll(async () => {
     adminToken = await getAuthToken('ADMIN');
@@ -50,12 +51,13 @@ describe('Projects API integration tests (Phase 7.1)', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.data).toHaveProperty('id');
-      expect(res.body.data.projectCode).toBe('PRJ-2026-001');
+      expect(res.body.data.projectCode).toMatch(/^PRJ-\d{4}-\d{3,}$/);
       expect(res.body.data.name).toBe('XYZ Building Construction');
       expect(res.body.data.customer.name).toBe('ABC Developers');
       expect(res.body.data.budget).toBe(5000000);
 
       createdProjectId = res.body.data.id;
+      createdProjectCode = res.body.data.projectCode;
     });
 
     it('should create a valid project with SALES role', async () => {
@@ -73,7 +75,7 @@ describe('Projects API integration tests (Phase 7.1)', () => {
         });
 
       expect(res.status).toBe(201);
-      expect(res.body.data.projectCode).toBe(code);
+      expect(res.body.data.projectCode).toMatch(/^PRJ-\d{4}-\d{3,}$/);
     });
 
     it('should create a valid project without customer', async () => {
@@ -90,7 +92,7 @@ describe('Projects API integration tests (Phase 7.1)', () => {
         });
 
       expect(res.status).toBe(201);
-      expect(res.body.data.projectCode).toBe(code);
+      expect(res.body.data.projectCode).toMatch(/^PRJ-\d{4}-\d{3,}$/);
     });
 
     it('should forbid WAREHOUSE and ACCOUNTS from creating projects', async () => {
@@ -155,19 +157,20 @@ describe('Projects API integration tests (Phase 7.1)', () => {
       expect(res.status).toBe(404);
     });
 
-    it('should return 400 when duplicate project code is provided', async () => {
+    it('should ignore a client-sent project code and generate a fresh one', async () => {
       const res = await request(app)
         .post('/api/projects')
         .set('Authorization', `Bearer ${adminToken}`)
         .send({
-          projectCode: 'PRJ-2026-001',
+          projectCode: createdProjectCode,
           name: 'Duplicate Code Project',
           customer: customerId,
           siteAddress: 'Test Address',
           startDate: '2026-06-01',
         });
-      expect(res.status).toBe(400);
-      expect(res.body.message).toMatch(/already exists/i);
+      expect(res.status).toBe(201);
+      expect(res.body.data.projectCode).not.toBe(createdProjectCode);
+      expect(res.body.data.projectCode).toMatch(/^PRJ-\d{4}-\d{3,}$/);
     });
 
     it('should return 400 when budget is negative', async () => {
@@ -222,7 +225,7 @@ describe('Projects API integration tests (Phase 7.1)', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.length).toBeGreaterThanOrEqual(1);
-      expect(res.body.data[0].projectCode).toBe('PRJ-2026-001');
+      expect(res.body.data.map((p: any) => p.projectCode)).toContain(createdProjectCode);
     });
   });
 

@@ -187,7 +187,7 @@ describe('Reports & Analytics Redesign Audit Suite (Section 28)', () => {
       expect(reportsJsxContent).toContain('const p = selectedProject;');
       expect(reportsJsxContent).toContain('{capitalise(p.projectName)}');
       expect(reportsJsxContent).toContain('text: p.projectCode');
-      expect(reportsJsxContent).toContain("text: p.customerName || 'No client'");
+      expect(reportsJsxContent).not.toContain("text: p.customerName || 'No client'");
       expect(reportsJsxContent).toContain('Where the money went');
     });
 
