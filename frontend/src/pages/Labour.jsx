@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { getLabours } from '../utils/labourService';
 import FilterSelect from '../components/FilterSelect';
 import LabourFormModal from '../components/LabourFormModal';
@@ -9,6 +9,7 @@ import axiosInstance from '../utils/api';
 import { getErrorMessage } from '../utils/apiError';
 import { formatDateShortMonth } from '../utils/dateUtils';
 import { useToast } from '../context/ToastContext';
+import useFitHeight from '../utils/useFitHeight';
 import {
   FaHardHat,
   FaUsers,
@@ -209,6 +210,9 @@ const Labour = () => {
     };
   }, [baseLabours]);
 
+  // The page itself never scrolls: the table box fills the rest of the screen and scrolls on its own
+  const [tableBoxRef, tableMaxHeight] = useFitHeight([loading, error, displayedLabours.length, activeFilterCount]);
+
   // Reset all filters
   const handleResetFilters = () => {
     setSearchTerm('');
@@ -267,7 +271,7 @@ const Labour = () => {
   };
 
   return (
-    <div className="space-y-6 animate-fadeIn pb-12">
+    <div className="space-y-6 animate-fadeIn">
       {/* 1. Page Header: title + what is owed, like the Projects header */}
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
         <div>
@@ -539,9 +543,13 @@ const Labour = () => {
             )}
           </div>
         ) : (
-          <div className="overflow-x-auto hide-scrollbar">
+          <div
+            ref={tableBoxRef}
+            className="overflow-y-auto overflow-x-hidden custom-table-scrollbar"
+            style={tableMaxHeight ? { maxHeight: tableMaxHeight } : undefined}
+          >
             <table className="w-full text-left text-sm text-gray-600">
-              <thead className="bg-slate-50/80 border-b border-gray-200 text-[10px] font-extrabold text-slate-500 uppercase tracking-wide">
+              <thead className="sticky top-0 z-10 bg-slate-50 border-b border-gray-200 text-[10px] font-extrabold text-slate-500 uppercase tracking-wide shadow-[0_1px_0_0_rgba(255,255,255,0.06)]">
                 <tr>
                   <th className="px-2.5 py-3 text-center w-8">#</th>
                   <th className="px-2.5 py-3">Name</th>
@@ -565,9 +573,11 @@ const Labour = () => {
                   const moreProjects = Math.max(contractorProjects.length - 1, 0);
 
                   return (
+                    // The whole row opens the profile; Pay and Total paid keep their own action
                     <tr
                       key={labour.id}
-                      className="hover:bg-slate-50/60 transition-colors group"
+                      onClick={() => navigate(`/labour/${labour.id}`)}
+                      className="hover:bg-slate-50/60 transition-colors group cursor-pointer"
                     >
                       {/* # Index */}
                       <td className="px-2.5 py-3.5 text-center font-mono text-xs text-gray-400 font-semibold">
@@ -577,12 +587,9 @@ const Labour = () => {
                       {/* Labour Name */}
                       <td className="px-2.5 py-3.5">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <Link
-                            to={`/labour/${labour.id}`}
-                            className="font-extrabold text-slate-900 tracking-tight hover:text-emerald-700 hover:underline transition-colors"
-                          >
+                          <span className="font-extrabold text-slate-900 tracking-tight group-hover:text-emerald-700 transition-colors">
                             {labour.name}
-                          </Link>
+                          </span>
                           {isContractor && (
                             <span className={`px-1.5 py-0.5 rounded-md border text-[10px] font-medium leading-none ${CONTRACTOR_BADGE}`}>
                               Contractor
@@ -709,7 +716,10 @@ const Labour = () => {
                         <div className="flex flex-col items-end">
                           <button
                             type="button"
-                            onClick={() => handleOpenHistory(labour)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenHistory(labour);
+                            }}
                             className="font-black text-slate-900 font-mono text-xs hover:text-emerald-700 hover:underline cursor-pointer transition-colors"
                             title="Click to view payment history"
                           >
@@ -750,7 +760,10 @@ const Labour = () => {
                       <td className="px-2.5 py-3.5 text-center">
                         <button
                           type="button"
-                          onClick={() => handleOpenPayment(labour)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenPayment(labour);
+                          }}
                           className="px-4 py-1.5 rounded-lg text-xs bg-[#FFB82E]/10 text-[#FFC14D] border border-[#FFB82E]/30 hover:bg-[#FFB82E]/20 transition-colors cursor-pointer whitespace-nowrap"
                           title="Record payment"
                         >

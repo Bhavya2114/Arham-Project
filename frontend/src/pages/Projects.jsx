@@ -7,6 +7,7 @@ import { formatDateRange, toApiDateFormat } from '../utils/dateUtils';
 import ProjectFormModal from '../components/ProjectFormModal';
 import ConfirmationModal from '../components/ConfirmationModal';
 import { getLabours } from '../utils/labourService';
+import useFitHeight from '../utils/useFitHeight';
 import {
   FaBuilding,
   FaHardHat,
@@ -140,6 +141,9 @@ const Projects = () => {
     };
   }, [projects, workerCounts]);
 
+  // The page itself never scrolls: the table box fills the rest of the screen and scrolls on its own
+  const [tableBoxRef, tableMaxHeight] = useFitHeight([loading, error, projects.length]);
+
   const visibleProjects = useMemo(() => {
     if (statusFilter === 'OVERDUE') return projects.filter(isOverdue);
     if (statusFilter) return projects.filter((p) => p.status === statusFilter);
@@ -192,7 +196,7 @@ const Projects = () => {
   };
 
   return (
-    <div className="space-y-6 animate-fadeIn pb-12">
+    <div className="space-y-6 animate-fadeIn">
       {/* Page Header: title + money on ongoing work, like the Labour header */}
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
         <div>
@@ -361,9 +365,13 @@ const Projects = () => {
             </button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            ref={tableBoxRef}
+            className="overflow-y-auto overflow-x-hidden custom-table-scrollbar"
+            style={tableMaxHeight ? { maxHeight: tableMaxHeight } : undefined}
+          >
             <table className="w-full text-left text-sm text-gray-600">
-              <thead className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase tracking-wider">
+              <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase tracking-wider shadow-[0_1px_0_0_rgba(255,255,255,0.06)]">
                 <tr>
                   <th className="px-6 py-3.5">Project</th>
                   <th className="px-6 py-3.5">Site Location</th>
