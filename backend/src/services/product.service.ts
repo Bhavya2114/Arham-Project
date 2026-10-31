@@ -3,6 +3,7 @@ import {
   CreateProductInput,
   UpdateProductInput,
 } from '../validators/product.validator';
+import { roundQty } from '../utils/stockQty';
 
 const mapProductResponse = (product: any) => {
   return {
@@ -48,7 +49,7 @@ export const createProduct = async (input: CreateProductInput, createdBy: string
     category: input.category,
     costPrice: costPrice,
     gstRate: (input as any).gstRate || 0,
-    currentStock: input.currentStock ?? 0,
+    currentStock: roundQty(input.currentStock ?? 0),
     minimumStock: input.minStockQuantity ?? 5,
     warehouseLocation: input.location || 'Main Warehouse',
     unit: input.unit || 'pcs',

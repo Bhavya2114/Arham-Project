@@ -7,6 +7,7 @@ import '../models/Project'; // registers Project for populate
 import { PROJECT_GST_MULTIPLIER, roundToTwo } from '../constants/projectGst.constants';
 import { CreatePurchaseInput } from '../validators/purchase.validator';
 import { calculateLineItem } from '../utils/purchaseCalculations';
+import { roundStoredStock } from '../utils/stockQty';
 
 const mapPurchaseResponse = (purchase: any) => {
   const mappedItems = (purchase.items || []).map((item: any) => {
@@ -347,6 +348,7 @@ export const createPurchase = async (
         $inc: { currentStock: calc.quantity },
         $set: { costPrice: calc.discountedUnitPrice },
       });
+      await roundStoredStock([product._id]);
 
       rollbacks.push({
         productId: product._id,
@@ -427,6 +429,7 @@ export const createPurchase = async (
           costPrice: rb.previousCostPrice,
         },
       });
+      await roundStoredStock([rb.productId]);
     }
 
     // Revert created new products if purchase creation fails
@@ -549,7 +552,13 @@ export const deletePurchase = async (id: string): Promise<any> => {
       plan.stockRemoved.map((r) => ({
         updateOne: {
           filter: { _id: r.product },
-          update: [{ $set: { currentStock: { $max: [0, { $subtract: ['$currentStock', r.quantity] }] } } }],
+          update: [
+            {
+              $set: {
+                currentStock: { $round: [{ $max: [0, { $subtract: ['$currentStock', r.quantity] }] }, 3] },
+              },
+            },
+          ],
         },
       })) as any
     );
