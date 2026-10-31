@@ -65,7 +65,8 @@ describe('Backup API (GitHub Actions backup)', () => {
 
   it('starts the workflow with force and a request id, and refuses a second start within a minute', async () => {
     github((url, init) => {
-      if (url.startsWith(`${RUNS_URL}?status=success`)) return json({ workflow_runs: [{ updated_at: '2026-10-20T10:00:00Z' }] });
+      if (url.startsWith(`${RUNS_URL}?status=success`)) return json({ workflow_runs: [{ id: 5, updated_at: '2026-10-20T10:00:00Z' }] });
+      if (url.endsWith('/actions/runs/5/artifacts')) return json({ artifacts: [{ id: 1, name: 'arham-backup', expired: true }] });
       if (url.endsWith('/actions/workflows/backup.yml/dispatches') && init?.method === 'POST') return new Response(null, { status: 204 });
       return undefined;
     });
@@ -87,13 +88,33 @@ describe('Backup API (GitHub Actions backup)', () => {
     expect(fetchMock.mock.calls.filter(([u]) => String(u).endsWith('/dispatches'))).toHaveLength(1);
   });
 
+  it('ignores successful runs that skipped and left no backup file', async () => {
+    github((url) => {
+      if (url.startsWith(`${RUNS_URL}?status=success`)) {
+        return json({
+          workflow_runs: [
+            { id: 8, updated_at: '2026-10-31T06:35:00Z' }, // today's scheduled run, skipped
+            { id: 7, updated_at: '2026-10-29T06:40:00Z' },
+          ],
+        });
+      }
+      if (url.endsWith('/actions/runs/8/artifacts')) return json({ artifacts: [] });
+      if (url.endsWith('/actions/runs/7/artifacts')) return json({ artifacts: [{ id: 3, name: 'arham-backup', expired: true }] });
+      return undefined;
+    });
+    const res = await request(app).get('/api/backup/last').set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.lastBackupAt).toBe('2026-10-29T06:40:00Z');
+  });
+
   describe('one backup per day (IST)', () => {
     // 31 Oct 2026, 11:30 PM IST
     const NOW = Date.parse('2026-10-31T18:00:00Z');
 
     const withLastBackup = (updatedAt: string) =>
       github((url, init) => {
-        if (url.startsWith(`${RUNS_URL}?status=success`)) return json({ workflow_runs: [{ updated_at: updatedAt }] });
+        if (url.startsWith(`${RUNS_URL}?status=success`)) return json({ workflow_runs: [{ id: 5, updated_at: updatedAt }] });
+        if (url.endsWith('/actions/runs/5/artifacts')) return json({ artifacts: [{ id: 1, name: 'arham-backup', expired: false }] });
         if (url.endsWith('/dispatches') && init?.method === 'POST') return new Response(null, { status: 204 });
         return undefined;
       });
@@ -189,7 +210,9 @@ describe('Backup API (GitHub Actions backup)', () => {
   it('returns when the last successful backup finished', async () => {
     github((url) =>
       url.startsWith(`${RUNS_URL}?status=success`)
-        ? json({ workflow_runs: [{ updated_at: '2026-10-31T17:22:00Z' }] })
+        ? json({ workflow_runs: [{ id: 5, updated_at: '2026-10-31T17:22:00Z' }] })
+        : url.endsWith('/actions/runs/5/artifacts')
+        ? json({ artifacts: [{ id: 1, name: 'arham-backup', expired: true }] })
         : undefined
     );
     const res = await request(app).get('/api/backup/last').set('Authorization', `Bearer ${adminToken}`);

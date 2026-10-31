@@ -69,11 +69,12 @@ const findRun = async (requestId: string): Promise<any | null> => {
   return (body.workflow_runs || []).find((r: any) => r.display_title === runTitle(requestId)) || null;
 };
 
-const findArtifact = async (runId: number): Promise<any | null> => {
+// includeExpired: an expired file still proves the backup happened
+const findArtifact = async (runId: number, includeExpired = false): Promise<any | null> => {
   const { repo } = requireConfig();
   const res = await github(`/repos/${repo}/actions/runs/${runId}/artifacts`);
   const body: any = await res.json();
-  return (body.artifacts || []).find((a: any) => a.name === ARTIFACT_NAME && !a.expired) || null;
+  return (body.artifacts || []).find((a: any) => a.name === ARTIFACT_NAME && (includeExpired || !a.expired)) || null;
 };
 
 export const startBackup = async (): Promise<{ requestId: string; startedAt: string }> => {
@@ -145,10 +146,17 @@ export const getLastBackup = async (): Promise<{ lastBackupAt: string | null }> 
   if (lastBackupCache && Date.now() - lastBackupCache.at < LAST_CACHE_MS) {
     return { lastBackupAt: lastBackupCache.value };
   }
-  const res = await github(`${workflowPath()}/runs?status=success&per_page=1`);
+  // Scheduled runs that skip (nothing changed) also end in success, but leave no backup
+  // file, so only runs with the "arham-backup" artifact count
+  const res = await github(`${workflowPath()}/runs?status=success&per_page=10`);
   const body: any = await res.json();
-  const latest = (body.workflow_runs || [])[0];
-  const value = latest ? latest.updated_at || null : null;
+  let value: string | null = null;
+  for (const run of body.workflow_runs || []) {
+    if (await findArtifact(run.id, true)) {
+      value = run.updated_at || null;
+      break;
+    }
+  }
   lastBackupCache = { at: Date.now(), value };
   return { lastBackupAt: value };
 };
