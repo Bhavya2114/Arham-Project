@@ -3,6 +3,7 @@ import {
   handleGetProjectExpenses,
   handleGetProjectExpenseById,
   handleCreateProjectExpense,
+  handleDeleteProjectExpense,
 } from '../controllers/projectExpense.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { authorize } from '../middleware/role.middleware';
@@ -22,5 +23,8 @@ router.get('/:id', authorize('ADMIN', 'ACCOUNTS', 'SALES', 'WAREHOUSE'), handleG
 
 // POST /api/project-expenses - Create project expense (ADMIN, ACCOUNTS)
 router.post('/', authorize('ADMIN', 'ACCOUNTS'), validate(createProjectExpenseSchema), handleCreateProjectExpense);
+
+// DELETE /api/project-expenses/:id - Delete an unbilled expense (ADMIN only)
+router.delete('/:id', authorize('ADMIN'), handleDeleteProjectExpense);
 
 export default router;

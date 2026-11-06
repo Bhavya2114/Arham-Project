@@ -166,3 +166,39 @@ export const createProjectExpense = async (
 
   return getProjectExpenseById(exp._id.toString());
 };
+
+/**
+ * Permanently delete a project expense.
+ * An expense that is already on a customer invoice (isBilled) cannot be deleted,
+ * otherwise the invoice would point at a missing source line.
+ */
+export const deleteProjectExpense = async (id: string): Promise<any> => {
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    const error = new Error('Invalid project expense ID format');
+    (error as any).statusCode = 400;
+    throw error;
+  }
+
+  const existing = await ProjectExpense.findById(id).lean();
+  if (!existing) {
+    const error = new Error('Project expense record not found');
+    (error as any).statusCode = 404;
+    throw error;
+  }
+
+  if ((existing as any).isBilled) {
+    const error = new Error('This expense is already on a customer invoice and cannot be deleted');
+    (error as any).statusCode = 409;
+    throw error;
+  }
+
+  // Only delete if it is still unbilled (guards against an invoice being made at the same moment)
+  const deleted = await ProjectExpense.findOneAndDelete({ _id: existing._id, isBilled: { $ne: true } }).lean();
+  if (!deleted) {
+    const error = new Error('This expense is already on a customer invoice and cannot be deleted');
+    (error as any).statusCode = 409;
+    throw error;
+  }
+
+  return mapProjectExpenseResponse(deleted);
+};

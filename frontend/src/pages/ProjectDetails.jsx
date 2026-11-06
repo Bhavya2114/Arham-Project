@@ -110,6 +110,7 @@ const ProjectDetails = () => {
   const toast = useToast();
   const { user } = useAuth();
   const canManageLabour = !user?.role || user?.role === 'ADMIN' || user?.role === 'SALES';
+  const canDeleteExpense = user?.role === 'ADMIN';
 
   const [project, setProject] = useState(null);
   const [materials, setMaterials] = useState([]);
@@ -160,6 +161,10 @@ const ProjectDetails = () => {
     setMaterialModalError(null);
     setIsMaterialModalOpen(true);
   };
+
+  // Delete expense state
+  const [expenseToDelete, setExpenseToDelete] = useState(null);
+  const [isDeletingExpense, setIsDeletingExpense] = useState(false);
 
   // Expense Modal State
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
@@ -265,6 +270,26 @@ const ProjectDetails = () => {
       if (issued > 0) fetchData();
     } finally {
       setSubmittingMaterial(false);
+    }
+  };
+
+  // Delete one expense, then refresh the cost figures without reloading the whole page
+  const handleConfirmDeleteExpense = async () => {
+    if (!expenseToDelete) return;
+    setIsDeletingExpense(true);
+    try {
+      await axiosInstance.delete(`/project-expenses/${expenseToDelete.id}`);
+      setExpenses((prev) => prev.filter((x) => x.id !== expenseToDelete.id));
+      toast.success('Expense deleted.');
+      setExpenseToDelete(null);
+      axiosInstance
+        .get(`/projects/${id}/profitability`)
+        .then((res) => setProfitability(res.data.data))
+        .catch(() => {});
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Failed to delete expense.'));
+    } finally {
+      setIsDeletingExpense(false);
     }
   };
 
@@ -965,6 +990,7 @@ const ProjectDetails = () => {
                     <th className="p-3">Bill no.</th>
                     <th className="p-3 text-right">Amount</th>
                     <th className="p-3">Added by</th>
+                    {canDeleteExpense && <th className="p-3" />}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -979,6 +1005,19 @@ const ProjectDetails = () => {
                       <td className="p-3 text-gray-400">{e.billNumber || '-'}</td>
                       <td className="p-3 text-right font-mono text-slate-900">{formatPaise(e.amount)}</td>
                       <td className="p-3 text-gray-400">{e.createdBy?.name || 'Accounts staff'}</td>
+                      {canDeleteExpense && (
+                        <td className="p-3 text-right">
+                          <button
+                            type="button"
+                            disabled={e.isBilled}
+                            onClick={() => setExpenseToDelete(e)}
+                            className="px-3 py-1.5 rounded-lg text-xs border transition-colors whitespace-nowrap border-rose-500/30 text-rose-500 hover:bg-rose-500/10 cursor-pointer disabled:border-gray-200 disabled:text-gray-500 disabled:bg-transparent disabled:cursor-not-allowed"
+                            title={e.isBilled ? 'Already on a customer invoice' : 'Delete this expense'}
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -1505,6 +1544,29 @@ const ProjectDetails = () => {
         }}
         project={project}
         kind={assignKind}
+      />
+
+      {/* DELETE EXPENSE */}
+      <ConfirmationModal
+        isOpen={Boolean(expenseToDelete)}
+        onClose={() => setExpenseToDelete(null)}
+        onConfirm={handleConfirmDeleteExpense}
+        title="Delete expense"
+        confirmText="Delete"
+        cancelText="Cancel"
+        isDanger={true}
+        isLoading={isDeletingExpense}
+        message={
+          <div className="space-y-2">
+            <p className="text-gray-800 text-sm font-medium">
+              Delete <span className="font-bold text-gray-900">{expenseToDelete?.description}</span> of{' '}
+              <span className="font-bold text-gray-900">{formatPaise(expenseToDelete?.amount)}</span>?
+            </p>
+            <p className="text-xs text-gray-500 font-normal">
+              {categoryLabel(expenseToDelete?.category)} on {formatDateShortMonth(expenseToDelete?.expenseDate, '-')}. This can't be undone.
+            </p>
+          </div>
+        }
       />
 
       {/* STOP CONTRACTOR: ends only this project's contract */}

@@ -4,6 +4,7 @@ import {
   getProjectExpenseById,
   getProjectExpensesByProject,
   createProjectExpense,
+  deleteProjectExpense,
 } from '../services/projectExpense.service';
 import { successResponse } from '../utils/apiResponse';
 
@@ -67,6 +68,20 @@ export const handleCreateProjectExpense = async (
     const userId = req.user?.id || '';
     const item = await createProjectExpense(req.body, userId);
     res.status(201).json(successResponse('Project expense recorded successfully', item));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const handleDeleteProjectExpense = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const item = await deleteProjectExpense(id);
+    res.status(200).json(successResponse('Project expense deleted successfully', item));
   } catch (error) {
     next(error);
   }

@@ -3,6 +3,7 @@ import app from '../../src/app';
 import { getAuthToken } from '../helpers/auth.helper';
 import { createTestCustomer } from '../helpers/customer.helper';
 import { Product } from '../../src/models/Product';
+import { ProjectExpense } from '../../src/models/ProjectExpense';
 
 describe('Project Expenses API integration tests (Phase 7.3)', () => {
   let adminToken: string;
@@ -289,6 +290,66 @@ describe('Project Expenses API integration tests (Phase 7.3)', () => {
         .set('Authorization', `Bearer ${adminToken}`);
 
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe('DELETE /api/project-expenses/:id', () => {
+    const makeExpense = async (description: string) => {
+      const res = await request(app)
+        .post('/api/project-expenses')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ project: planningProjectId, category: 'TRANSPORT', description, amount: 500 });
+      expect(res.status).toBe(201);
+      return res.body.data.id as string;
+    };
+
+    it('should let ADMIN delete an unbilled expense and drop it from the project list', async () => {
+      const expenseId = await makeExpense('Delete me');
+
+      const res = await request(app)
+        .delete(`/api/project-expenses/${expenseId}`)
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data.id).toBe(expenseId);
+
+      const list = await request(app)
+        .get(`/api/projects/${planningProjectId}/expenses`)
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(list.body.data.find((e: any) => e.id === expenseId)).toBeUndefined();
+    });
+
+    it('should forbid non-admin roles from deleting', async () => {
+      const expenseId = await makeExpense('Keep me');
+      for (const token of [accountsToken, salesToken, warehouseToken]) {
+        const res = await request(app)
+          .delete(`/api/project-expenses/${expenseId}`)
+          .set('Authorization', `Bearer ${token}`);
+        expect(res.status).toBe(403);
+      }
+      expect(await ProjectExpense.findById(expenseId)).not.toBeNull();
+    });
+
+    it('should refuse to delete an expense that is already invoiced (HTTP 409)', async () => {
+      const expenseId = await makeExpense('Billed expense');
+      await ProjectExpense.updateOne({ _id: expenseId }, { $set: { isBilled: true } });
+
+      const res = await request(app)
+        .delete(`/api/project-expenses/${expenseId}`)
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(409);
+      expect(await ProjectExpense.findById(expenseId)).not.toBeNull();
+    });
+
+    it('should return 404 for a missing expense and 400 for a bad ID', async () => {
+      const missing = await request(app)
+        .delete('/api/project-expenses/64b0f0f0f0f0f0f0f0f0f0f0')
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(missing.status).toBe(404);
+
+      const bad = await request(app)
+        .delete('/api/project-expenses/not-an-id')
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(bad.status).toBe(400);
     });
   });
 });
