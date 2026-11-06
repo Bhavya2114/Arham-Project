@@ -1253,6 +1253,7 @@ const ProjectDetails = () => {
                       <div className="grid grid-cols-[minmax(0,1fr)_120px_110px_32px] gap-2 items-center">
                         <FilterSelect
                           size="md"
+                          searchable
                           value={r.productId}
                           placeholder="Choose from inventory"
                           options={inStock
@@ -1260,6 +1261,7 @@ const ProjectDetails = () => {
                             .map((p) => ({
                               value: p.id || p._id,
                               label: p.name,
+                              searchText: p.sku,
                               hint: `${p.currentStock} ${p.unit || 'pcs'}`,
                             }))}
                           onChange={(v) => updateIssueLine(r.key, { productId: v })}

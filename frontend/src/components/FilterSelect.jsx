@@ -6,10 +6,21 @@ import { LuChevronDown, LuCheck } from 'react-icons/lu';
  * options: [{ value, label, hint? }] — hint is shown muted on the right (e.g. a project code).
  * placeholder: label of the empty "all" option; leave it out when a value must always be picked.
  * size: 'sm' for filter bars, 'md' to match form inputs.
+ * searchable: show a type-to-search box at the top of the open list (matches name or SKU).
  */
-const FilterSelect = ({ value, onChange, options, placeholder, size = 'sm' }) => {
+const FilterSelect = ({ value, onChange, options, placeholder, size = 'sm', searchable = false }) => {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const rootRef = useRef(null);
+  const searchRef = useRef(null);
+
+  // Fresh search each time the list opens, with the cursor already in the box
+  useEffect(() => {
+    if (!open || !searchable) return;
+    setQuery('');
+    const t = setTimeout(() => searchRef.current?.focus(), 0);
+    return () => clearTimeout(t);
+  }, [open, searchable]);
 
   // Close when clicking outside or pressing Escape
   useEffect(() => {
@@ -33,6 +44,16 @@ const FilterSelect = ({ value, onChange, options, placeholder, size = 'sm' }) =>
   // Form-size lists match the field width and wrap long names; filter lists can grow to fit
   const listWidth = size === 'md' ? 'w-full' : 'min-w-full w-max max-w-xs';
   const selected = allOptions.find((o) => o.value === value) || allOptions[0];
+  // Every typed word must appear in the name or SKU, in any order ("cable 4mm" finds "4MM 4C CABLE")
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const shownOptions =
+    searchable && words.length
+      ? allOptions.filter((o) => {
+          if (!o.value) return false;
+          const text = `${o.label} ${o.searchText || ''}`.toLowerCase();
+          return words.every((w) => text.includes(w));
+        })
+      : allOptions;
 
   const choose = (v) => {
     onChange(v);
@@ -56,7 +77,27 @@ const FilterSelect = ({ value, onChange, options, placeholder, size = 'sm' }) =>
 
       {open && (
         <div className={`absolute z-30 left-0 mt-1.5 ${listWidth} max-h-72 overflow-y-auto hide-scrollbar rounded-xl border border-[#2A2B30] bg-[#1A1B1E] shadow-xl shadow-black/40 p-1.5`}>
-          {allOptions.map((o) => {
+          {searchable && (
+            <input
+              ref={searchRef}
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  const first = shownOptions.find((o) => o.value);
+                  if (first) choose(first.value);
+                }
+              }}
+              placeholder="Type to search..."
+              className={`sticky top-0 z-10 w-full mb-1.5 px-3 py-2 rounded-lg ${textSize} bg-[#1F2024] border border-[#2A2B30] focus:border-[#FFB82E]/60 outline-none text-[#F4F1EA] placeholder-[#75716A]`}
+            />
+          )}
+          {searchable && shownOptions.length === 0 && (
+            <p className={`px-3 py-2 ${textSize} text-[#75716A]`}>No matching items</p>
+          )}
+          {shownOptions.map((o) => {
             const isSelected = o.value === value;
             return (
               <button
