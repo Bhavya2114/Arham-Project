@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { LuChevronDown, LuCheck } from 'react-icons/lu';
 
 /**
@@ -7,12 +8,50 @@ import { LuChevronDown, LuCheck } from 'react-icons/lu';
  * placeholder: label of the empty "all" option; leave it out when a value must always be picked.
  * size: 'sm' for filter bars, 'md' to match form inputs.
  * searchable: show a type-to-search box at the top of the open list (matches name or SKU).
+ * The open list is drawn in a portal with position: fixed, so a parent scroll box (overflow) can't clip it.
+ * It opens upward when there isn't enough room below the field.
  */
+const LIST_MAX_HEIGHT = 288; // same as the old max-h-72
+const GAP = 6;
+const EDGE = 8; // keep this much space from the window edge
+
 const FilterSelect = ({ value, onChange, options, placeholder, size = 'sm', searchable = false }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [pos, setPos] = useState(null);
   const rootRef = useRef(null);
+  const menuRef = useRef(null);
   const searchRef = useRef(null);
+
+  // Place the list under the field (or above it when there's no room below), and follow it on scroll/resize
+  useLayoutEffect(() => {
+    if (!open) {
+      setPos(null);
+      return undefined;
+    }
+    const place = () => {
+      const el = rootRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const below = window.innerHeight - r.bottom - GAP - EDGE;
+      const above = r.top - GAP - EDGE;
+      const up = below < Math.min(LIST_MAX_HEIGHT, 200) && above > below;
+      setPos({
+        left: Math.max(EDGE, Math.min(r.left, window.innerWidth - r.width - EDGE)),
+        width: r.width,
+        top: up ? undefined : r.bottom + GAP,
+        bottom: up ? window.innerHeight - r.top + GAP : undefined,
+        maxHeight: Math.max(120, Math.min(LIST_MAX_HEIGHT, up ? above : below)),
+      });
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true); // capture: catches scrolling inside any parent box
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [open]);
 
   // Fresh search each time the list opens, with the cursor already in the box
   useEffect(() => {
@@ -26,7 +65,8 @@ const FilterSelect = ({ value, onChange, options, placeholder, size = 'sm', sear
   useEffect(() => {
     if (!open) return undefined;
     const handleClick = (e) => {
-      if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false);
+      if (rootRef.current?.contains(e.target) || menuRef.current?.contains(e.target)) return;
+      setOpen(false);
     };
     const handleKey = (e) => {
       if (e.key === 'Escape') setOpen(false);
@@ -42,7 +82,7 @@ const FilterSelect = ({ value, onChange, options, placeholder, size = 'sm', sear
   const allOptions = placeholder !== undefined ? [{ value: '', label: placeholder }, ...options] : options;
   const textSize = size === 'md' ? 'text-xs sm:text-sm' : 'text-xs';
   // Form-size lists match the field width and wrap long names; filter lists can grow to fit
-  const listWidth = size === 'md' ? 'w-full' : 'min-w-full w-max max-w-xs';
+  const listWidth = size === 'md' ? '' : 'w-max max-w-xs';
   const selected = allOptions.find((o) => o.value === value) || allOptions[0];
   // Every typed word must appear in the name or SKU, in any order ("cable 4mm" finds "4MM 4C CABLE")
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -75,8 +115,18 @@ const FilterSelect = ({ value, onChange, options, placeholder, size = 'sm', sear
         />
       </button>
 
-      {open && (
-        <div className={`absolute z-30 left-0 mt-1.5 ${listWidth} max-h-72 overflow-y-auto hide-scrollbar rounded-xl border border-[#2A2B30] bg-[#1A1B1E] shadow-xl shadow-black/40 p-1.5`}>
+      {open && pos && createPortal(
+        <div
+          ref={menuRef}
+          className={`fixed z-[10000] ${listWidth} overflow-y-auto hide-scrollbar rounded-xl border border-[#2A2B30] bg-[#1A1B1E] shadow-xl shadow-black/40 p-1.5`}
+          style={{
+            left: pos.left,
+            top: pos.top,
+            bottom: pos.bottom,
+            maxHeight: pos.maxHeight,
+            ...(size === 'md' ? { width: pos.width } : { minWidth: pos.width }),
+          }}
+        >
           {searchable && (
             <input
               ref={searchRef}
@@ -114,7 +164,8 @@ const FilterSelect = ({ value, onChange, options, placeholder, size = 'sm', sear
               </button>
             );
           })}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
